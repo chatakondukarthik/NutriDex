@@ -34,6 +34,11 @@ record.
 - Recipe builder with blocks, operations, measured output mass, instructions,
   servings, per-block subtotals, immutable versions with a stored nutrition
   snapshot, and preset templates. (S2)
+- A weekly plan: four slots a day, recipes or foods placed by tap or drag,
+  inline quantities, per-day energy bars and a full nutrient panel for the
+  selected day. Planned recipes are pinned to a version. (S3)
+- A profile that derives daily energy and protein targets and picks
+  sex- and age-banded reference values for the rest. (S3)
 
 ---
 
@@ -41,14 +46,13 @@ record.
 
 | Item | Blocked by |
 |---|---|
-| Weekly plan and drag-and-drop | S3 |
 | AI estimation with per-nutrient diff (D-016) | The loop shipping and being measured |
 | Label photo / OCR for packaged foods | The estimation contract |
 | Save a block as a reusable component, pinned (D-023) | Component reuse being needed |
 | Recipe variants ("duplicate & customise") | Versioning |
-| Custom targets and target editor | Profile targets |
-| Actual consumption logging, planned vs actual | S3 |
-| Copy a day or a week | S3 |
+| Custom target overrides (the profile derives them today) | Q-003 |
+| Actual consumption logging, planned vs actual | S4 |
+| Copy a day or a week | The plan shipping and being used |
 | Barcode scan for packaged goods | Assessing Open Food Facts coverage in India |
 | Retention factors for sensitive vitamins (D-026) | Nutrient fidelity mattering enough |
 

@@ -1,10 +1,10 @@
 # NutriPlan — Data Model
 
-**Status:** S1 and S2 implemented; plan entities are designed, not built.
+**Status:** S1–S3 implemented; the food importer and AI layers are designed, not built.
 
 ---
 
-## 1. Implemented (S1 and S2)
+## 1. Implemented (S1–S3)
 
 Schema lives in `src/lib/db/client.ts`; queries in `src/lib/db/`.
 
@@ -72,6 +72,49 @@ Deliberate choices:
   the version snapshot keeps the numbers it was saved with.
 - **`kind = 'component'` exists in the schema but no UI creates one yet** (D-023
   is designed, not built).
+
+```
+profile                                  -- one row, id = 'local'
+  id         TEXT PRIMARY KEY
+  sex        TEXT NOT NULL               -- female | male
+  age_years  REAL NOT NULL
+  height_cm  REAL NOT NULL
+  weight_kg  REAL NOT NULL
+  activity   TEXT NOT NULL               -- sedentary | light | moderate | active
+  goal       TEXT NOT NULL               -- lose | maintain | gain
+  updated_at TEXT NOT NULL
+
+plans
+  id         TEXT PRIMARY KEY
+  starts_on  TEXT NOT NULL UNIQUE        -- Monday, YYYY-MM-DD
+  created_at TEXT NOT NULL
+
+plan_entries
+  id                TEXT PRIMARY KEY
+  plan_id           TEXT NOT NULL REFERENCES plans (id)
+  day               TEXT NOT NULL        -- YYYY-MM-DD, inside the week
+  slot              TEXT NOT NULL        -- breakfast | lunch | dinner | snack
+  position          INTEGER NOT NULL
+  food_id           TEXT                 -- XOR
+  recipe_version_id TEXT REFERENCES recipe_versions (id)   -- XOR
+  grams             REAL                 -- food quantity
+  amount            REAL                 -- what the user chose, when not grams
+  unit              TEXT                 -- incl. "portion:1 katori"
+  servings          REAL                 -- recipe quantity
+  created_at        TEXT NOT NULL
+  CHECK ((food_id IS NOT NULL) <> (recipe_version_id IS NOT NULL))
+```
+
+Deliberate choices:
+
+- **A plan is a week.** `starts_on` is unique, so there is exactly one plan per
+  week; the week is created on first write, not on first view.
+- **An entry is a food XOR a recipe version.** The `CHECK` makes the invalid
+  state impossible to store, not merely unlikely to be written.
+- **`recipe_version_id`, never `recipe_id`.** This is the pin that keeps a
+  planned week stable when a recipe is edited (D-024).
+- **Targets are not stored.** They are derived from `profile` on read, so there
+  is no 18-row target set to keep in sync (D-030).
 
 Foods are read-only seed data in `src/lib/data/foods.ts` for now. They move into
 the database when the importer lands.
@@ -152,36 +195,25 @@ version, never both.
 versions that already exist, and versions are immutable. No cycle detection
 code is needed.
 
-### 2.3 Plans
+### 2.3 Target overrides
+
+Not built. The derived targets are enough for S3; a person who needs a number
+their profile cannot express needs an override row:
 
 ```
-plans
-  id         TEXT PRIMARY KEY
+target_overrides
   user_id    TEXT
-  starts_on  TEXT
-
-plan_entries
-  id               TEXT PRIMARY KEY
-  plan_id          TEXT
-  day              TEXT
-  slot             TEXT      -- breakfast | lunch | dinner | snack
-  position         INTEGER
-  food_id          TEXT      -- XOR
-  recipe_version_id TEXT     -- XOR
-  servings         REAL
-
-targets
-  id          TEXT PRIMARY KEY
-  user_id     TEXT
-  nutrient    TEXT
-  direction   TEXT   -- min | max
-  value       REAL
-  period      TEXT   -- day | week
+  nutrient   TEXT
+  direction  TEXT      -- min | max
+  value      REAL
+  period     TEXT      -- day
+  reason     TEXT      -- why the derived value was not used
+  PRIMARY KEY (user_id, nutrient)
 ```
 
-Plans reference **recipe versions**, not recipes. That is what makes statement 4
-of the definition of done true: a saved plan does not change when a food record
-is corrected.
+The override is additive, not a replacement for `targetsFor()`: the derived
+value stays the default, and the override carries its own reason. Q-003 is
+open, so the shape of a range-based target is not settled yet either.
 
 ---
 

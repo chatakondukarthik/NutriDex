@@ -5,7 +5,9 @@ import { usePathname } from "next/navigation";
 
 const LINKS = [
   { href: "/", label: "Diary" },
+  { href: "/plan", label: "Plan" },
   { href: "/recipes", label: "Recipes" },
+  { href: "/profile", label: "Profile" },
 ];
 
 export function SiteHeader() {

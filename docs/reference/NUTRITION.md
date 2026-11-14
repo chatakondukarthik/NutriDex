@@ -1,7 +1,7 @@
 # NutriPlan — Nutrition Calculation Contract
 
-**Status:** Implemented for S1 and S2
-**Code:** `src/lib/nutrition/` (pure, no I/O) · **Tests:** `tests/engine.test.ts`, `tests/recipe.test.ts`
+**Status:** Implemented for S1–S3
+**Code:** `src/lib/nutrition/` and `src/lib/plan.ts` (pure, no I/O) · **Tests:** `tests/engine.test.ts`, `tests/recipe.test.ts`, `tests/plan.test.ts`, `tests/profile.test.ts`
 **Decisions:** D-007, D-008, D-009, D-025, D-026
 
 This is the contract the engine implements. If the code and this document
@@ -251,6 +251,21 @@ gross-error detector, not an accuracy score.
   plain language.
 - A nonsense output mass is ignored rather than divided by.
 
+`tests/plan.test.ts` asserts the plan contract:
+
+- A planned food is scaled from its per-100 g record by its stored grams.
+- A planned recipe is scaled from the snapshot stored with the pinned version.
+- An empty day is `unknown`, not zero, and has no bar.
+- Days are ordered by slot, then by position within the slot.
+
+`tests/profile.test.ts` asserts the target contract:
+
+- Energy is Mifflin–St Jeor × activity, with a goal delta and a floor.
+- Protein scales with body weight and goal.
+- Every tracked nutrient gets a target, and its direction comes from the
+  vocabulary rather than from the target list.
+- Out-of-range profile input is rejected with a reason.
+
 ---
 
 ## 11. Worked example
@@ -273,3 +288,56 @@ Atwater check: `19.4×4 + 26×9 + 8.2×4 = 344` vs 341 stated — within toleran
 
 Iron here would report `known for 2/4` if paneer and tomato carry values and
 oil and onion do not. That is the correct output, not a bug.
+
+---
+
+## 12. The plan: one week, pinned entries
+
+A plan is one week, Monday to Sunday. It holds entries in four slots per day
+(`breakfast`, `lunch`, `dinner`, `snack`). An entry is either a food with a
+stored gram weight or a **pinned recipe version** with a serving count — never
+both, enforced by a `CHECK` constraint.
+
+```
+plan entry
+  ├─ food      → food profile × grams / 100
+  └─ recipe    → pinned version's stored per-serving rollup × servings
+```
+
+Two rules follow from D-024:
+
+1. **A planned recipe is read from the snapshot, never recomputed.** Correcting
+   a food record or editing the recipe cannot change a week that was already
+   planned. The version id is the pin.
+2. **The plan never triggers a calculation.** It scales a stored rollup and
+   combines the results with `combine()`, so coverage survives the day the same
+   way it survives the recipe.
+
+An empty day is `combine([])`: every nutrient `unknown`, coverage `0/0`. The
+board shows "nothing planned" and draws no bar. A zero bar would claim the day
+contains nothing, which is a different statement from "we know nothing".
+
+---
+
+## 13. Targets
+
+Bars need a denominator. Targets are **derived from a stored profile on read**,
+never stored as numbers:
+
+| Value | Source |
+|---|---|
+| energy | Mifflin–St Jeor BMR × activity multiplier, goal delta (−400 / 0 / +300 kcal), floor of 1200 kcal (female) / 1500 kcal (male) |
+| protein | body weight × 1.0 (maintain) / 1.2 (lose) / 1.4 g/kg (gain) |
+| fat | 30% of energy, as a **ceiling** |
+| carbohydrate | energy left after protein and fat, as a minimum |
+| fibre | 14 g per 1000 kcal |
+| sugars | 10% of energy, as a ceiling — stricter than the free-sugar guidance because the field is total sugars |
+| minerals, vitamins | ICMR–NIN 2020 reference allowances, banded by sex and age |
+
+The direction of each target comes from the nutrient vocabulary (D-025), so a
+nutrient cannot be a limit on one screen and a minimum on another.
+
+**What these are not.** They are reference values for a population, adjusted by
+an equation, not a prescription. The profile defaults are a neutral placeholder,
+the micro values are unverified seed data, and Q-003 (one value versus a range)
+is still open. The UI shows targets to aim at and never a pass/fail.

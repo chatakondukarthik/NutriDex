@@ -5,8 +5,8 @@ Plan your meals. Know what is in them.
 A nutrition-first meal planner: build a recipe from real ingredients, see what
 it actually contains, put it in a week, and watch the day fill up.
 
-**Status:** S0–S2 done. Food entry and recipes work end to end. Planning is next
-(see [`docs/build/PLAN.md`](docs/build/PLAN.md)).
+**Status:** S0–S3 done. Food entry, recipes and the weekly plan work end to end.
+Trust and ship is next (see [`docs/build/PLAN.md`](docs/build/PLAN.md)).
 
 ---
 
@@ -15,7 +15,7 @@ it actually contains, put it in a week, and watch the day fill up.
 ```bash
 npm install
 npm run dev      # http://localhost:3000
-npm test         # 62 tests: engine, recipes, persistence
+npm test         # 109 tests: engine, recipes, plan, profile, persistence
 npm run build    # production build
 ```
 
@@ -38,10 +38,17 @@ runs from a clean checkout.
   plans that used them never change.
 - Start from a preset (paneer bhurji, dal tadka, rajma masala) and save your own
   copy.
+- Plan a week: four slots a day, recipes or foods placed by tap or drag.
+- Watch a day's energy bar and the full nutrient panel move as you plan, with no
+  reload.
+- Planned recipes are pinned to a version. Editing the recipe later leaves the
+  planned week alone.
+- Set a profile; daily energy and protein targets are derived from it.
 
 ## What does not work yet
 
-- The weekly plan and drag-and-drop
+- Custom target overrides (the profile derives them)
+- Logging what was actually eaten against the plan
 - Accounts (there is one implicit local user)
 - Any AI feature
 - Real data: the seed file is a fixture, not the production dataset
@@ -56,6 +63,9 @@ src/
   components/          UI
   lib/
     nutrition/         the calculation engine — pure, tested, no I/O
+    plan.ts            week math and plan rollups — pure, tested, no I/O
+    profile.ts         profile shape and energy/protein formulas
+    targets.ts         derived daily targets
     data/              seed foods and preset recipe templates
     db/                SQLite persistence (thin)
 docs/                  product and technical memory

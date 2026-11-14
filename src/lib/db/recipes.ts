@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { db, transaction } from "./client";
 import type { RecipeResult } from "@/lib/nutrition/recipe";
+import type { PlanRecipeOption } from "@/lib/plan";
 
 export interface StoredInput {
   id: string;
@@ -355,4 +356,40 @@ export function countRecipes(): number {
     count: number;
   };
   return row.count;
+}
+
+/**
+ * Every recipe's current version, in the shape the plan needs.
+ *
+ * The plan pins a version, so it needs the version id and that version's
+ * stored snapshot — not the recipe's current numbers, which may move.
+ */
+export function listRecipeOptions(): PlanRecipeOption[] {
+  const rows = db
+    .prepare(
+      `SELECT r.id, r.name, v.id AS version_id, v.version_no, v.servings, v.snapshot
+       FROM recipes r
+       JOIN recipe_versions v ON v.id = r.current_version_id
+       ORDER BY r.name COLLATE NOCASE ASC`,
+    )
+    .all() as unknown as Array<{
+    id: string;
+    name: string;
+    version_id: string;
+    version_no: number;
+    servings: number;
+    snapshot: string;
+  }>;
+
+  return rows.map((row) => {
+    const snapshot = parseSnapshot(row.snapshot);
+    return {
+      recipeId: row.id,
+      name: row.name,
+      versionId: row.version_id,
+      versionNo: row.version_no,
+      servings: row.servings,
+      perServing: snapshot.perServing,
+    };
+  });
 }

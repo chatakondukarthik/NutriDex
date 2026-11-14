@@ -87,6 +87,13 @@ Implementation contract: [`../reference/NUTRITION.md`](../reference/NUTRITION.md
 
 Entities: [`../reference/DATA-MODEL.md`](../reference/DATA-MODEL.md).
 
+### Planning
+
+| ID | Decision | Status | Full record |
+|---|---|---|---|
+| D-029 | A plan is one Monday-based week; an entry is a food XOR a pinned recipe version | Agreed | [below](#d-029--a-plan-is-a-week-of-pinned-entries) |
+| D-030 | Daily targets are derived from a stored profile on read, never stored | Agreed | [below](#d-030--targets-are-derived-from-the-profile) |
+
 ### Engineering
 
 | ID | Decision | Status | Full record |
@@ -183,6 +190,95 @@ but no AI feature blocks a slice.
 |---|---|
 | AI-first | Every screen becomes dependent on a model response before the calculation is proven |
 | AI and loop in parallel | Two half-finished halves; nothing is usable |
+
+---
+
+### D-029 — A plan is a week of pinned entries
+
+**Status:** Agreed
+**Date:** 2026-11-14
+**Relates to:** D-018, D-023, D-024
+
+**Context**
+
+S3 needs somewhere to put recipes. The product's unit of planning is a week,
+not a day: people shop and cook in weeks. And D-024 already promises that a
+saved plan does not change when a recipe or a food record changes.
+
+**Decision**
+
+A plan is one week starting Monday, with one implicit local plan per week. An
+entry lives in a day and one of four slots, and is either a food with a stored
+gram weight or a **pinned `recipe_version_id`** with a serving count — never
+both. A `CHECK` constraint makes the invalid state impossible to store.
+
+The week row is created on the first write, not on the first view, so browsing
+empty weeks leaves nothing behind.
+
+**Consequences**
+
+- Editing a recipe creates a new version and leaves every planned week alone.
+- The board scales the version's stored per-serving rollup; it never recomputes
+  a recipe to draw a bar.
+- The plan cannot trigger a food-data correction cascade, because there is no
+  live link to correct.
+- Accounts add a `user_id` to `plans`; they do not change the entry shape.
+- Cost: a plan that wants the recipe's *new* numbers has to be re-planned
+  explicitly. That is the intended meaning of a pin.
+
+**Alternatives rejected**
+
+| Alternative | Why it lost |
+|---|---|
+| Live-link the recipe | Silently rewrites a week the user already planned |
+| Copy the recipe's numbers into the entry | Duplicates a snapshot that the pinned version already carries |
+| Plan per day | Shopping and cooking happen per week; per-day plans would be rebuilt from scratch |
+| Create the plan row on page view | Leaves empty weeks behind and makes "no plan" indistinguishable from "empty plan" |
+
+---
+
+### D-030 — Targets are derived from the profile
+
+**Status:** Agreed
+**Date:** 2026-11-14
+**Relates to:** D-025, Q-003
+
+**Context**
+
+Progress bars need a denominator. The alternative was a hardcoded adult target,
+which would make the profile in the product spec decorative.
+
+**Decision**
+
+Store one local profile: sex, age, height, weight, activity and goal. Derive
+targets on read with `targetsFor(profile)`:
+
+- energy from Mifflin–St Jeor × activity, a goal delta, and a safety floor;
+- protein from body weight and goal;
+- fat, carbohydrate, fibre and sugars from energy;
+- minerals and vitamins from ICMR–NIN 2020 reference values, banded by sex and
+  age.
+
+Targets are never persisted. The direction of each target comes from the
+nutrient vocabulary, not from the target list.
+
+**Consequences**
+
+- Changing the profile moves the diary and the plan at once.
+- There is no target history: a past week's bars can shift if the profile
+  changes. Accepted for now, because targets are not part of the plan record.
+- The reference micro values are unverified seed data. They are labelled as
+  estimates in the UI and Q-003 stays open.
+- A person whose needs the profile cannot express gets an override table later,
+  not a column here.
+
+**Alternatives rejected**
+
+| Alternative | Why it lost |
+|---|---|
+| Store 18 target rows per user | 18 rows to keep in sync for a value that is cheap to derive |
+| Keep a fixed adult target | The product asks for a profile; it should use it |
+| Ship a range per nutrient now | Q-003 is open, and a range changes the bar semantics |
 
 ---
 

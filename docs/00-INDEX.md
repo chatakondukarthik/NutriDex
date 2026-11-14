@@ -58,7 +58,7 @@ Reference docs are updated in the same commit as the code they describe.
 | S0 — Skeleton | Done |
 | S1 — Food | Done (seed data, not production data) |
 | S2 — Recipe | Done |
-| S3 — Plan | Not started |
+| S3 — Plan | Done |
 | S4 — Trust and ship | Not started |
 
 See [`build/PLAN.md`](build/PLAN.md) for what each slice means.

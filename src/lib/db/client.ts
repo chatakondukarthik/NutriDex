@@ -86,6 +86,43 @@ const SCHEMA = `
 
   CREATE INDEX IF NOT EXISTS component_inputs_component_idx
     ON component_inputs (component_id, position);
+
+  CREATE TABLE IF NOT EXISTS profile (
+    id         TEXT PRIMARY KEY,
+    sex        TEXT NOT NULL,
+    age_years  REAL NOT NULL,
+    height_cm  REAL NOT NULL,
+    weight_kg  REAL NOT NULL,
+    activity   TEXT NOT NULL,
+    goal       TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS plans (
+    id         TEXT PRIMARY KEY,
+    starts_on  TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS plan_entries (
+    id                TEXT PRIMARY KEY,
+    plan_id           TEXT NOT NULL REFERENCES plans (id),
+    day               TEXT NOT NULL,
+    slot              TEXT NOT NULL,
+    position          INTEGER NOT NULL,
+    -- A plan entry is a food OR a pinned recipe version, never both.
+    food_id           TEXT,
+    recipe_version_id TEXT REFERENCES recipe_versions (id),
+    grams             REAL,
+    amount            REAL,
+    unit              TEXT,
+    servings          REAL,
+    created_at        TEXT NOT NULL,
+    CHECK ((food_id IS NOT NULL) <> (recipe_version_id IS NOT NULL))
+  );
+
+  CREATE INDEX IF NOT EXISTS plan_entries_plan_idx
+    ON plan_entries (plan_id, day, slot, position);
 `;
 
 function createDb(): DatabaseSync {

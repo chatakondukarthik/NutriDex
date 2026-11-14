@@ -114,7 +114,7 @@ marked as assumptions in the UI.
 
 ### Q-003 — What should the daily target actually be?
 
-**Status:** Open · **Blocks:** S3 (progress bars need a denominator)
+**Status:** Open · **Blocks:** custom target overrides (S3 ships derived targets)
 
 The current targets in `src/lib/targets.ts` are seed values for a generic adult.
 The real engine takes age, sex, activity level and goal, and returns targets
