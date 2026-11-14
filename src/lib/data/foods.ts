@@ -1,0 +1,586 @@
+import { makeProfile } from "@/lib/nutrition/engine";
+import type { Food } from "@/lib/nutrition/types";
+
+/**
+ * SEED FIXTURES — S1 only.
+ *
+ * These twenty foods exist to prove the calculation engine and the
+ * portion pipeline end to end. They are NOT the production dataset.
+ *
+ * Values are per 100 g edible portion, drawn from USDA SR Legacy and
+ * IFCT 2017 to the best of our ability, but they have not been through
+ * the INDB import and verification pipeline yet. Replace this file with
+ * the importer output before any real user sees the app.
+ *
+ * Nutrients deliberately left out are `unknown`, not zero. That is the
+ * coverage feature working as designed, not an oversight.
+ */
+
+const USDA = "USDA FDC SR Legacy (seed)";
+const IFCT = "IFCT 2017 (seed, unverified)";
+
+export const FOODS: Food[] = [
+  {
+    id: "paneer",
+    name: "Paneer",
+    aliases: ["cottage cheese", "panir", "chhena"],
+    category: "Dairy",
+    kind: "raw",
+    state: "raw",
+    portions: [{ label: "1 katori", grams: 100, source: "household measure" }],
+    nutrients: makeProfile(
+      {
+        ENERC_KCAL: 265,
+        PROCNT: 18.3,
+        FAT: 20.8,
+        CHOCDF: 1.2,
+        FIBTG: 0,
+        SUGAR: 0,
+        NA: 24,
+        K: 100,
+        CA: 480,
+      },
+      IFCT,
+    ),
+  },
+  {
+    id: "curd",
+    name: "Curd",
+    aliases: ["yogurt", "dahi", "yoghurt"],
+    category: "Dairy",
+    kind: "raw",
+    state: "raw",
+    portions: [{ label: "1 katori", grams: 150, source: "household measure" }],
+    nutrients: makeProfile(
+      {
+        ENERC_KCAL: 61,
+        PROCNT: 3.5,
+        FAT: 3.3,
+        CHOCDF: 4.7,
+        FIBTG: 0,
+        SUGAR: 4.7,
+        NA: 46,
+        K: 155,
+        CA: 121,
+        ZN: 0.6,
+        VITB12: 0.4,
+      },
+      USDA,
+    ),
+  },
+  {
+    id: "milk",
+    name: "Milk, whole",
+    aliases: ["doodh", "full fat milk"],
+    category: "Dairy",
+    kind: "raw",
+    state: "raw",
+    densityGPerMl: 1.03,
+    portions: [{ label: "1 glass", grams: 245, source: "household measure" }],
+    nutrients: makeProfile(
+      {
+        ENERC_KCAL: 61,
+        PROCNT: 3.2,
+        FAT: 3.3,
+        CHOCDF: 4.8,
+        FIBTG: 0,
+        SUGAR: 4.8,
+        NA: 43,
+        K: 132,
+        CA: 113,
+        ZN: 0.4,
+        VITB12: 0.4,
+      },
+      USDA,
+    ),
+  },
+  {
+    id: "cheese",
+    name: "Cheese, cheddar",
+    aliases: ["cheese slice", "cheddar"],
+    category: "Dairy",
+    kind: "raw",
+    state: "raw",
+    portions: [{ label: "1 slice", grams: 20, source: "household measure" }],
+    nutrients: makeProfile(
+      {
+        ENERC_KCAL: 403,
+        PROCNT: 24.9,
+        FAT: 33.1,
+        CHOCDF: 1.3,
+        FIBTG: 0,
+        SUGAR: 0.5,
+        NA: 621,
+        K: 98,
+        CA: 721,
+        ZN: 3.1,
+        VITA_RAE: 265,
+      },
+      USDA,
+    ),
+  },
+  {
+    id: "egg",
+    name: "Egg, whole",
+    aliases: ["anda", "eggs"],
+    category: "Protein",
+    kind: "raw",
+    state: "raw",
+    portions: [{ label: "1 large", grams: 50, source: "USDA portion" }],
+    nutrients: makeProfile(
+      {
+        ENERC_KCAL: 143,
+        PROCNT: 12.6,
+        FAT: 9.5,
+        CHOCDF: 0.7,
+        FIBTG: 0,
+        SUGAR: 0.4,
+        NA: 142,
+        K: 138,
+        CA: 56,
+        FE: 1.75,
+        ZN: 1.29,
+        VITA_RAE: 160,
+        VITD: 2,
+        VITB12: 0.89,
+        FOL: 47,
+        VITB6: 0.17,
+      },
+      USDA,
+    ),
+  },
+  {
+    id: "toor-dal",
+    name: "Toor dal",
+    aliases: ["tur dal", "arhar dal", "pigeon pea", "split pigeon peas"],
+    category: "Pulses",
+    kind: "raw",
+    state: "raw",
+    portions: [{ label: "1 katori", grams: 100, source: "household measure" }],
+    nutrients: makeProfile(
+      {
+        ENERC_KCAL: 343,
+        PROCNT: 21.7,
+        FAT: 1.5,
+        CHOCDF: 62.8,
+        FIBTG: 11.5,
+        SUGAR: 0,
+        NA: 17,
+        K: 1392,
+        CA: 130,
+        FE: 5.2,
+        ZN: 2.8,
+        MG: 183,
+        FOL: 456,
+      },
+      USDA,
+    ),
+  },
+  {
+    id: "chana-dal",
+    name: "Chana dal",
+    aliases: ["bengal gram", "split chickpea"],
+    category: "Pulses",
+    kind: "raw",
+    state: "raw",
+    portions: [{ label: "1 katori", grams: 100, source: "household measure" }],
+    nutrients: makeProfile(
+      {
+        ENERC_KCAL: 360,
+        PROCNT: 20.8,
+        FAT: 5.3,
+        CHOCDF: 59.8,
+        FIBTG: 10.8,
+        SUGAR: 0,
+        NA: 24,
+        K: 742,
+        CA: 56,
+        FE: 4.3,
+        ZN: 3,
+        MG: 82,
+        FOL: 557,
+      },
+      IFCT,
+    ),
+  },
+  {
+    id: "rajma",
+    name: "Rajma",
+    aliases: ["kidney beans", "red kidney beans"],
+    category: "Pulses",
+    kind: "raw",
+    state: "raw",
+    portions: [{ label: "1 katori", grams: 100, source: "household measure" }],
+    nutrients: makeProfile(
+      {
+        ENERC_KCAL: 333,
+        PROCNT: 23.6,
+        FAT: 0.8,
+        CHOCDF: 60,
+        FIBTG: 24.9,
+        SUGAR: 0,
+        NA: 12,
+        K: 1406,
+        CA: 143,
+        FE: 8.2,
+        ZN: 2.8,
+        MG: 140,
+        FOL: 394,
+      },
+      USDA,
+    ),
+  },
+  {
+    id: "atta",
+    name: "Atta, whole wheat flour",
+    aliases: ["wheat flour", "gehun", "chapati flour"],
+    category: "Grains",
+    kind: "raw",
+    state: "raw",
+    portions: [{ label: "1 roti", grams: 30, source: "household measure" }],
+    nutrients: makeProfile(
+      {
+        ENERC_KCAL: 340,
+        PROCNT: 13.2,
+        FAT: 2.5,
+        CHOCDF: 71.2,
+        FIBTG: 12.2,
+        SUGAR: 0.4,
+        NA: 2,
+        K: 363,
+        CA: 34,
+        FE: 3.6,
+        ZN: 2.6,
+        MG: 138,
+        FOL: 44,
+      },
+      USDA,
+    ),
+  },
+  {
+    id: "rice",
+    name: "Rice, raw milled",
+    aliases: ["chawal", "white rice", "basmati"],
+    category: "Grains",
+    kind: "raw",
+    state: "raw",
+    portions: [{ label: "1 katori", grams: 100, source: "household measure" }],
+    nutrients: makeProfile(
+      {
+        ENERC_KCAL: 365,
+        PROCNT: 7.1,
+        FAT: 0.7,
+        CHOCDF: 80,
+        FIBTG: 1.3,
+        SUGAR: 0.1,
+        NA: 5,
+        K: 115,
+        CA: 28,
+        FE: 0.8,
+        ZN: 1.1,
+        MG: 25,
+        FOL: 8,
+      },
+      USDA,
+    ),
+  },
+  {
+    id: "onion",
+    name: "Onion",
+    aliases: ["pyaz", "kanda"],
+    category: "Vegetables",
+    kind: "raw",
+    state: "raw",
+    portions: [{ label: "1 medium", grams: 110, source: "USDA portion" }],
+    nutrients: makeProfile(
+      {
+        ENERC_KCAL: 40,
+        PROCNT: 1.1,
+        FAT: 0.1,
+        CHOCDF: 9.3,
+        FIBTG: 1.7,
+        SUGAR: 4.2,
+        NA: 4,
+        K: 146,
+        CA: 23,
+        FE: 0.21,
+        ZN: 0.17,
+        MG: 10,
+        VITC: 7.4,
+        FOL: 19,
+      },
+      USDA,
+    ),
+  },
+  {
+    id: "tomato",
+    name: "Tomato",
+    aliases: ["tamatar"],
+    category: "Vegetables",
+    kind: "raw",
+    state: "raw",
+    portions: [{ label: "1 medium", grams: 123, source: "USDA portion" }],
+    nutrients: makeProfile(
+      {
+        ENERC_KCAL: 18,
+        PROCNT: 0.9,
+        FAT: 0.2,
+        CHOCDF: 3.9,
+        FIBTG: 1.2,
+        SUGAR: 2.6,
+        NA: 5,
+        K: 237,
+        CA: 10,
+        FE: 0.27,
+        ZN: 0.17,
+        MG: 11,
+        VITA_RAE: 42,
+        VITC: 13.7,
+        FOL: 15,
+      },
+      USDA,
+    ),
+  },
+  {
+    id: "potato",
+    name: "Potato",
+    aliases: ["aloo", "batata"],
+    category: "Vegetables",
+    kind: "raw",
+    state: "raw",
+    portions: [{ label: "1 medium", grams: 150, source: "USDA portion" }],
+    nutrients: makeProfile(
+      {
+        ENERC_KCAL: 77,
+        PROCNT: 2,
+        FAT: 0.1,
+        CHOCDF: 17.5,
+        FIBTG: 2.2,
+        SUGAR: 0.8,
+        NA: 6,
+        K: 425,
+        CA: 12,
+        FE: 0.81,
+        ZN: 0.3,
+        MG: 23,
+        VITC: 19.7,
+        FOL: 15,
+      },
+      USDA,
+    ),
+  },
+  {
+    id: "spinach",
+    name: "Spinach",
+    aliases: ["palak"],
+    category: "Vegetables",
+    kind: "raw",
+    state: "raw",
+    portions: [{ label: "1 cup", grams: 30, source: "USDA portion" }],
+    nutrients: makeProfile(
+      {
+        ENERC_KCAL: 23,
+        PROCNT: 2.9,
+        FAT: 0.4,
+        CHOCDF: 3.6,
+        FIBTG: 2.2,
+        SUGAR: 0.4,
+        NA: 79,
+        K: 558,
+        CA: 99,
+        FE: 2.71,
+        ZN: 0.53,
+        MG: 79,
+        VITA_RAE: 469,
+        VITC: 28.1,
+        FOL: 194,
+      },
+      USDA,
+    ),
+  },
+  {
+    id: "carrot",
+    name: "Carrot",
+    aliases: ["gajar"],
+    category: "Vegetables",
+    kind: "raw",
+    state: "raw",
+    portions: [{ label: "1 medium", grams: 61, source: "USDA portion" }],
+    nutrients: makeProfile(
+      {
+        ENERC_KCAL: 41,
+        PROCNT: 0.9,
+        FAT: 0.2,
+        CHOCDF: 9.6,
+        FIBTG: 2.8,
+        SUGAR: 4.7,
+        NA: 69,
+        K: 320,
+        CA: 33,
+        FE: 0.3,
+        ZN: 0.24,
+        MG: 12,
+        VITA_RAE: 835,
+        VITC: 5.9,
+        FOL: 19,
+      },
+      USDA,
+    ),
+  },
+  {
+    id: "banana",
+    name: "Banana",
+    aliases: ["kela"],
+    category: "Fruit",
+    kind: "raw",
+    state: "raw",
+    portions: [{ label: "1 medium", grams: 118, source: "USDA portion" }],
+    nutrients: makeProfile(
+      {
+        ENERC_KCAL: 89,
+        PROCNT: 1.1,
+        FAT: 0.3,
+        CHOCDF: 22.8,
+        FIBTG: 2.6,
+        SUGAR: 12.2,
+        NA: 1,
+        K: 358,
+        CA: 5,
+        FE: 0.26,
+        ZN: 0.15,
+        MG: 27,
+        VITC: 8.7,
+        VITB6: 0.37,
+        FOL: 20,
+      },
+      USDA,
+    ),
+  },
+  {
+    id: "mustard-oil",
+    name: "Mustard oil",
+    aliases: ["sarson ka tel", "oil"],
+    category: "Fats",
+    kind: "raw",
+    state: "raw",
+    densityGPerMl: 0.92,
+    portions: [{ label: "1 tbsp", grams: 14, source: "density × volume" }],
+    nutrients: makeProfile(
+      {
+        ENERC_KCAL: 884,
+        PROCNT: 0,
+        FAT: 100,
+        CHOCDF: 0,
+        FIBTG: 0,
+        SUGAR: 0,
+      },
+      USDA,
+    ),
+  },
+  {
+    id: "ghee",
+    name: "Ghee",
+    aliases: ["clarified butter", "desi ghee"],
+    category: "Fats",
+    kind: "raw",
+    state: "raw",
+    densityGPerMl: 0.91,
+    portions: [{ label: "1 tsp", grams: 4.5, source: "density × volume" }],
+    nutrients: makeProfile(
+      {
+        ENERC_KCAL: 900,
+        PROCNT: 0,
+        FAT: 100,
+        CHOCDF: 0,
+        FIBTG: 0,
+        SUGAR: 0,
+      },
+      USDA,
+    ),
+  },
+  {
+    id: "sugar",
+    name: "Sugar, granulated",
+    aliases: ["cheeni", "shakkar"],
+    category: "Pantry",
+    kind: "raw",
+    state: "raw",
+    portions: [{ label: "1 tsp", grams: 4, source: "household measure" }],
+    nutrients: makeProfile(
+      {
+        ENERC_KCAL: 387,
+        PROCNT: 0,
+        FAT: 0,
+        CHOCDF: 100,
+        FIBTG: 0,
+        SUGAR: 100,
+        NA: 1,
+        K: 2,
+        CA: 1,
+        MG: 0,
+      },
+      USDA,
+    ),
+  },
+  {
+    id: "salt",
+    name: "Salt",
+    aliases: ["namak"],
+    category: "Pantry",
+    kind: "raw",
+    state: "raw",
+    portions: [{ label: "1 pinch", grams: 0.4, source: "household measure" }],
+    nutrients: makeProfile(
+      {
+        ENERC_KCAL: 0,
+        PROCNT: 0,
+        FAT: 0,
+        CHOCDF: 0,
+        FIBTG: 0,
+        SUGAR: 0,
+        NA: 38758,
+        K: 8,
+        CA: 24,
+        MG: 1,
+      },
+      USDA,
+    ),
+  },
+];
+
+const BY_ID = new Map(FOODS.map((food) => [food.id, food]));
+
+export function getFood(id: string): Food | undefined {
+  return BY_ID.get(id);
+}
+
+export function requireFood(id: string): Food {
+  const food = BY_ID.get(id);
+  if (!food) throw new Error(`Unknown food: ${id}`);
+  return food;
+}
+
+/**
+ * Deliberately simple search: case-insensitive prefix and substring
+ * matching over the name and aliases. Good enough for twenty foods, and
+ * a known limitation for later — see docs/research/RESEARCH.md.
+ */
+export function searchFoods(query: string): Food[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return FOODS;
+
+  const scored = FOODS.map((food) => {
+    const name = food.name.toLowerCase();
+    const aliases = food.aliases.map((a) => a.toLowerCase());
+
+    if (name === q) return { food, score: 0 };
+    if (name.startsWith(q)) return { food, score: 1 };
+    if (aliases.some((a) => a === q)) return { food, score: 2 };
+    if (aliases.some((a) => a.startsWith(q))) return { food, score: 3 };
+    if (name.includes(q)) return { food, score: 4 };
+    if (aliases.some((a) => a.includes(q))) return { food, score: 5 };
+    return null;
+  }).filter((entry): entry is { food: Food; score: number } => entry !== null);
+
+  return scored.sort((a, b) => a.score - b.score).map((entry) => entry.food);
+}
