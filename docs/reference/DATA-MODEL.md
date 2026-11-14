@@ -1,10 +1,12 @@
 # NutriPlan — Data Model
 
-**Status:** S1 implemented; recipe and plan entities are designed, not built.
+**Status:** S1 and S2 implemented; plan entities are designed, not built.
 
 ---
 
-## 1. Implemented (S1)
+## 1. Implemented (S1 and S2)
+
+Schema lives in `src/lib/db/client.ts`; queries in `src/lib/db/`.
 
 ```
 entries
@@ -17,12 +19,59 @@ entries
   created_at  TEXT NOT NULL
 ```
 
-Two deliberate choices:
+```
+recipes
+  id                 TEXT PRIMARY KEY
+  kind               TEXT NOT NULL DEFAULT 'dish'   -- dish | component
+  name               TEXT NOT NULL
+  current_version_id TEXT                          -- null only mid-transaction
+  created_at         TEXT NOT NULL
+  updated_at         TEXT NOT NULL
 
-- **`grams` is stored.** If the portion table changes later, yesterday's entry
-  keeps the weight it was logged with.
+recipe_versions
+  id                  TEXT PRIMARY KEY
+  recipe_id           TEXT NOT NULL REFERENCES recipes
+  version_no          INTEGER NOT NULL             -- UNIQUE (recipe_id, version_no)
+  instructions        TEXT NOT NULL DEFAULT ''
+  servings            REAL NOT NULL
+  yield_g             REAL                          -- final block's measured output
+  snapshot            TEXT NOT NULL                 -- computed RecipeResult, JSON
+  calculation_version TEXT NOT NULL
+  created_at          TEXT NOT NULL
+
+components                                        -- a block inside a version
+  id                TEXT PRIMARY KEY
+  recipe_version_id TEXT NOT NULL REFERENCES recipe_versions
+  position          INTEGER NOT NULL
+  name              TEXT NOT NULL
+  operation         TEXT                          -- label only (D-022)
+  output_g          REAL                          -- measured mass after the operation
+
+component_inputs
+  id           TEXT PRIMARY KEY
+  component_id TEXT NOT NULL REFERENCES components
+  position     INTEGER NOT NULL
+  food_id      TEXT NOT NULL
+  grams        REAL NOT NULL                      -- resolved weight
+  amount       REAL NOT NULL                      -- what the user typed
+  unit         TEXT NOT NULL                      -- incl. "portion:1 pinch"
+  preparation  TEXT
+  note         TEXT
+```
+
+Deliberate choices:
+
+- **`grams` is stored on every line.** If the portion table changes later,
+  yesterday's entry and yesterday's recipe version keep the weight they were
+  saved with.
 - **`amount` and `unit` are stored too.** The user's original input is evidence;
   re-deriving it from grams loses intent.
+- **`snapshot` is stored on the version.** Reading a recipe never recomputes it,
+  so a data correction cannot silently change a saved recipe (D-024).
+- **The name lives on `recipes`, not the version.** Renaming updates the recipe;
+  the version snapshot keeps the numbers it was saved with.
+- **`kind = 'component'` exists in the schema but no UI creates one yet** (D-023
+  is designed, not built).
 
 Foods are read-only seed data in `src/lib/data/foods.ts` for now. They move into
 the database when the importer lands.
@@ -85,42 +134,14 @@ Rule: no food record is overwritten. A source refresh creates a new snapshot
 (`food_sources.version`), and existing recipe versions keep pointing at what
 they used.
 
-### 2.2 Recipes (D-018, D-021, D-023, D-024)
+### 2.2 Recipe deltas not yet built (D-018, D-023)
 
 ```
 recipes
-  id                TEXT PRIMARY KEY
-  kind              TEXT      -- dish | component
-  parent_recipe_id  TEXT      -- variant fork
-  name              TEXT
-  current_version_id TEXT
-
-recipe_versions
-  id                       TEXT PRIMARY KEY
-  recipe_id                TEXT
-  version_no               INTEGER
-  instructions             TEXT
-  servings                 REAL
-  yield_g                  REAL
-  computed_snapshot        JSON   -- totals, coverage, per-block subtotals
-  calculation_version      TEXT
-  created_at               TEXT
-
-components                    -- a block inside a recipe version
-  id            TEXT PRIMARY KEY
-  recipe_version_id TEXT
-  position      INTEGER
-  name          TEXT
-  operation     TEXT          -- grate | dice | boil | fry | mix | assemble
-  output_yield_g REAL
+  parent_recipe_id  TEXT      -- variant fork; absent today
 
 component_inputs
-  id              TEXT PRIMARY KEY
-  component_id    TEXT
-  food_id         TEXT        -- XOR with recipe_version_id
-  recipe_version_id TEXT      -- a pinned component reference
-  quantity_g      REAL
-  preparation     TEXT        -- raw | boiled | grated ...
+  recipe_version_id TEXT      -- a pinned component reference; XOR with food_id
 ```
 
 The `food_id` XOR `recipe_version_id` mirrors the pattern the blueprint already

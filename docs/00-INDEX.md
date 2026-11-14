@@ -57,7 +57,7 @@ Reference docs are updated in the same commit as the code they describe.
 |---|---|
 | S0 — Skeleton | Done |
 | S1 — Food | Done (seed data, not production data) |
-| S2 — Recipe | Not started |
+| S2 — Recipe | Done |
 | S3 — Plan | Not started |
 | S4 — Trust and ship | Not started |
 

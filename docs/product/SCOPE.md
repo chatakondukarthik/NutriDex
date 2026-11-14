@@ -31,6 +31,9 @@ record.
 
 - Search, portion conversion, per-100 g and per-portion nutrition, coverage,
   persistence, and the calculation engine. (S1)
+- Recipe builder with blocks, operations, measured output mass, instructions,
+  servings, per-block subtotals, immutable versions with a stored nutrition
+  snapshot, and preset templates. (S2)
 
 ---
 
@@ -38,12 +41,10 @@ record.
 
 | Item | Blocked by |
 |---|---|
-| Recipe blocks and yield | S2 |
-| Immutable recipe versions | S2 |
 | Weekly plan and drag-and-drop | S3 |
 | AI estimation with per-nutrient diff (D-016) | The loop shipping and being measured |
 | Label photo / OCR for packaged foods | The estimation contract |
-| Save a block as a reusable component, pinned (D-023) | S2 |
+| Save a block as a reusable component, pinned (D-023) | Component reuse being needed |
 | Recipe variants ("duplicate & customise") | Versioning |
 | Custom targets and target editor | Profile targets |
 | Actual consumption logging, planned vs actual | S3 |

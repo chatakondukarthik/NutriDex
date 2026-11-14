@@ -11,6 +11,8 @@ coverage
 *.db-wal
 *.db-shm
 data/*.sqlite
+data/*.sqlite-*
+data/*.db*
 
 # env
 .env

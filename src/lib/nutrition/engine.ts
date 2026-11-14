@@ -103,6 +103,56 @@ export function rollup(contributions: Contribution[]): Rollup {
   return { totals, status, coverage };
 }
 
+/**
+ * Combine rollups that were computed separately.
+ *
+ * Recipe blocks are rolled up independently so each can show its own
+ * subtotal. This puts them back together without losing coverage: the
+ * total is known only if every block knows that nutrient.
+ */
+export function combine(results: Rollup[]): Rollup {
+  const totals = {} as Record<NutrientCode, number | null>;
+  const status = {} as Record<NutrientCode, NutrientStatus>;
+  const coverage = {} as Record<NutrientCode, NutrientCoverage>;
+
+  for (const code of NUTRIENT_CODES) {
+    let sum = 0;
+    let known = 0;
+    let total = 0;
+    let anyKnown = false;
+
+    for (const result of results) {
+      const amount = result.totals[code];
+      const counts = result.coverage[code];
+      total += counts.total;
+      known += counts.known;
+      if (amount != null) {
+        sum += amount;
+        anyKnown = true;
+      }
+    }
+
+    totals[code] = anyKnown ? sum : null;
+    coverage[code] = { known, total };
+    status[code] = !anyKnown ? "unknown" : known === total ? "known" : "estimated";
+  }
+
+  return { totals, status, coverage };
+}
+
+/**
+ * Rescale a rollup, e.g. to express a recipe per 100 g of cooked output.
+ * Status and coverage are untouched: rescaling cannot create knowledge.
+ */
+export function scaleRollup(result: Rollup, factor: number): Rollup {
+  const totals = {} as Record<NutrientCode, number | null>;
+  for (const code of NUTRIENT_CODES) {
+    const value = result.totals[code];
+    totals[code] = value == null ? null : value * factor;
+  }
+  return { totals, status: result.status, coverage: result.coverage };
+}
+
 /** Divide a rollup by a serving count, preserving status and coverage. */
 export function perServing(result: Rollup, servings: number): Rollup {
   if (!Number.isFinite(servings) || servings <= 0) {

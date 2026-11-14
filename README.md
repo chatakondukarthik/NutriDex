@@ -5,8 +5,8 @@ Plan your meals. Know what is in them.
 A nutrition-first meal planner: build a recipe from real ingredients, see what
 it actually contains, put it in a week, and watch the day fill up.
 
-**Status:** walking skeleton. The calculation engine and food entry work. Recipes
-and planning are next (see [`docs/build/PLAN.md`](docs/build/PLAN.md)).
+**Status:** S0–S2 done. Food entry and recipes work end to end. Planning is next
+(see [`docs/build/PLAN.md`](docs/build/PLAN.md)).
 
 ---
 
@@ -15,7 +15,7 @@ and planning are next (see [`docs/build/PLAN.md`](docs/build/PLAN.md)).
 ```bash
 npm install
 npm run dev      # http://localhost:3000
-npm test         # 26 engine tests
+npm test         # 62 tests: engine, recipes, persistence
 npm run build    # production build
 ```
 
@@ -31,10 +31,16 @@ runs from a clean checkout.
 - See the day's nutrition against a target, per nutrient group.
 - See **coverage**: which nutrients are known and which are not.
 - Every value carries its source; missing values show as `unknown`, never `0`.
+- Build a recipe in five sections: ingredients, method, instructions, yield, review.
+- Group ingredients into steps (blocks); each step gets its own subtotal.
+- Record a measured output weight; per-100 g changes, the total does not.
+- Save immutable versions. Editing saves a new version; old versions and the
+  plans that used them never change.
+- Start from a preset (paneer bhurji, dal tadka, rajma masala) and save your own
+  copy.
 
 ## What does not work yet
 
-- Recipes with blocks and yield
 - The weekly plan and drag-and-drop
 - Accounts (there is one implicit local user)
 - Any AI feature
@@ -50,10 +56,10 @@ src/
   components/          UI
   lib/
     nutrition/         the calculation engine — pure, tested, no I/O
-    data/              seed foods
+    data/              seed foods and preset recipe templates
     db/                SQLite persistence (thin)
 docs/                  product and technical memory
-tests/                 engine tests
+tests/                 engine, recipe and persistence tests
 ```
 
 The engine in `src/lib/nutrition/` is the heart of the product. It is a pure

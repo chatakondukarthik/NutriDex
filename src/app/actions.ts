@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { addEntry, removeEntry, today } from "@/lib/db/entries";
 import { getFood } from "@/lib/data/foods";
 import { toGrams, type Unit } from "@/lib/nutrition/units";
+import { saveRecipeDraft, type RecipeDraft } from "@/lib/recipes";
 
 export interface AddResult {
   ok: boolean;
@@ -61,4 +62,41 @@ export async function addFoodAction(input: {
 export async function removeEntryAction(id: string): Promise<void> {
   removeEntry(id);
   revalidatePath("/");
+}
+
+export interface SaveRecipeResult {
+  ok: boolean;
+  message?: string;
+  recipeId?: string;
+  versionId?: string;
+  versionNo?: number;
+}
+
+/**
+ * Save a recipe draft.
+ *
+ * Every save produces a new immutable version (D-018, D-024). The
+ * nutrition snapshot is computed here, on the server, from the stored
+ * gram weights — never trusted from the client.
+ */
+export async function saveRecipeAction(draft: RecipeDraft): Promise<SaveRecipeResult> {
+  try {
+    const result = saveRecipeDraft(draft);
+    if (!result.ok) return result;
+
+    revalidatePath("/recipes");
+    revalidatePath(`/recipes/${result.recipeId}`);
+
+    return {
+      ok: true,
+      recipeId: result.recipeId,
+      versionId: result.versionId,
+      versionNo: result.versionNo,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Could not save the recipe.",
+    };
+  }
 }

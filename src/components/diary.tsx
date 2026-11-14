@@ -117,24 +117,19 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-10 border-b border-black/5 bg-[#faf9f7]/85 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4">
-          <div className="flex items-center gap-2.5">
-            <div className="grid h-8 w-8 place-items-center rounded-lg bg-[#1f6f4a] text-sm font-semibold text-white">
-              N
-            </div>
-            <div>
-              <div className="text-sm font-semibold leading-tight">NutriPlan</div>
-              <div className="text-[11px] leading-tight text-black/45">
-                S1 · foods &amp; portions
-              </div>
-            </div>
+      <main className="mx-auto max-w-6xl px-5 py-6">
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Diary</h1>
+            <p className="mt-1 text-xs text-black/45">{fmtDay(day)}</p>
           </div>
-          <div className="text-xs text-black/45">{fmtDay(day)}</div>
+          <p className="text-[11px] text-black/35">
+            {entries.length} {entries.length === 1 ? "entry" : "entries"} · coverage shown per
+            nutrient
+          </p>
         </div>
-      </header>
 
-      <main className="mx-auto grid max-w-6xl gap-5 px-5 py-6 lg:grid-cols-[1fr_420px] lg:items-start">
+        <div className="grid gap-5 lg:grid-cols-[1fr_420px] lg:items-start">
         {/* ---- Food search ---------------------------------------------- */}
         <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
           <h2 className="text-sm font-semibold">Find a food</h2>
@@ -355,6 +350,7 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
             )}
           </section>
         </aside>
+        </div>
       </main>
 
       <footer className="mx-auto max-w-6xl px-5 pb-10 pt-2">

@@ -1,7 +1,7 @@
 # NutriPlan — Nutrition Calculation Contract
 
-**Status:** Implemented for S1
-**Code:** `src/lib/nutrition/` (pure, no I/O) · **Tests:** `tests/engine.test.ts`
+**Status:** Implemented for S1 and S2
+**Code:** `src/lib/nutrition/` (pure, no I/O) · **Tests:** `tests/engine.test.ts`, `tests/recipe.test.ts`
 **Decisions:** D-007, D-008, D-009, D-025, D-026
 
 This is the contract the engine implements. If the code and this document
@@ -126,7 +126,7 @@ Two independent effects, never conflated:
 
 **Mass — precedence, highest first:**
 
-1. Measured output mass from the user → `known`.
+1. Measured output mass from the user, on the final block → `known`.
 2. Reference yield factor for the food and operation → `estimated`, disclosed.
 3. No adjustment; raw mass treated as cooked mass → assumption disclosed.
 
@@ -146,7 +146,56 @@ not model fat gain or loss because the oil is already an input.
 
 ---
 
-## 7. Energy
+## 7. Recipe composition: blocks (D-021, D-022)
+
+A recipe is an ordered list of **blocks**. A block is inputs + an operation + an
+optional output mass. A flat ingredient list is the degenerate single-block
+case, so a simple recipe does not pay for the structure.
+
+```
+recipe → [block] → [input line] → food profile + grams
+```
+
+Three levels, computed bottom-up:
+
+| Level | What it is | Where it is shown |
+|---|---|---|
+| line | one ingredient at its resolved weight | ingredient rows |
+| block | the sum of its lines | step subtotal |
+| recipe | the sum of its blocks | total, per serving, per 100 g |
+
+Blocks are rolled up independently so each step can show a subtotal, then
+combined with `combine()`, which preserves coverage across blocks: a nutrient
+is `known` for the recipe only when every block knows it, and the coverage
+counter sums the line counts rather than restarting at the block boundary.
+
+**An operation is a label.** `fry`, `boil`, `dice` change no number by
+themselves (D-022). They exist for the method text, the step subtotal, and
+later for selecting a cooked-state record.
+
+### The yield basis
+
+The recipe's cooked mass is the output of the **final block**, not the sum of
+all block outputs. Earlier blocks are intermediate: nobody weighs the pan
+between every stage, and an intermediate mass says nothing about the finished
+dish.
+
+| Basis | Condition | per-100 g |
+|---|---|---|
+| `measured` | the final block has an output mass | computed from it |
+| `partial` | only an intermediate block does | not shown |
+| `none` | nothing was weighed | not shown; totals unaffected |
+
+A measured output mass changes only the per-100 g denominator. The absolute
+amount of protein in the pan does not change because water boiled off.
+
+The basis is stored with the version and rendered as plain language by
+`yieldNote()`, because D-026 requires the assumption to be disclosed, not
+implied.
+
+---
+
+## 8. Energy
 
 The source's stated energy value wins. Never recompute it as the source of
 truth.
@@ -163,7 +212,7 @@ gross-error detector, not an accuracy score.
 
 ---
 
-## 8. What this deliberately does not do
+## 9. What this deliberately does not do
 
 - **Model cooking loss without evidence.** No fabricated yield factors.
 - **Treat missing as zero.** Ever.
@@ -176,7 +225,7 @@ gross-error detector, not an accuracy score.
 
 ---
 
-## 9. Test contract
+## 10. Test contract
 
 `tests/engine.test.ts` asserts:
 
@@ -192,19 +241,33 @@ gross-error detector, not an accuracy score.
 - Unknown portions fail loudly.
 - Search finds foods by Indian name.
 
+`tests/recipe.test.ts` asserts the composition contract:
+
+- Each block gets its own subtotal; the recipe total is the sum of blocks.
+- A single block behaves exactly like a flat ingredient list.
+- Coverage is combined across blocks, not lost at the boundary.
+- A measured output mass changes per-100 g but not the total.
+- The yield basis is `measured`, `partial` or `none`, and is described in
+  plain language.
+- A nonsense output mass is ignored rather than divided by.
+
 ---
 
-## 10. Worked example
+## 11. Worked example
 
 ```
-Block "Grate":  paneer 100 g      → 265 kcal, 18.3 P, 20.8 F, 1.2 C
-Block "Sauté":  mustard oil 5 g   →  45 kcal,  0.0 P,  5.0 F, 0.0 C
-                onion 50 g        →  22 kcal,  0.6 P,  0.1 F, 5.0 C
-                tomato 50 g       →   9 kcal,  0.5 P,  0.1 F, 2.0 C
-Total                             → 341 kcal, 19.4 P, 26.0 F, 8.2 C
-measured yield 200 g              → 170 kcal / 100 g
-2 servings                        → 170 kcal / serving
+Block 1 "Grate":  paneer 100 g      → 265 kcal, 18.3 P, 20.8 F, 1.2 C
+Block 2 "Sauté":  mustard oil 5 g   →  45 kcal,  0.0 P,  5.0 F, 0.0 C
+                  onion 50 g        →  22 kcal,  0.6 P,  0.1 F, 5.0 C
+                  tomato 50 g       →   9 kcal,  0.5 P,  0.1 F, 2.0 C
+Recipe total                        → 341 kcal, 19.4 P, 26.0 F, 8.2 C
+Block 2 output, measured 200 g      → 170 kcal / 100 g
+2 servings                          → 170 kcal / serving
 ```
+
+The 200 g is the output of the final block. Weighing block 1 as well would
+make the basis `measured` with the same recipe-level figure; weighing only
+block 1 would make it `partial` and no per-100 g would be shown.
 
 Atwater check: `19.4×4 + 26×9 + 8.2×4 = 344` vs 341 stated — within tolerance.
 
