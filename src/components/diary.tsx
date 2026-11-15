@@ -279,7 +279,13 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
 
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-ink/10">
               <div
-                className="bar-fill h-full rounded-full bg-accent"
+                className={`bar-fill h-full rounded-full ${
+                  energyTarget?.value && energy != null && energy / energyTarget.value >= 1.2
+                    ? "bg-danger"
+                    : energyTarget?.value && energy != null && energy / energyTarget.value > 1
+                      ? "bg-warn"
+                      : "bg-accent"
+                }`}
                 style={{ width: `${energyPct}%` }}
               />
             </div>

@@ -64,11 +64,16 @@ export function FoodsBrowser({ foods }: { foods: Food[] }) {
                     {food.aliases?.length ? ` · ${food.aliases.slice(0, 3).join(", ")}` : ""}
                   </p>
                 </div>
-                {food.source ? (
-                  <Link href={`/foods/${food.id}/edit`} className="text-xs text-muted underline underline-offset-2 hover:text-ink">
-                    Edit
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <Link href={`/foods/${food.id}`} className="text-xs text-muted underline underline-offset-2 hover:text-ink">
+                    View
                   </Link>
-                ) : null}
+                  {food.source ? (
+                    <Link href={`/foods/${food.id}/edit`} className="text-xs text-muted underline underline-offset-2 hover:text-ink">
+                      Edit
+                    </Link>
+                  ) : null}
+                </div>
               </div>
             </li>
           ))}

@@ -179,6 +179,24 @@ export default async function RecipePage({
                   );
                 })}
               </ul>
+
+              {blockResult?.result && (
+                <details className="mt-3 rounded-lg border border-line/60 bg-canvas/40 px-3 py-2">
+                  <summary className="cursor-pointer text-[11px] font-medium text-ink/55">
+                    Block nutrients · {fmt(blockResult.result.totals.ENERC_KCAL, 0)} kcal
+                    {block.outputGrams != null ? ` · ${fmtMass(block.outputGrams)} g out` : ""}
+                  </summary>
+                  <div className="mt-2">
+                    <NutrientRows result={blockResult.result} codes={MACRO_CODES} />
+                  </div>
+                  {block.operation && (
+                    <p className="mt-2 text-[10px] text-ink/35">
+                      Operation: {block.operation}. Nutrients are scaled by the output mass, so a
+                      boiled or reduced block changes the per-100 g values but not the totals.
+                    </p>
+                  )}
+                </details>
+              )}
             </div>
           );
         })}
