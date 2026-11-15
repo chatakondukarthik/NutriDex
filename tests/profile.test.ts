@@ -33,6 +33,7 @@ const woman: Profile = {
   bodyFatPercent: null,
   pace: "steady",
   targetWeightKg: null,
+  targetEnergyKcal: null,
 };
 
 const man: Profile = { ...woman, sex: "male", weightKg: 70, heightCm: 175 };

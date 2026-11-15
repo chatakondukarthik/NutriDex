@@ -32,6 +32,8 @@ export interface Profile {
   pace: Pace;
   /** Optional. Used for the time-to-goal projection only. */
   targetWeightKg: number | null;
+  /** Optional override for the daily energy target, in kcal. */
+  targetEnergyKcal: number | null;
 }
 
 /**
@@ -49,6 +51,7 @@ export const DEFAULT_PROFILE: Profile = {
   bodyFatPercent: null,
   pace: "steady",
   targetWeightKg: null,
+  targetEnergyKcal: null,
 };
 
 export const ACTIVITY_LABELS: Record<Activity, string> = {
@@ -393,6 +396,9 @@ export function parseProfile(
   const targetWeight = optionalNumber(raw.targetWeightKg, 25, 300, "Target weight");
   if (!targetWeight.ok) return targetWeight;
 
+  const targetEnergy = optionalNumber(raw.targetEnergyKcal, 800, 6000, "Energy target");
+  if (!targetEnergy.ok) return targetEnergy;
+
   const pace = raw.pace == null || raw.pace === "" ? "steady" : raw.pace;
   if (!isPace(pace)) {
     return { ok: false, message: "Choose a pace." };
@@ -410,6 +416,7 @@ export function parseProfile(
       bodyFatPercent: bodyFat.value,
       pace,
       targetWeightKg: targetWeight.value,
+      targetEnergyKcal: targetEnergy.value,
     },
   };
 }

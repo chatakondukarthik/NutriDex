@@ -317,6 +317,7 @@ export async function saveProfileAction(
     bodyFatPercent: formData.get("bodyFatPercent"),
     pace: formData.get("pace"),
     targetWeightKg: formData.get("targetWeightKg"),
+    targetEnergyKcal: formData.get("targetEnergyKcal"),
   });
 
   if (!parsed.ok) return { ok: false, message: parsed.message };

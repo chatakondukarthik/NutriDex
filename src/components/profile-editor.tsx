@@ -45,6 +45,7 @@ interface Draft {
   goal: Goal;
   pace: Pace;
   targetWeightKg: string;
+  targetEnergyKcal: string;
 }
 
 function draftFrom(profile: Profile): Draft {
@@ -60,6 +61,8 @@ function draftFrom(profile: Profile): Draft {
     pace: profile.pace,
     targetWeightKg:
       profile.targetWeightKg == null ? "" : String(profile.targetWeightKg),
+    targetEnergyKcal:
+      profile.targetEnergyKcal == null ? "" : String(profile.targetEnergyKcal),
   };
 }
 
@@ -93,6 +96,7 @@ export function ProfileEditor({ profile }: { profile: Profile }) {
         bodyFatPercent: draft.bodyFatPercent,
         pace: draft.pace,
         targetWeightKg: draft.targetWeightKg,
+        targetEnergyKcal: draft.targetEnergyKcal,
       }),
     [draft],
   );
@@ -312,6 +316,30 @@ export function ProfileEditor({ profile }: { profile: Profile }) {
                 : "A target weight needs to be on the side you are heading toward — below your current weight to lose, above it to gain."}
             </p>
           )}
+
+          <label className="mt-4 block">
+            <span className={LABEL}>
+              Energy target override{" "}
+              <span className="font-normal normal-case text-faint">optional</span>
+            </span>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number"
+                name="targetEnergyKcal"
+                min="800"
+                max="6000"
+                step="10"
+                value={draft.targetEnergyKcal}
+                onChange={(event) => patch({ targetEnergyKcal: event.target.value })}
+                placeholder="leave blank to use the calculated value"
+                className={FIELD}
+              />
+              <span className="text-xs text-muted">kcal</span>
+            </div>
+            <p className="mt-1 text-[11px] text-muted">
+              Overrides the derived daily energy target. Use this when you already know your number.
+            </p>
+          </label>
         </section>
 
         {/* ---- calculation --------------------------------------------- */}

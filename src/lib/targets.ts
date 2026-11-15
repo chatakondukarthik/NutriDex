@@ -119,7 +119,7 @@ export function targetsFor(profile: Profile): Target[] {
   const breakdown = energyBreakdown(profile);
 
   const values: Record<NutrientCode, number> = {
-    ENERC_KCAL: breakdown.target,
+    ENERC_KCAL: profile.targetEnergyKcal ?? breakdown.target,
     PROCNT: breakdown.protein,
     FAT: breakdown.fat,
     CHOCDF: breakdown.carbs,
