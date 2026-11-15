@@ -827,6 +827,12 @@ export function PlanBoard({
               })}
             </div>
 
+            {selectedEntries.length === 0 && entries.length === 0 && (
+              <p className="mb-2 rounded-control bg-surface-2 px-3 py-2 text-[11px] leading-relaxed text-muted">
+                This week is empty. Search for a food or recipe on the left and
+                tap a slot to add it. Dragging also works.
+              </p>
+            )}
             <div className="mt-2">{renderDay(selectedDay, false)}</div>
           </div>
 

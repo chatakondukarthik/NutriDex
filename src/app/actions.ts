@@ -622,3 +622,37 @@ export async function lookupBarcodeAction(barcode: string): Promise<{
     return { ok: false, message: error instanceof Error ? error.message : "Lookup failed." };
   }
 }
+
+import { searchUsda, usdaToInput } from "@/lib/food-sources/usda";
+
+export async function searchUsdaAction(query: string): Promise<{
+  ok: boolean;
+  results?: { fdcId: number; name: string; category?: string; nutrients: number }[];
+  message?: string;
+}> {
+  try {
+    const foods = await searchUsda(query);
+    return {
+      ok: true,
+      results: foods.map((f) => ({
+        fdcId: f.fdcId,
+        name: f.name,
+        category: f.category,
+        nutrients: Object.keys(f.nutrients).length,
+      })),
+    };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Search failed." };
+  }
+}
+
+export async function importUsdaAction(fdcId: number): Promise<{ ok: boolean; proposal?: any; message?: string }> {
+  try {
+    const { getUsdaFood, usdaToInput } = await import("@/lib/food-sources/usda");
+    const food = await getUsdaFood(fdcId);
+    if (!food) return { ok: false, message: "That food could not be loaded." };
+    return { ok: true, proposal: usdaToInput(food) };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Import failed." };
+  }
+}

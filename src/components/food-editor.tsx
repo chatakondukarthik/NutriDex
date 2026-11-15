@@ -7,6 +7,8 @@ import {
   updateCapturedFoodAction,
   extractFoodAction,
   lookupBarcodeAction,
+  searchUsdaAction,
+  importUsdaAction,
   promoteFoodToRecipeAction,
 } from "@/app/actions";
 import type { CapturedFoodInput } from "@/lib/captured-food";
@@ -50,6 +52,8 @@ export function FoodEditor({ initial, mode, ai }: Props) {
   const [aiText, setAiText] = useState("");
   const [aiNote, setAiNote] = useState("");
   const [barcode, setBarcode] = useState("");
+  const [usdaQuery, setUsdaQuery] = useState("");
+  const [usdaResults, setUsdaResults] = useState<{ fdcId: number; name: string; category?: string; nutrients: number }[]>([]);
   const [aiImage, setAiImage] = useState<string | null>(null);
   const [aiImageMime, setAiImageMime] = useState<string>("image/jpeg");
   const [rationale, setRationale] = useState<string | null>(null);
@@ -138,6 +142,25 @@ export function FoodEditor({ initial, mode, ai }: Props) {
     startTransition(async () => {
       const result = await lookupBarcodeAction(barcode.trim());
       if (!result.ok) setMessage(result.message ?? "Lookup failed.");
+      else applyProposal(result.proposal);
+    });
+  }
+
+  function runUsdaSearch() {
+    if (!usdaQuery.trim()) { setMessage("Enter a search term."); return; }
+    setMessage(null);
+    startTransition(async () => {
+      const result = await searchUsdaAction(usdaQuery.trim());
+      if (!result.ok) setMessage(result.message ?? "Search failed.");
+      else setUsdaResults(result.results ?? []);
+    });
+  }
+
+  function runUsdaImport(fdcId: number) {
+    setMessage(null);
+    startTransition(async () => {
+      const result = await importUsdaAction(fdcId);
+      if (!result.ok) setMessage(result.message ?? "Import failed.");
       else applyProposal(result.proposal);
     });
   }
@@ -420,6 +443,44 @@ export function FoodEditor({ initial, mode, ai }: Props) {
                 Look up
               </button>
             </div>
+          </div>
+
+          <div className="mt-4 border-t border-line pt-3">
+            <p className="text-xs font-medium">Or search USDA FoodData Central</p>
+            <p className="text-[11px] text-muted">Public-domain US food data. Import a match into this form.</p>
+            <div className="mt-2 flex gap-2">
+              <input
+                value={usdaQuery}
+                onChange={(e) => setUsdaQuery(e.target.value)}
+                placeholder="e.g. paneer, chicken breast"
+                className="flex-1 rounded-md border border-line bg-bg px-2 py-1.5 text-sm"
+              />
+              <button
+                type="button"
+                onClick={runUsdaSearch}
+                disabled={pending || !usdaQuery.trim()}
+                className="rounded-md border border-line px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+              >
+                Search
+              </button>
+            </div>
+            {usdaResults.length > 0 && (
+              <ul className="mt-2 max-h-48 overflow-auto rounded-md border border-line bg-bg p-2 text-xs">
+                {usdaResults.map((r) => (
+                  <li key={r.fdcId} className="flex items-center justify-between gap-2 py-1">
+                    <span className="truncate">{r.name}{r.category ? ` · ${r.category}` : ""}</span>
+                    <button
+                      type="button"
+                      onClick={() => runUsdaImport(r.fdcId)}
+                      disabled={pending}
+                      className="shrink-0 rounded-md border border-line px-2 py-0.5 text-[11px] font-medium disabled:opacity-50"
+                    >
+                      Import ({r.nutrients} nutrients)
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
           </div>
         </section>
