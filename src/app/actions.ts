@@ -804,3 +804,34 @@ export async function convertAllRecipesToV2Action(): Promise<{ ok: boolean; conv
     return { ok: false, message: error instanceof Error ? error.message : "Conversion failed." };
   }
 }
+
+import { planRecipeFromPrompt, materializeRecipe, type RecipePlan } from "@/lib/ai-generate-recipe";
+
+export async function previewRecipeFromPromptAction(
+  input: { prompt: string },
+): Promise<{ ok: boolean; plan?: RecipePlan; message?: string }> {
+  try {
+    const plan = await planRecipeFromPrompt(input.prompt);
+    return { ok: true, plan };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Could not plan that recipe.",
+    };
+  }
+}
+
+export async function createRecipeFromPlanAction(
+  input: RecipePlan,
+): Promise<{ ok: boolean; recipeId?: string; message?: string }> {
+  try {
+    const { recipeId } = materializeRecipe(input);
+    revalidatePath("/recipes");
+    return { ok: true, recipeId };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Could not create the recipe.",
+    };
+  }
+}
