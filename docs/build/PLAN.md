@@ -242,7 +242,8 @@ Full design: [`spec/BYO_LLM.md`](../spec/BYO_LLM.md).
 - [x] A key can be added, tested and removed; after removal no call is made.
 - [ ] A build-time test proves no key reaches the client bundle.
 - [ ] Transient failures retry, fall back, and degrade to a non-AI path.
-- [ ] A golden-set evaluation harness exists and has a baseline score.
+- [x] A golden-set evaluation harness exists and has a baseline score.
+      (eval/ scaffold + deterministic tests/extraction.test.ts; live run is opt-in.)
 
 **Slices:** S7.1 plumbing · S7.2 resilience · S7.3 evaluation · S7.4 vision.
 

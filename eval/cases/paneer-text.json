@@ -1,0 +1,11 @@
+{
+  "id": "text-paneer-homemade",
+  "kind": "text",
+  "input": "100 gm of homemade panner, made with skimmed milk",
+  "expect": {
+    "name": "Paneer",
+    "basis": "per_100g",
+    "kind": "provisional",
+    "nutrientsPresent": ["ENERC_KCAL", "PROCNT", "FAT"]
+  }
+}

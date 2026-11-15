@@ -1,0 +1,10 @@
+{
+  "id": "label-milk-whole",
+  "kind": "label",
+  "input": "fixtures/milk-label.jpg",
+  "expect": {
+    "name": "Milk",
+    "basis": "per_100g",
+    "nutrientsPresent": ["ENERC_KCAL", "PROCNT", "FAT", "CHOCDF"]
+  }
+}
