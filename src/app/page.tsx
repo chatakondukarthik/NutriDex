@@ -22,6 +22,7 @@ export default async function HomePage({
 
   // Planned for this day, so the Diary reflects the plan live.
   const plan = getPlan(weekStart(day));
+  const allRecipes = listRecipeOptions();
   const foodById = new Map(foods.map((f) => [f.id, f]));
   const recipeByVersion = new Map(listRecipeOptions().map((o) => [o.versionId, o]));
   const plannedRaw = plan ? entriesForDay(listPlanEntries(plan.id), day) : [];
@@ -46,5 +47,5 @@ export default async function HomePage({
   });
   const plannedKcal = planned.reduce((sum, item) => sum + (item.kcal ?? 0), 0);
 
-  return <Diary foods={foods} entries={entries} targets={targets} day={day} planned={planned} plannedKcal={plannedKcal} />;
+  return <Diary foods={foods} recipes={allRecipes} entries={entries} targets={targets} day={day} planned={planned} plannedKcal={plannedKcal} />;
 }

@@ -34,3 +34,6 @@ yarn-error.log*
 # next
 next-env.d.ts
 tsconfig.tsbuildinfo
+
+# runtime data (database, key storage)
+data/

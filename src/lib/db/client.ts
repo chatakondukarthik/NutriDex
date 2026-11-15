@@ -30,13 +30,16 @@ const SCHEMA = `
   PRAGMA foreign_keys = ON;
 
   CREATE TABLE IF NOT EXISTS entries (
-    id          TEXT PRIMARY KEY,
-    food_id     TEXT NOT NULL,
-    grams       REAL NOT NULL,
-    amount      REAL NOT NULL,
-    unit        TEXT NOT NULL,
-    day         TEXT NOT NULL,
-    created_at  TEXT NOT NULL
+    id                TEXT PRIMARY KEY,
+    food_id           TEXT,
+    -- A diary entry is a food OR a pinned recipe version, never both.
+    recipe_version_id TEXT REFERENCES recipe_versions (id),
+    grams             REAL NOT NULL,
+    amount            REAL NOT NULL,
+    unit              TEXT NOT NULL,
+    day               TEXT NOT NULL,
+    created_at        TEXT NOT NULL,
+    CHECK ((food_id IS NOT NULL) <> (recipe_version_id IS NOT NULL))
   );
 
   CREATE INDEX IF NOT EXISTS entries_day_idx ON entries (day, created_at);
@@ -251,6 +254,44 @@ function migrate(database: DatabaseSync): void {
   addColumn(database, "recipe_versions", "label", "TEXT");
   addColumn(database, "profile", "target_energy_kcal", "REAL");
   addColumn(database, "recipes", "archived_at", "TEXT");
+  rebuildEntriesTable(database);
+}
+
+/**
+ * Extend `entries` to also hold at most one recipe-version per row, with the
+ * same XOR shape as plan_entries. Done as a rebuild because ALTER can't drop
+ * the original NOT NULL on food_id.
+ */
+function rebuildEntriesTable(database: DatabaseSync): void {
+  const columns = database
+    .prepare("PRAGMA table_info(entries)")
+    .all() as unknown as Array<{ name: string }>;
+
+  if (columns.some((column) => column.name === "recipe_version_id")) return;
+
+  database.exec(`
+    ALTER TABLE entries RENAME TO entries_v1;
+
+    -- A diary entry is a food OR a pinned recipe version, never both.
+    CREATE TABLE entries (
+      id                TEXT PRIMARY KEY,
+      food_id           TEXT,
+      recipe_version_id TEXT REFERENCES recipe_versions (id),
+      grams             REAL NOT NULL,
+      amount            REAL NOT NULL,
+      unit              TEXT NOT NULL,
+      day               TEXT NOT NULL,
+      created_at        TEXT NOT NULL,
+      CHECK ((food_id IS NOT NULL) <> (recipe_version_id IS NOT NULL))
+    );
+
+    INSERT INTO entries (id, food_id, grams, amount, unit, day, created_at)
+      SELECT id, food_id, grams, amount, unit, day, created_at FROM entries_v1;
+
+    DROP TABLE entries_v1;
+
+    CREATE INDEX IF NOT EXISTS entries_day_idx ON entries (day, created_at);
+  `);
 }
 
 /**

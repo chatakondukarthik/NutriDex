@@ -99,6 +99,46 @@ describe("removeEntryAction", () => {
 const WEEK = "2026-11-09"; // Monday
 const DAY = "2026-11-11"; // Wednesday
 
+describe("addRecipeEntryAction", () => {
+  it("logs a pinned recipe version at the current servings", async () => {
+    const saved = recipes.saveRecipeDraft({
+      name: "Dal tadka",
+      instructions: "",
+      servings: 2,
+      blocks: [{ inputs: [{ foodId: "toor-dal", amount: 200, unit: "g" }] }],
+    });
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+
+    const result = await actions.addRecipeEntryAction({
+      recipeVersionId: saved.versionId,
+      servings: 1.5,
+    });
+
+    expect(result.ok).toBe(true);
+    const rows = entries.listEntries(entries.today());
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      recipeVersionId: saved.versionId,
+      foodId: null,
+      amount: 1.5,
+      unit: "serving",
+    });
+    expect(rows[0].grams).toBeGreaterThan(0);
+  });
+
+  it.each([
+    [{ recipeVersionId: "missing", servings: 1 }, /no longer exists/i],
+    [{ recipeVersionId: "x", servings: 0 }, /no longer exists|positive number/i],
+  ])("rejects %j", async (input, message) => {
+    const result = await actions.addRecipeEntryAction(
+      input as Parameters<typeof actions.addRecipeEntryAction>[0],
+    );
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(message);
+  });
+});
+
 describe("addPlanEntryAction", () => {
   it("adds a food entry", async () => {
     const result = await actions.addPlanEntryAction({

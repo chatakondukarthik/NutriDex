@@ -419,7 +419,7 @@ export function listRecipeOptions(): PlanRecipeOption[] {
   });
 }
 
-/** References from plans to any version of a recipe. */
+/** References from plans or diary entries to any version of a recipe. */
 export function countRecipeReferences(recipeId: string): number {
   const rows = db
     .prepare(`SELECT id FROM recipe_versions WHERE recipe_id = ?`)
@@ -428,8 +428,12 @@ export function countRecipeReferences(recipeId: string): number {
   const ids = rows.map((r) => r.id);
   const placeholders = ids.map(() => "?").join(",");
   const row = db
-    .prepare(`SELECT COUNT(*) AS n FROM plan_entries WHERE recipe_version_id IN (${placeholders})`)
-    .get(...ids) as unknown as { n: number };
+    .prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM plan_entries WHERE recipe_version_id IN (${placeholders})) +
+         (SELECT COUNT(*) FROM entries WHERE recipe_version_id IN (${placeholders})) AS n`,
+    )
+    .get(...ids, ...ids) as unknown as { n: number };
   return row.n;
 }
 

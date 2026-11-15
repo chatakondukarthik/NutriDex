@@ -853,3 +853,36 @@ export async function createRecipeFromPlanAction(
     };
   }
 }
+
+import { addRecipeEntry as addRecipeDiaryEntry } from "@/lib/db/entries";
+import { listRecipeOptions } from "@/lib/db/recipes";
+
+export async function addRecipeEntryAction(input: {
+  recipeVersionId: string;
+  servings: number;
+}): Promise<AddResult> {
+  const version = getVersion(input.recipeVersionId);
+  if (!version) return { ok: false, message: "That recipe version no longer exists." };
+
+  const servings = Number(input.servings);
+  if (!Number.isFinite(servings) || servings <= 0) {
+    return { ok: false, message: "Servings must be a positive number." };
+  }
+
+  // Grams are a convenience for display (per-serving input mass).
+  const snapshot = version.snapshot as unknown as { inputGrams?: number };
+  const perServing = input.servings === 0 ? 1 : snapshot.inputGrams ? snapshot.inputGrams / version.servings : 0;
+  const totalGrams = perServing * servings;
+
+  addRecipeDiaryEntry({
+    recipeVersionId: input.recipeVersionId,
+    servings,
+    grams: totalGrams,
+    amount: servings,
+    unit: "serving",
+    day: today(),
+  });
+
+  revalidatePath("/");
+  return { ok: true };
+}

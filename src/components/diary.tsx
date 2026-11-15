@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { addFoodAction, removeEntryAction } from "@/app/actions";
+import { addFoodAction, addRecipeEntryAction, removeEntryAction } from "@/app/actions";
 import { NutrientBar } from "@/components/nutrient-bar";
 import type { Entry } from "@/lib/db/entries";
 import { dayRollup } from "@/lib/day";
@@ -19,6 +19,7 @@ import {
   type NutrientGroup,
 } from "@/lib/nutrition/types";
 import type { Target } from "@/lib/targets";
+import type { PlanRecipeOption } from "@/lib/plan";
 
 export interface PlannedItem {
   id: string;
@@ -30,6 +31,11 @@ export interface PlannedItem {
 
 interface DiaryProps {
   foods: Food[];
+  /**
+   * All versions of saved recipes — used to resolve names and kcal for older
+   * entries. The search palette only offers current versions.
+   */
+  recipes: PlanRecipeOption[];
   entries: Entry[];
   targets: Target[];
   day: string;
@@ -44,13 +50,16 @@ function parseUnitKey(key: string): { unit: Unit; portionLabel?: string } {
   return { unit: key as Unit };
 }
 
-export function Diary({ foods, entries, targets, day, planned, plannedKcal }: DiaryProps) {
+export function Diary({ foods, entries, targets, day, planned, plannedKcal, recipes }: DiaryProps) {
   const router = useRouter();
   const [query, setQuery] = useState("");
+  const [tab, setTab] = useState<"foods" | "recipes">("foods");
   const [category, setCategory] = useState("All");
   const [mineOnly, setMineOnly] = useState(false);
   const [limit, setLimit] = useState(24);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
+  const [servings, setServings] = useState("1");
   const [amount, setAmount] = useState("100");
   const [unitKey, setUnitKey] = useState("g");
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +76,26 @@ export function Diary({ foods, entries, targets, day, planned, plannedKcal }: Di
     if (mineOnly) list = list.filter((f) => !!f.source);
     return list;
   }, [foods, query, category, mineOnly]);
+  const recipeByVersion = useMemo(
+    () => new Map(recipes.map((option) => [option.versionId, option])),
+    [recipes],
+  );
+
+  const currentRecipes = useMemo(
+    () => recipes.filter((option) => option.isCurrent),
+    [recipes],
+  );
+
+  const recipeResults = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return currentRecipes;
+    return currentRecipes.filter((option) => option.name.toLowerCase().includes(q));
+  }, [currentRecipes, query]);
+
   const selectedFood = foods.find((f) => f.id === selectedId) ?? null;
+  const selectedRecipe = selectedRecipeId
+    ? recipeByVersion.get(selectedRecipeId) ?? null
+    : null;
   const result = useMemo(
     () =>
       dayRollup(
@@ -85,8 +113,9 @@ export function Diary({ foods, entries, targets, day, planned, plannedKcal }: Di
               NUTRIENT_CODES.map((code) => [code, { amount: null, status: "unknown", source: "none" }]),
             ) as Food["nutrients"],
           },
+        recipeByVersion,
       ),
-    [entries, foods],
+    [entries, foods, recipeByVersion],
   );
 
   const targetByCode = useMemo(
@@ -146,6 +175,45 @@ export function Diary({ foods, entries, targets, day, planned, plannedKcal }: Di
       await removeEntryAction(id);
     });
   }
+
+  function selectRecipe(option: PlanRecipeOption) {
+    setSelectedRecipeId((current) => (current === option.versionId ? null : option.versionId));
+    setSelectedId(null);
+    setError(null);
+    setServings("1");
+  }
+
+  function submitRecipe() {
+    if (!selectedRecipe) return;
+    setError(null);
+    const count = Number(servings);
+    if (!Number.isFinite(count) || count <= 0) {
+      setError("Servings must be a positive number.");
+      return;
+    }
+
+    startTransition(async () => {
+      const response = await addRecipeEntryAction({
+        recipeVersionId: selectedRecipe.versionId,
+        servings: count,
+      });
+
+      if (!response.ok) {
+        setError(response.message ?? "Could not add this recipe.");
+        return;
+      }
+      setSelectedRecipeId(null);
+      setServings("1");
+    });
+  }
+
+  const recipePreviewKcal = useMemo(() => {
+    if (!selectedRecipe) return null;
+    const perServing = selectedRecipe.perServing.totals.ENERC_KCAL;
+    const count = Number(servings);
+    if (perServing == null || !Number.isFinite(count) || count <= 0) return null;
+    return perServing * count;
+  }, [selectedRecipe, servings]);
 
   const groups: { key: NutrientGroup; label: string }[] = [
     { key: "macro", label: "Macros" },
@@ -209,7 +277,7 @@ export function Diary({ foods, entries, targets, day, planned, plannedKcal }: Di
                 Open in plan →
               </Link>
             </div>
-            <ul className="mt-2 divide-y divide-line">
+            <ul className="mt-2 max-h-52 divide-y divide-line overflow-y-auto">
               {planned.map((item) => (
                 <li key={item.id} className="flex items-baseline gap-3 py-1.5 text-sm">
                   <span className="w-20 shrink-0 text-[10px] uppercase tracking-wide text-ink/35">
@@ -232,9 +300,43 @@ export function Diary({ foods, entries, targets, day, planned, plannedKcal }: Di
         <div className="grid gap-5 lg:grid-cols-[1fr_420px] lg:items-start">
         {/* ---- Food search ---------------------------------------------- */}
         <section className="min-w-0 rounded-2xl border border-line bg-surface p-5 shadow-card">
-          <h2 className="text-sm font-semibold">Find a food</h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold">
+              {tab === "foods" ? "Find a food" : "Find a recipe"}
+            </h2>
+            <div
+              className="flex h-8 items-center gap-0.5 rounded-lg bg-ink/[0.06] p-0.5 text-[11px]"
+              role="tablist"
+              aria-label="Search foods or recipes"
+            >
+              {([
+                { value: "foods", label: "Foods" },
+                { value: "recipes", label: `Recipes (${currentRecipes.length})` },
+              ] as const).map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === option.value}
+                  onClick={() => {
+                    setTab(option.value);
+                    setError(null);
+                  }}
+                  className={`rounded-md px-3 py-1 font-medium transition ${
+                    tab === option.value
+                      ? "bg-surface text-ink shadow-sm"
+                      : "text-muted hover:text-ink"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <p className="mt-1 text-xs text-ink/45">
-            Search by name or a common Indian name.
+            {tab === "foods"
+              ? "Search by name or a common Indian name."
+              : "Saved recipes, logged at their current version."}
           </p>
 
           <input
@@ -243,29 +345,40 @@ export function Diary({ foods, entries, targets, day, planned, plannedKcal }: Di
             placeholder="paneer, palak, dal, doodh…"
             className="mt-3 w-full rounded-xl border border-line bg-surface-2 px-3.5 py-2.5 text-sm outline-none placeholder:text-ink/30 focus:border-accent/50 focus:ring-2 focus:ring-accent/10"
           />
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <select
-              value={category}
-              onChange={(event) => setCategory(event.target.value)}
-              aria-label="Filter by category"
-              className="h-7 rounded-md border border-line bg-bg px-2 text-[11px]"
-            >
-              {categories.map((c) => (
-                <option key={c}>{c}</option>
-              ))}
-            </select>
-            <label className="flex h-7 cursor-pointer items-center gap-1 text-[11px] text-muted">
-              <input type="checkbox" checked={mineOnly} onChange={(event) => setMineOnly(event.target.checked)} />
-              My foods only
-            </label>
-          </div>
+          {tab === "foods" && (
+            <>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <select
+                  value={category}
+                  onChange={(event) => setCategory(event.target.value)}
+                  aria-label="Filter by category"
+                  className="h-7 rounded-md border border-line bg-bg px-2 text-[11px]"
+                >
+                  {categories.map((c) => (
+                    <option key={c}>{c}</option>
+                  ))}
+                </select>
+                <label className="flex h-7 cursor-pointer items-center gap-1 text-[11px] text-muted">
+                  <input type="checkbox" checked={mineOnly} onChange={(event) => setMineOnly(event.target.checked)} />
+                  My foods only
+                </label>
+              </div>
 
-          <div className="mt-2 flex items-center justify-between text-[11px] text-ink/40">
-            <span>{results.length} foods</span>
-            <span>values per 100 g</span>
-          </div>
+              <div className="mt-2 flex items-center justify-between text-[11px] text-ink/40">
+                <span>{results.length} foods</span>
+                <span>values per 100 g</span>
+              </div>
+            </>
+          )}
+          {tab === "recipes" && (
+            <div className="mt-2 flex items-center justify-between text-[11px] text-ink/40">
+              <span>{recipeResults.length} {recipeResults.length === 1 ? "recipe" : "recipes"}</span>
+              <span>kcal per serving</span>
+            </div>
+          )}
 
-          <ul className="mt-2 divide-y divide-line">
+          {tab === "foods" && (
+          <ul className="mt-2 max-h-[440px] divide-y divide-line overflow-y-auto pr-1">
             {results.slice(0, limit).map((food) => {
               const kcal = food.nutrients.ENERC_KCAL.amount;
               const isOpen = food.id === selectedId;
@@ -363,7 +476,8 @@ export function Diary({ foods, entries, targets, day, planned, plannedKcal }: Di
               );
             })}
           </ul>
-          {results.length > limit && (
+          )}
+          {tab === "foods" && results.length > limit && (
             <button
               type="button"
               onClick={() => setLimit((value) => value + 24)}
@@ -371,6 +485,98 @@ export function Diary({ foods, entries, targets, day, planned, plannedKcal }: Di
             >
               Show more ({results.length - limit} more)
             </button>
+          )}
+
+          {tab === "recipes" && (
+            <>
+              {currentRecipes.length === 0 ? (
+                <p className="mt-3 rounded-xl border border-dashed border-line px-3 py-8 text-center text-xs text-ink/40">
+                  No saved recipes yet.{" "}
+                  <Link href="/recipes/new" className="font-medium text-accent hover:underline">
+                    Create one →
+                  </Link>
+                </p>
+              ) : recipeResults.length === 0 ? (
+                <p className="mt-3 rounded-xl border border-dashed border-line px-3 py-8 text-center text-xs text-ink/40">
+                  No recipes match “{query}”.
+                </p>
+              ) : (
+                <ul className="mt-2 max-h-[440px] divide-y divide-line overflow-y-auto pr-1">
+                  {recipeResults.map((option) => {
+                    const kcal = option.perServing.totals.ENERC_KCAL;
+                    const isOpen = option.versionId === selectedRecipeId;
+
+                    return (
+                      <li key={option.versionId} className="py-1">
+                        <button
+                          type="button"
+                          onClick={() => selectRecipe(option)}
+                          aria-expanded={isOpen}
+                          className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2.5 text-left transition hover:bg-surface-2"
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium">{option.name}</span>
+                            <span className="block truncate text-[11px] text-ink/40">
+                              v{option.versionNo}
+                              {option.label ? ` · ${option.label}` : ""}
+                              {" · makes "}
+                              {fmt(option.servings, option.servings % 1 === 0 ? 0 : 1)}{" "}
+                              {option.servings === 1 ? "serving" : "servings"}
+                            </span>
+                          </span>
+                          <span className="tabular shrink-0 text-right text-xs text-ink/55">
+                            {fmt(kcal, 0)} kcal
+                          </span>
+                        </button>
+
+                        {isOpen && (
+                          <div className="mb-2 ml-2 rounded-xl border border-line bg-surface-2 p-3">
+                            <div className="flex flex-wrap items-end gap-2">
+                              <label className="flex-1">
+                                <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-ink/40">
+                                  Servings
+                                </span>
+                                <input
+                                  type="number"
+                                  min="0.25"
+                                  step="0.25"
+                                  value={servings}
+                                  onChange={(event) => setServings(event.target.value)}
+                                  className="w-full rounded-lg border border-line bg-surface px-2.5 py-2 text-sm outline-none focus:border-accent/50"
+                                />
+                              </label>
+
+                              <button
+                                type="button"
+                                onClick={submitRecipe}
+                                disabled={pending}
+                                className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-ink transition hover:bg-accent-strong disabled:opacity-50"
+                              >
+                                {pending ? "Adding…" : "Add"}
+                              </button>
+                            </div>
+
+                            <p className="mt-2 text-[11px] text-ink/50">
+                              {recipePreviewKcal != null ? (
+                                <>
+                                  = <span className="tabular font-medium">{fmt(recipePreviewKcal, 0)} kcal</span>
+                                  {" · "}
+                                  pinned to v{option.versionNo}
+                                </>
+                              ) : (
+                                "Enter a positive number of servings."
+                              )}
+                            </p>
+
+                            {error && <p className="mt-1 text-[11px] text-danger">{error}</p>}
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </>
           )}
         </section>
 
@@ -448,11 +654,41 @@ export function Diary({ foods, entries, targets, day, planned, plannedKcal }: Di
 
             {entries.length === 0 ? (
               <p className="mt-3 rounded-xl border border-dashed border-line px-3 py-6 text-center text-xs text-ink/40">
-                Nothing yet. Search for a food to add your first entry.
+                Nothing yet. Search foods or recipes to add your first entry.
               </p>
             ) : (
-              <ul className="mt-2 divide-y divide-line">
+              <ul className="mt-2 max-h-80 divide-y divide-line overflow-y-auto pr-1">
                 {entries.map((entry) => {
+                  if (entry.recipeVersionId) {
+                    const recipe = recipeByVersion.get(entry.recipeVersionId);
+                    const perServing = recipe?.perServing.totals.ENERC_KCAL ?? null;
+                    const entryKcal = perServing != null ? perServing * entry.amount : null;
+                    const label = recipe
+                      ? `${recipe.name} · v${recipe.versionNo}${recipe.label ? ` · ${recipe.label}` : ""}`
+                      : "Deleted recipe";
+
+                    return (
+                      <li key={entry.id} className="flex items-center gap-3 py-2.5">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm">{label}</div>
+                          <div className="text-[11px] text-ink/40">
+                            {fmt(entry.amount, entry.amount % 1 === 0 ? 0 : 2)}{" "}
+                            {entry.amount === 1 ? "serving" : "servings"}
+                          </div>
+                        </div>
+                        <div className="tabular text-xs text-ink/55">{fmt(entryKcal, 0)} kcal</div>
+                        <button
+                          type="button"
+                          onClick={() => remove(entry.id)}
+                          aria-label={`Remove ${recipe?.name ?? "recipe entry"}`}
+                          className="grid h-6 w-6 place-items-center rounded-md text-ink/30 transition hover:bg-ink/5 hover:text-ink/60"
+                        >
+                          ×
+                        </button>
+                      </li>
+                    );
+                  }
+
                   const food = foods.find((f) => f.id === entry.foodId);
                   const kcal = food?.nutrients.ENERC_KCAL.amount;
                   const entryKcal = kcal != null ? (kcal * entry.grams) / 100 : null;

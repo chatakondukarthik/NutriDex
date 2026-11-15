@@ -124,6 +124,43 @@ describe("migrations", () => {
   });
 });
 
+function insertDiaryEntry(overrides: {
+  id: string;
+  foodId?: string | null;
+  recipeVersionId?: string | null;
+}) {
+  db.prepare(
+    `INSERT INTO entries (id, food_id, recipe_version_id, grams, amount, unit, day, created_at)
+     VALUES (?, ?, ?, 100, 1, 'g', '2026-01-01', ?)`,
+  ).run(
+    overrides.id,
+    overrides.foodId ?? null,
+    overrides.recipeVersionId ?? null,
+    "2026-01-01T00:00:00.000Z",
+  );
+}
+
+describe("diary entry cardinality", () => {
+  it("rejects an entry that is both a food and a recipe", () => {
+    insertRecipe("r-diary-both");
+    insertVersion("v-diary-both", "r-diary-both");
+
+    expect(() =>
+      insertDiaryEntry({ id: "e-diary-both", foodId: "paneer", recipeVersionId: "v-diary-both" }),
+    ).toThrow(/CHECK/i);
+  });
+
+  it("rejects an entry that is neither a food nor a recipe", () => {
+    expect(() =>
+      insertDiaryEntry({ id: "e-diary-neither", foodId: null, recipeVersionId: null }),
+    ).toThrow(/CHECK/i);
+  });
+
+  it("accepts exactly one of the two", () => {
+    expect(() => insertDiaryEntry({ id: "e-diary-food", foodId: "paneer" })).not.toThrow();
+  });
+});
+
 describe("plan entry cardinality", () => {
   it("rejects an entry that is both a food and a recipe", () => {
     insertRecipe("r-both");
@@ -152,6 +189,12 @@ describe("plan entry cardinality", () => {
 });
 
 describe("referential integrity", () => {
+  it("refuses a diary entry pointing at a missing recipe version", () => {
+    expect(() =>
+      insertDiaryEntry({ id: "e-diary-ghost", recipeVersionId: "missing-version" }),
+    ).toThrow(/FOREIGN KEY/i);
+  });
+
   it("refuses a plan entry pointing at a missing recipe version", () => {
     insertPlan("p-ghost");
 
