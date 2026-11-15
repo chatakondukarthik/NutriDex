@@ -57,6 +57,7 @@ export function FoodEditor({ initial, mode, ai }: Props) {
   const [aiImage, setAiImage] = useState<string | null>(null);
   const [aiImageMime, setAiImageMime] = useState<string>("image/jpeg");
   const [rationale, setRationale] = useState<string | null>(null);
+  const [method, setMethod] = useState<"manual" | "ai" | "barcode" | "usda">("manual");
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -221,6 +222,22 @@ export function FoodEditor({ initial, mode, ai }: Props) {
         {mode === "create" ? "New food" : `Edit ${initial?.name}`}
       </h1>
 
+      <div className="mt-3 flex flex-wrap gap-1 rounded-lg bg-ink/[0.06] p-0.5 text-xs">
+        {(["manual", "ai", "barcode", "usda"] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => setMethod(m)}
+            className={
+              "rounded-md px-3 py-1.5 font-medium transition " +
+              (method === m ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink")
+            }
+          >
+            {m === "manual" ? "Manual" : m === "ai" ? "AI fill" : m === "barcode" ? "Barcode" : "USDA search"}
+          </button>
+        ))}
+      </div>
+
       <div className="mt-4 grid gap-6 lg:grid-cols-2">
         {/* Manual form */}
         <section className="rounded-lg border border-line bg-surface p-4">
@@ -364,7 +381,13 @@ export function FoodEditor({ initial, mode, ai }: Props) {
             Describe the food or paste a label. The model proposes values; you review and save.
           </p>
 
-          {!aiAvailable && (
+          {method === "manual" && (
+            <p className="mt-3 text-xs text-muted">
+              Enter the details on the left. You can switch to AI, Barcode or USDA above to pre-fill.
+            </p>
+          )}
+
+          {!aiAvailable && method === "ai" && (
             <div className="mt-3 rounded-md border border-dashed border-line bg-bg p-3 text-xs text-muted">
               {!ai?.enabled
                 ? "AI is turned off. Turn it on in Settings to use this."
@@ -376,6 +399,8 @@ export function FoodEditor({ initial, mode, ai }: Props) {
             </div>
           )}
 
+          {method === "ai" && (
+            <>
           <label className="mt-3 flex flex-col gap-1 text-xs">
             <span className="font-medium">Description</span>
             <textarea
@@ -417,13 +442,17 @@ export function FoodEditor({ initial, mode, ai }: Props) {
             <button
               type="button"
               onClick={runImageExtract}
-              disabled={pending || !aiImage}
+              disabled={!aiAvailable || pending || !aiImage}
               className="mt-2 rounded-md border border-line px-3 py-1.5 text-xs font-medium disabled:opacity-50"
             >
               Extract from image
             </button>
             {aiImage && <p className="mt-1 text-[11px] text-muted">Image loaded.</p>}
+          </div>
+            </>
+          )}
 
+          {method === "barcode" && (
           <div className="mt-4 border-t border-line pt-3">
             <p className="text-xs font-medium">Or look up a barcode</p>
             <p className="text-[11px] text-muted">Open Food Facts. Works for packaged foods.</p>
@@ -444,7 +473,9 @@ export function FoodEditor({ initial, mode, ai }: Props) {
               </button>
             </div>
           </div>
+          )}
 
+          {method === "usda" && (
           <div className="mt-4 border-t border-line pt-3">
             <p className="text-xs font-medium">Or search USDA FoodData Central</p>
             <p className="text-[11px] text-muted">Public-domain US food data. Import a match into this form.</p>
@@ -482,7 +513,7 @@ export function FoodEditor({ initial, mode, ai }: Props) {
               </ul>
             )}
           </div>
-          </div>
+          )}
         </section>
       </div>
     </main>

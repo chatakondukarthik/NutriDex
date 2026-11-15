@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   addPlanEntryAction,
@@ -90,6 +90,9 @@ export function PlanBoard({
 }: PlanBoardProps) {
   const [entries, setEntries] = useState<PlanEntry[]>(initialEntries);
   const router = useRouter();
+  useEffect(() => {
+    setEntries(initialEntries);
+  }, [initialEntries]);
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<"food" | "recipe">("recipe");
   const [selection, setSelection] = useState<Selection | null>(null);

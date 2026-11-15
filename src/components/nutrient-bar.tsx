@@ -62,9 +62,9 @@ export function NutrientBar(props: NutrientBarProps) {
   const overflow: "none" | "warn" | "danger" =
     unknown || view.reference == null
       ? "none"
-      : ratio >= 1.25
+      : ratio >= 1.2
         ? "danger"
-        : ratio >= 1.1
+        : ratio > 1
           ? "warn"
           : "none";
 
