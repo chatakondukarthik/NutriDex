@@ -41,7 +41,7 @@ describe("INDB importer", () => {
     const csv = readFileSync("/tmp/sample_inndb.csv", "utf8");
     importInndb(csv, DEFAULT_INNDB_MAPPING);
     const foods = listCapturedFoods();
-    const paneer = foods.find((f: any) => f.name === "Paneer (homemade)");
+    const paneer = foods.find((f: any) => f.name === "Paneer (homemade)")!;
     expect(paneer).toBeDefined();
     expect(paneer.nutrients.ENERC_KCAL.amount).toBe(265);
     expect(paneer.nutrients.PROCNT.amount).toBe(18.3);
