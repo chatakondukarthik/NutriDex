@@ -53,6 +53,8 @@ const SCHEMA = `
     yield_g             REAL,
     snapshot            TEXT NOT NULL,
     calculation_version TEXT NOT NULL,
+    -- Optional human name for the version ("less salt", "trial 2").
+    label               TEXT,
     created_at          TEXT NOT NULL,
     UNIQUE (recipe_id, version_no)
   );
@@ -88,14 +90,21 @@ const SCHEMA = `
     ON component_inputs (component_id, position);
 
   CREATE TABLE IF NOT EXISTS profile (
-    id         TEXT PRIMARY KEY,
-    sex        TEXT NOT NULL,
-    age_years  REAL NOT NULL,
-    height_cm  REAL NOT NULL,
-    weight_kg  REAL NOT NULL,
-    activity   TEXT NOT NULL,
-    goal       TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    id               TEXT PRIMARY KEY,
+    sex              TEXT NOT NULL,
+    age_years        REAL NOT NULL,
+    height_cm        REAL NOT NULL,
+    weight_kg        REAL NOT NULL,
+    activity         TEXT NOT NULL,
+    goal             TEXT NOT NULL,
+    -- Optional. Switches the energy equation to Katch–McArdle when set.
+    body_fat_percent REAL,
+    -- gentle | steady | fast. Stored as a pace, not a kg figure, so the
+    -- rate follows the current weight instead of going stale.
+    pace             TEXT NOT NULL DEFAULT 'steady',
+    -- Optional. Used for the time-to-goal projection only.
+    target_weight_kg REAL,
+    updated_at       TEXT NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS plans (
@@ -131,8 +140,39 @@ function createDb(): DatabaseSync {
 
   const database = new DatabaseSync(dbPath);
   database.exec(SCHEMA);
+  migrate(database);
 
   return database;
+}
+
+/**
+ * Add columns that were introduced after the first schema.
+ *
+ * `CREATE TABLE IF NOT EXISTS` does nothing to a table that already
+ * exists, so a new column needs an explicit `ALTER TABLE`. Every column
+ * is additive and nullable (or has a default), which is what lets this run
+ * on every boot without a migration framework.
+ */
+function migrate(database: DatabaseSync): void {
+  addColumn(database, "profile", "body_fat_percent", "REAL");
+  addColumn(database, "profile", "pace", "TEXT NOT NULL DEFAULT 'steady'");
+  addColumn(database, "profile", "target_weight_kg", "REAL");
+  addColumn(database, "recipe_versions", "label", "TEXT");
+}
+
+function addColumn(
+  database: DatabaseSync,
+  table: string,
+  column: string,
+  definition: string,
+): void {
+  const columns = database.prepare(`PRAGMA table_info(${table})`).all() as unknown as Array<{
+    name: string;
+  }>;
+
+  if (columns.some((entry) => entry.name === column)) return;
+
+  database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }
 
 export const db: DatabaseSync =

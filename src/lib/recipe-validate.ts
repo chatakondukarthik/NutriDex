@@ -15,6 +15,8 @@ const VALID_UNITS: Unit[] = ["g", "kg", "ml", "l", "portion"];
 export interface RecipeDraft {
   recipeId?: string | null;
   name: string;
+  /** Optional human name for this version ("less salt", "trial 2"). */
+  versionLabel?: string | null;
   instructions: string;
   servings: number;
   blocks: Array<{
@@ -122,6 +124,7 @@ export function prepareVersion(draft: RecipeDraft): PrepareResult {
   return {
     ok: true,
     version: {
+      label: draft.versionLabel?.trim() || null,
       instructions: draft.instructions.trim(),
       servings: draft.servings,
       yieldGrams,

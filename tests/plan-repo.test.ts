@@ -189,6 +189,51 @@ describe("plan entries", () => {
     expect(updated.recipeVersionId).toBe(saved.versionId);
   });
 
+  it("moves an entry without changing what it points at or its quantity", () => {
+    const saved = service.saveRecipeDraft(draft("Moved dish"));
+    if (!saved.ok) throw new Error("fixture failed");
+
+    const plan = planRepo.getOrCreatePlan("2027-01-04");
+    const entry = planRepo.addPlanEntry({
+      planId: plan.id,
+      day: "2027-01-04",
+      slot: "breakfast",
+      recipeVersionId: saved.versionId,
+      servings: 2,
+    });
+
+    const moved = planRepo.movePlanEntry(entry.id, { day: "2027-01-06", slot: "dinner" });
+
+    expect(moved.day).toBe("2027-01-06");
+    expect(moved.slot).toBe("dinner");
+    expect(moved.recipeVersionId).toBe(saved.versionId);
+    expect(moved.servings).toBe(2);
+
+    const stored = planRepo.listPlanEntries(plan.id).find((item) => item.id === entry.id)!;
+    expect(stored).toEqual(moved);
+  });
+
+  it("puts a moved entry at the end of its destination", () => {
+    const plan = planRepo.getOrCreatePlan("2027-01-11");
+    const first = planRepo.addPlanEntry({
+      planId: plan.id,
+      day: "2027-01-11",
+      slot: "lunch",
+      foodId: "curd",
+      grams: 100,
+    });
+    const second = planRepo.addPlanEntry({
+      planId: plan.id,
+      day: "2027-01-11",
+      slot: "dinner",
+      foodId: "paneer",
+      grams: 100,
+    });
+
+    const moved = planRepo.movePlanEntry(second.id, { day: "2027-01-11", slot: "lunch" });
+    expect(moved.position).toBeGreaterThan(first.position);
+  });
+
   it("rejects a quantity of the wrong kind", () => {
     const plan = planRepo.getOrCreatePlan("2026-12-28");
     const entry = planRepo.addPlanEntry({
@@ -250,14 +295,40 @@ describe("pinning", () => {
     expect(after).toBe(before);
   });
 
-  it("offers the current version of each recipe to the palette", () => {
+  it("offers every version of each recipe to the palette", () => {
     const options = recipeRepo.listRecipeOptions();
     expect(options.length).toBeGreaterThan(0);
 
-    for (const option of options) {
-      const recipe = recipeRepo.getRecipe(option.recipeId)!;
-      expect(option.versionId).toBe(recipe.summary.currentVersionId);
-      expect(option.perServing.totals).toBeDefined();
+    const recipeIds = [...new Set(options.map((option) => option.recipeId))];
+
+    for (const recipeId of recipeIds) {
+      const recipe = recipeRepo.getRecipe(recipeId)!;
+      const offered = options.filter((option) => option.recipeId === recipeId);
+
+      // Every stored version is offered, including the current one.
+      expect(offered.map((option) => option.versionId).sort()).toEqual(
+        recipe.versions.map((version) => version.id).sort(),
+      );
+      expect(offered.some((option) => option.versionId === recipe.summary.currentVersionId)).toBe(
+        true,
+      );
+      expect(offered.filter((option) => option.isCurrent)).toHaveLength(1);
     }
+  });
+
+  it("keeps a version label with the version it names", () => {
+    const saved = service.saveRecipeDraft({
+      ...draft("Labelled dish"),
+      versionLabel: "less salt",
+    });
+    if (!saved.ok) throw new Error("fixture failed");
+
+    const version = recipeRepo.getVersion(saved.versionId)!;
+    expect(version.label).toBe("less salt");
+
+    const option = recipeRepo
+      .listRecipeOptions()
+      .find((entry) => entry.versionId === saved.versionId)!;
+    expect(option.label).toBe("less salt");
   });
 });

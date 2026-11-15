@@ -14,8 +14,8 @@ import {
 const INITIAL: ProfileFormState = { ok: false };
 
 const FIELD =
-  "w-full rounded-lg border border-black/10 bg-white px-2.5 py-2 text-sm outline-none focus:border-[#1f6f4a]/50 focus:ring-2 focus:ring-[#1f6f4a]/10";
-const LABEL = "mb-1 block text-[10px] font-medium uppercase tracking-wide text-black/40";
+  "w-full rounded-lg border border-line bg-surface px-2.5 py-2 text-sm outline-none focus:border-accent/50 focus:ring-2 focus:ring-accent/10";
+const LABEL = "mb-1 block text-[10px] font-medium uppercase tracking-wide text-ink/40";
 
 /**
  * The profile form.
@@ -59,7 +59,7 @@ export function ProfileForm({ profile }: { profile: Profile }) {
               defaultValue={profile.ageYears}
               className={FIELD}
             />
-            <span className="text-xs text-black/40">years</span>
+            <span className="text-xs text-ink/40">years</span>
           </div>
         </label>
 
@@ -76,7 +76,7 @@ export function ProfileForm({ profile }: { profile: Profile }) {
               defaultValue={profile.heightCm}
               className={FIELD}
             />
-            <span className="text-xs text-black/40">cm</span>
+            <span className="text-xs text-ink/40">cm</span>
           </div>
         </label>
 
@@ -93,7 +93,7 @@ export function ProfileForm({ profile }: { profile: Profile }) {
               defaultValue={profile.weightKg}
               className={FIELD}
             />
-            <span className="text-xs text-black/40">kg</span>
+            <span className="text-xs text-ink/40">kg</span>
           </div>
         </label>
 
@@ -124,13 +124,13 @@ export function ProfileForm({ profile }: { profile: Profile }) {
         <button
           type="submit"
           disabled={pending}
-          className="rounded-lg bg-[#1f6f4a] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#1a5c3d] disabled:opacity-50"
+          className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-ink transition hover:bg-accent-strong disabled:opacity-50"
         >
           {pending ? "Saving…" : "Save profile"}
         </button>
 
         {state.message && (
-          <p className={`text-[11px] ${state.ok ? "text-[#1f6f4a]" : "text-red-700"}`}>
+          <p className={`text-[11px] ${state.ok ? "text-accent" : "text-danger"}`}>
             {state.message}
           </p>
         )}

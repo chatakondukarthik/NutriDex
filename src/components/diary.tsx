@@ -121,9 +121,9 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
         <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Diary</h1>
-            <p className="mt-1 text-xs text-black/45">{fmtDay(day)}</p>
+            <p className="mt-1 text-xs text-ink/45">{fmtDay(day)}</p>
           </div>
-          <p className="text-[11px] text-black/35">
+          <p className="text-[11px] text-ink/35">
             {entries.length} {entries.length === 1 ? "entry" : "entries"} · coverage shown per
             nutrient
           </p>
@@ -131,9 +131,9 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
 
         <div className="grid gap-5 lg:grid-cols-[1fr_420px] lg:items-start">
         {/* ---- Food search ---------------------------------------------- */}
-        <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+        <section className="rounded-2xl border border-line bg-surface p-5 shadow-card">
           <h2 className="text-sm font-semibold">Find a food</h2>
-          <p className="mt-1 text-xs text-black/45">
+          <p className="mt-1 text-xs text-ink/45">
             Search by name or a common Indian name.
           </p>
 
@@ -141,15 +141,15 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="paneer, palak, dal, doodh…"
-            className="mt-3 w-full rounded-xl border border-black/10 bg-[#faf9f7] px-3.5 py-2.5 text-sm outline-none placeholder:text-black/30 focus:border-[#1f6f4a]/50 focus:ring-2 focus:ring-[#1f6f4a]/10"
+            className="mt-3 w-full rounded-xl border border-line bg-surface-2 px-3.5 py-2.5 text-sm outline-none placeholder:text-ink/30 focus:border-accent/50 focus:ring-2 focus:ring-accent/10"
           />
 
-          <div className="mt-3 flex items-center justify-between text-[11px] text-black/40">
+          <div className="mt-3 flex items-center justify-between text-[11px] text-ink/40">
             <span>{results.length} foods</span>
             <span>values per 100 g</span>
           </div>
 
-          <ul className="mt-2 divide-y divide-black/5">
+          <ul className="mt-2 divide-y divide-line">
             {results.map((food) => {
               const kcal = food.nutrients.ENERC_KCAL.amount;
               const isOpen = food.id === selectedId;
@@ -159,25 +159,25 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
                   <button
                     type="button"
                     onClick={() => select(food)}
-                    className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2.5 text-left transition hover:bg-[#faf9f7]"
+                    className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2.5 text-left transition hover:bg-surface-2"
                   >
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-medium">{food.name}</span>
-                      <span className="block truncate text-[11px] text-black/40">
+                      <span className="block truncate text-[11px] text-ink/40">
                         {food.category} · {food.state}
                         {food.aliases.length > 0 && ` · ${food.aliases.slice(0, 2).join(", ")}`}
                       </span>
                     </span>
-                    <span className="tabular shrink-0 text-right text-xs text-black/55">
+                    <span className="tabular shrink-0 text-right text-xs text-ink/55">
                       {fmt(kcal, 0)} kcal
                     </span>
                   </button>
 
                   {isOpen && (
-                    <div className="mb-2 ml-2 rounded-xl border border-black/[0.07] bg-[#faf9f7] p-3">
+                    <div className="mb-2 ml-2 rounded-xl border border-line bg-surface-2 p-3">
                       <div className="flex flex-wrap items-end gap-2">
                         <label className="flex-1">
-                          <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-black/40">
+                          <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-ink/40">
                             Amount
                           </span>
                           <input
@@ -186,18 +186,18 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
                             step="any"
                             value={amount}
                             onChange={(event) => setAmount(event.target.value)}
-                            className="w-full rounded-lg border border-black/10 bg-white px-2.5 py-2 text-sm outline-none focus:border-[#1f6f4a]/50"
+                            className="w-full rounded-lg border border-line bg-surface px-2.5 py-2 text-sm outline-none focus:border-accent/50"
                           />
                         </label>
 
                         <label className="flex-1">
-                          <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-black/40">
+                          <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-ink/40">
                             Unit
                           </span>
                           <select
                             value={unitKey}
                             onChange={(event) => setUnitKey(event.target.value)}
-                            className="w-full rounded-lg border border-black/10 bg-white px-2.5 py-2 text-sm outline-none focus:border-[#1f6f4a]/50"
+                            className="w-full rounded-lg border border-line bg-surface px-2.5 py-2 text-sm outline-none focus:border-accent/50"
                           >
                             <option value="g">g</option>
                             <option value="ml">ml</option>
@@ -213,13 +213,13 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
                           type="button"
                           onClick={submit}
                           disabled={pending}
-                          className="rounded-lg bg-[#1f6f4a] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#1a5c3d] disabled:opacity-50"
+                          className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-ink transition hover:bg-accent-strong disabled:opacity-50"
                         >
                           {pending ? "Adding…" : "Add"}
                         </button>
                       </div>
 
-                      <p className="mt-2 text-[11px] text-black/50">
+                      <p className="mt-2 text-[11px] text-ink/50">
                         {preview?.ok ? (
                           <>
                             = <span className="tabular font-medium">{fmt(preview.grams, 0)} g</span>
@@ -232,15 +232,15 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
                               </>
                             )}
                             {preview.note && (
-                              <span className="block text-amber-700/80">{preview.note}</span>
+                              <span className="block text-warn-ink">{preview.note}</span>
                             )}
                           </>
                         ) : preview ? (
-                          <span className="text-red-700">{preview.reason}</span>
+                          <span className="text-danger">{preview.reason}</span>
                         ) : null}
                       </p>
 
-                      {error && <p className="mt-1 text-[11px] text-red-700">{error}</p>}
+                      {error && <p className="mt-1 text-[11px] text-danger">{error}</p>}
                     </div>
                   )}
                 </li>
@@ -251,10 +251,10 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
 
         {/* ---- Today ---------------------------------------------------- */}
         <aside className="lg:sticky lg:top-20">
-          <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+          <section className="rounded-2xl border border-line bg-surface p-5 shadow-card">
             <div className="flex items-baseline justify-between">
               <h2 className="text-sm font-semibold">Today</h2>
-              <span className="text-[11px] text-black/40">
+              <span className="text-[11px] text-ink/40">
                 {entries.length} {entries.length === 1 ? "item" : "items"}
               </span>
             </div>
@@ -263,13 +263,13 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
               <div>
                 <div className="tabular text-3xl font-semibold leading-none">
                   {fmt(energy, 0)}
-                  <span className="ml-1 text-sm font-normal text-black/40">kcal</span>
+                  <span className="ml-1 text-sm font-normal text-ink/40">kcal</span>
                 </div>
-                <div className="mt-1 text-[11px] text-black/40">
+                <div className="mt-1 text-[11px] text-ink/40">
                   of {fmt(energyTarget?.value ?? null, 0)} kcal target
                 </div>
               </div>
-              <div className="text-right text-[11px] text-black/40">
+              <div className="text-right text-[11px] text-ink/40">
                 <div className="tabular">
                   {withData}/{tracked} nutrients
                 </div>
@@ -277,9 +277,9 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
               </div>
             </div>
 
-            <div className="mt-3 h-2 overflow-hidden rounded-full bg-black/[0.06]">
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-ink/10">
               <div
-                className="bar-fill h-full rounded-full bg-[#1f6f4a]"
+                className="bar-fill h-full rounded-full bg-accent"
                 style={{ width: `${energyPct}%` }}
               />
             </div>
@@ -287,7 +287,7 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
             <div className="mt-5 space-y-5">
               {groups.map((group) => (
                 <div key={group.key}>
-                  <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-black/35">
+                  <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-ink/35">
                     {group.label}
                   </h3>
                   <div className="space-y-2.5">
@@ -305,17 +305,22 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
                 </div>
               ))}
             </div>
+
+            <p className="mt-5 border-t border-line pt-3 text-[10px] leading-relaxed text-ink/35">
+              Energy and protein are judged per day. Fibre, vitamins and the limits are weekly
+              averages — see the Plan page&apos;s Week view for those.
+            </p>
           </section>
 
-          <section className="mt-4 rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+          <section className="mt-4 rounded-2xl border border-line bg-surface p-5 shadow-card">
             <h2 className="text-sm font-semibold">Logged</h2>
 
             {entries.length === 0 ? (
-              <p className="mt-3 rounded-xl border border-dashed border-black/10 px-3 py-6 text-center text-xs text-black/40">
+              <p className="mt-3 rounded-xl border border-dashed border-line px-3 py-6 text-center text-xs text-ink/40">
                 Nothing yet. Pick a food on the left to start.
               </p>
             ) : (
-              <ul className="mt-2 divide-y divide-black/5">
+              <ul className="mt-2 divide-y divide-line">
                 {entries.map((entry) => {
                   const food = foods.find((f) => f.id === entry.foodId);
                   const kcal = food?.nutrients.ENERC_KCAL.amount;
@@ -325,7 +330,7 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
                     <li key={entry.id} className="flex items-center gap-3 py-2.5">
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm">{food?.name ?? entry.foodId}</div>
-                        <div className="text-[11px] text-black/40">
+                        <div className="text-[11px] text-ink/40">
                           {fmt(entry.amount, entry.amount % 1 === 0 ? 0 : 1)}{" "}
                           {entry.unit.startsWith("portion:")
                             ? entry.unit.slice("portion:".length)
@@ -334,12 +339,12 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
                           {fmt(entry.grams, 0)} g
                         </div>
                       </div>
-                      <div className="tabular text-xs text-black/55">{fmt(entryKcal, 0)} kcal</div>
+                      <div className="tabular text-xs text-ink/55">{fmt(entryKcal, 0)} kcal</div>
                       <button
                         type="button"
                         onClick={() => remove(entry.id)}
                         aria-label={`Remove ${food?.name ?? "entry"}`}
-                        className="grid h-6 w-6 place-items-center rounded-md text-black/30 transition hover:bg-black/5 hover:text-black/60"
+                        className="grid h-6 w-6 place-items-center rounded-md text-ink/30 transition hover:bg-ink/5 hover:text-ink/60"
                       >
                         ×
                       </button>
@@ -354,7 +359,7 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
       </main>
 
       <footer className="mx-auto max-w-6xl px-5 pb-10 pt-2">
-        <p className="text-[11px] leading-relaxed text-black/35">
+        <p className="text-[11px] leading-relaxed text-ink/35">
           Seed dataset for development. Values are per 100 g edible portion from USDA SR
           Legacy and IFCT 2017 and have not yet been through the verified import pipeline.
           Missing values are shown as unknown, never as zero. This is a planning tool, not

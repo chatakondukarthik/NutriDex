@@ -37,6 +37,7 @@ recipe_versions
   yield_g             REAL                          -- final block's measured output
   snapshot            TEXT NOT NULL                 -- computed RecipeResult, JSON
   calculation_version TEXT NOT NULL
+  label               TEXT                          -- optional human name ("less salt")
   created_at          TEXT NOT NULL
 
 components                                        -- a block inside a version
@@ -70,19 +71,25 @@ Deliberate choices:
   so a data correction cannot silently change a saved recipe (D-024).
 - **The name lives on `recipes`, not the version.** Renaming updates the recipe;
   the version snapshot keeps the numbers it was saved with.
+- **A version can carry a label.** It is optional and free text ("less salt",
+  "trial 2"), stored with the version so the palette can offer *that* version by
+  name. It is not a unique key and never replaces `version_no`.
 - **`kind = 'component'` exists in the schema but no UI creates one yet** (D-023
   is designed, not built).
 
 ```
 profile                                  -- one row, id = 'local'
-  id         TEXT PRIMARY KEY
-  sex        TEXT NOT NULL               -- female | male
-  age_years  REAL NOT NULL
-  height_cm  REAL NOT NULL
-  weight_kg  REAL NOT NULL
-  activity   TEXT NOT NULL               -- sedentary | light | moderate | active
-  goal       TEXT NOT NULL               -- lose | maintain | gain
-  updated_at TEXT NOT NULL
+  id               TEXT PRIMARY KEY
+  sex              TEXT NOT NULL         -- female | male
+  age_years        REAL NOT NULL
+  height_cm        REAL NOT NULL
+  weight_kg        REAL NOT NULL
+  activity         TEXT NOT NULL         -- sedentary | light | moderate | active
+  goal             TEXT NOT NULL         -- lose | maintain | gain
+  body_fat_percent REAL                  -- optional; switches BMR to Katch–McArdle
+  pace             TEXT NOT NULL DEFAULT 'steady'   -- gentle | steady | fast
+  target_weight_kg REAL                  -- optional; projection only
+  updated_at       TEXT NOT NULL
 
 plans
   id         TEXT PRIMARY KEY
@@ -115,6 +122,15 @@ Deliberate choices:
   planned week stable when a recipe is edited (D-024).
 - **Targets are not stored.** They are derived from `profile` on read, so there
   is no 18-row target set to keep in sync (D-030).
+- **Pace is an enum, not a kg/week column.** The rate is a share of body weight,
+  so it stays correct as the weight changes instead of going stale (D-031).
+- **Body fat and target weight are nullable.** Body fat upgrades the energy
+  equation; target weight only feeds a projection. Neither is required to use
+  the app, so neither is a `NOT NULL` the form has to fake.
+
+Schema changes are additive and idempotent: `migrate()` reads `PRAGMA
+table_info` and adds any missing column, so an existing local database upgrades
+in place instead of being dropped. Fresh databases get the full schema above.
 
 Foods are read-only seed data in `src/lib/data/foods.ts` for now. They move into
 the database when the importer lands.

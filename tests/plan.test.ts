@@ -32,6 +32,8 @@ const recipe: PlanRecipeOption = {
   name: "Test dish",
   versionId: "v1",
   versionNo: 1,
+  label: null,
+  isCurrent: true,
   servings: 2,
   perServing: perServing(rollup([{ label: "x", profile: recipeProfile, grams: 100 }]), 2),
 };

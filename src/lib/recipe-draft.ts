@@ -46,6 +46,7 @@ export interface BuilderBlock {
 
 export interface BuilderState {
   name: string;
+  versionLabel: string;
   instructions: string;
   servings: string;
   blocks: BuilderBlock[];
@@ -81,6 +82,7 @@ export function emptyBlock(name = "Ingredients"): BuilderBlock {
 export function emptyBuilder(): BuilderState {
   return {
     name: "",
+    versionLabel: "",
     instructions: "",
     servings: "2",
     blocks: [emptyBlock()],
@@ -90,6 +92,7 @@ export function emptyBuilder(): BuilderState {
 export function builderFromDraft(draft: Omit<RecipeDraft, "recipeId">): BuilderState {
   return {
     name: draft.name,
+    versionLabel: draft.versionLabel ?? "",
     instructions: draft.instructions,
     servings: String(draft.servings),
     blocks: draft.blocks.map((block, index) => ({
@@ -115,6 +118,7 @@ export function builderFromDraft(draft: Omit<RecipeDraft, "recipeId">): BuilderS
 export function builderFromVersion(version: RecipeVersionDetail): BuilderState {
   return {
     name: version.recipeName,
+    versionLabel: "",
     instructions: version.instructions,
     servings: String(version.servings),
     blocks: version.blocks.map((block) => ({
@@ -166,6 +170,7 @@ export function builderToDraft(state: BuilderState, recipeId?: string | null): R
   return {
     recipeId: recipeId ?? null,
     name: state.name,
+    versionLabel: state.versionLabel.trim() || null,
     instructions: state.instructions,
     servings: toNumber(state.servings),
     blocks: state.blocks.map((block) => ({

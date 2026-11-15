@@ -93,6 +93,8 @@ Entities: [`../reference/DATA-MODEL.md`](../reference/DATA-MODEL.md).
 |---|---|---|---|
 | D-029 | A plan is one Monday-based week; an entry is a food XOR a pinned recipe version | Agreed | [below](#d-029--a-plan-is-a-week-of-pinned-entries) |
 | D-030 | Daily targets are derived from a stored profile on read, never stored | Agreed | [below](#d-030--targets-are-derived-from-the-profile) |
+| D-031 | Pace is a body-weight rate, and the energy rails are visible | Agreed | [below](#d-031--pace-is-a-body-weight-rate-and-the-rails-are-visible) |
+| D-032 | A day and a week are different judgement windows | Agreed | [below](#d-032--a-day-and-a-week-are-different-judgement-windows) |
 
 ### Engineering
 
@@ -279,6 +281,122 @@ nutrient vocabulary, not from the target list.
 | Store 18 target rows per user | 18 rows to keep in sync for a value that is cheap to derive |
 | Keep a fixed adult target | The product asks for a profile; it should use it |
 | Ship a range per nutrient now | Q-003 is open, and a range changes the bar semantics |
+
+---
+
+### D-031 — Pace is a body-weight rate, and the rails are visible
+
+**Status:** Agreed
+**Date:** 2026-11-15
+**Relates to:** D-030, Q-003
+
+**Context**
+
+The first energy target applied a fixed delta (−400 / 0 / +300 kcal). That
+number means something different to a 55 kg person and a 120 kg person, so the
+same "lose weight" choice produced a gentle deficit for one and an aggressive one
+for the other. It also made the pace impossible to explain: the user chose
+"lose", not "lose 400 kcal".
+
+**Decision**
+
+Store the pace as an enum (`gentle`, `steady`, `fast`) and derive the rate as a
+share of current body weight per week:
+
+| Goal | Gentle | Steady | Fast |
+|---|---|---|---|
+| Lose | 0.25 % | 0.5 % | 0.75 % |
+| Gain | 0.125 % | 0.25 % | 0.5 % |
+
+Convert the rate to a daily adjustment at 7,700 kcal/kg. Apply three rails:
+
+- never below 1,200 kcal (female) / 1,500 kcal (male);
+- never a deficit above 25 % of maintenance;
+- never a surplus above 15 % of maintenance.
+
+Report the **effective** rate — what the applied adjustment actually implies —
+and use it for the target-weight projection. When a rail bites, say so next to
+the number.
+
+Body fat percentage is an optional field. When present, BMR switches from
+Mifflin–St Jeor to Katch–McArdle, because lean mass is the better predictor.
+Target weight is optional and only feeds a projection; it never changes a target.
+
+**Consequences**
+
+- The rate follows the current weight, so it does not go stale as the user loses
+  or gains.
+- A capped pace shows a smaller kg/week than the option promises. That is the
+  honest number, and the UI discloses the cap rather than silently rounding.
+- The profile form grows three optional fields. Two are nullable and one has a
+  default, so the additive migration applies without a rewrite.
+- The rails are product policy, not clinical advice. They are labelled as guard
+  rails and do not replace medical guidance.
+
+**Alternatives rejected**
+
+| Alternative | Why it lost |
+|---|---|
+| Keep a fixed kcal delta | The same choice means different things at different body weights |
+| Store kg/week directly | It goes stale the moment the weight changes |
+| Drop the rails and let the user choose any deficit | A 40 % deficit is reachable by tapping "fast" and is not a safe default |
+| Show the requested rate even when capped | It promises a rate the target cannot deliver |
+
+---
+
+### D-032 — A day and a week are different judgement windows
+
+**Status:** Agreed
+**Date:** 2026-11-15
+**Relates to:** D-025, D-030
+
+**Context**
+
+Every nutrient had one daily target and every bar was judged against it. That
+made a low-fibre afternoon look like a failure and a single high-sodium meal look
+like a breach, when both are averages over time. It also made the day panel
+unreadable: eighteen bars, most of them short at 6 p.m., with no way to tell a
+real gap from a normal one.
+
+**Decision**
+
+Give every target a `role`:
+
+- `daily-anchor` — energy and protein. Judged per day; they should land on most
+  days, not just in total.
+- `weekly-minimum` — carbohydrate, fibre, potassium, calcium, iron, zinc,
+  magnesium, and the vitamins. Judged over the week.
+- `weekly-limit` — fat, total sugars, sodium. Judged over the week.
+
+`assessDay()` judges only the anchors. `assessWeek()` judges all three groups.
+The plan panel offers Day and Week; the diary judges the anchors and the crossed
+ceilings and says in words that the rest are weekly.
+
+A bar's colour follows its status, not its fill percentage: accent for `met`,
+amber for `low`/`high`, grey for `neutral` (the wrong window, or nothing to
+judge), and no bar for `unknown`.
+
+**Consequences**
+
+- A day can no longer report "3 of 8 vitamins met". That statement was never
+  true; it invented a failure the model does not have.
+- The week view needs a weekly reference, which is seven daily references. That
+  is correct for an average and wrong for a hard ceiling over seven days — the
+  wording says "across the week" rather than "daily × 7" for that reason.
+- The plan and the diary now group nutrients by guidance role rather than by
+  macro/mineral/vitamin. The diary keeps the nutrient groups because it is
+  browsing a single day's data, not judging it.
+- Adding a nutrient means choosing a role. There is no default that is right for
+  every nutrient, so the vocabulary table must be edited deliberately.
+
+**Alternatives rejected**
+
+| Alternative | Why it lost |
+|---|---|
+| Judge everything daily | A normal day looks like a failure on most micronutrients |
+| Judge everything weekly | Energy and protein need daily attention; a weekly total hides a starving Tuesday |
+| Colour by percentage only | 90 % of a ceiling and 90 % of a minimum mean opposite things |
+| Hide weekly nutrients on the day view | The user still needs to see the data, just not be judged by it |
 
 ---
 

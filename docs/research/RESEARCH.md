@@ -114,21 +114,40 @@ marked as assumptions in the UI.
 
 ### Q-003 — What should the daily target actually be?
 
-**Status:** Open · **Blocks:** custom target overrides (S3 ships derived targets)
+**Status:** Partly answered · **Blocks:** custom target overrides
 
-The current targets in `src/lib/targets.ts` are seed values for a generic adult.
-The real engine takes age, sex, activity level and goal, and returns targets
-with a direction and a period.
+`src/lib/targets.ts` now derives targets from the stored profile: Mifflin–St Jeor
+or Katch–McArdle for energy, a pace expressed as a share of body weight, visible
+safety rails, and g/kg protein by goal (D-030, D-031). Each target also carries a
+guidance role, so a day and a week are judged in the right window (D-032). What
+is still open is the *quality* of the numbers, not their plumbing.
 
 Reference point: ICMR-NIN 2020 Recommended Dietary Allowances for Indians. This
 matters more than a generic international table because the population's intake
 patterns differ — iron and calcium in particular.
 
-Decisions still to make:
+Answered:
 
-- Does the product show one target per nutrient, or a range?
-- Are `max` nutrients (sodium, sugar, fat) limits or targets?
-- What happens when a target is unknown for a user's profile?
+- **Direction.** Each nutrient's direction comes from the vocabulary, and its
+  role decides whether a day or a week judges it. A nutrient cannot be a ceiling
+  on one screen and a minimum on another.
+- **Energy adjustment.** A percentage of body weight per week, not a fixed kcal
+  delta, with a floor and deficit/surplus caps. A capped plan reports the
+  effective rate instead of the requested one.
+
+Still open:
+
+- One target per nutrient, or a range? A range changes the bar semantics, so it
+  is deliberately not shipped.
+- Are `max` nutrients (sodium, sugar, fat) limits or targets? They are modelled
+  as limits, but the evidence for a hard daily ceiling is weak for fat.
+- What happens when a target is unknown for a user's profile? Today the seed
+  table always returns a value banded by sex and age; a real dataset will have
+  holes.
+- Are the rails (1,200/1,500 kcal, 25 % deficit, 15 % surplus) the right numbers
+  for an Indian population, and should a clinician be able to override them?
+- The micro values are still unverified fixtures. They need the same source
+  review as the food data before any of them can be called a recommendation.
 
 ### Q-004 — How does search work when the vocabulary is multilingual?
 

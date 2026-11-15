@@ -38,11 +38,18 @@ export default async function RecipePage({
     <main className="mx-auto max-w-5xl px-5 py-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <Link href="/recipes" className="text-[11px] text-black/40 hover:text-black/60">
+          <Link href="/recipes" className="text-[11px] text-ink/40 hover:text-ink/60">
             ← Recipes
           </Link>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">{version.recipeName}</h1>
-          <p className="mt-1 text-[11px] text-black/45">
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+            {version.recipeName}
+            {version.label && (
+              <span className="ml-2 align-middle text-base font-normal text-ink/45">
+                {version.label}
+              </span>
+            )}
+          </h1>
+          <p className="mt-1 text-[11px] text-ink/45">
             Version {version.versionNo}
             {!isCurrent && " · not the current version"}
             {" · "}
@@ -55,13 +62,13 @@ export default async function RecipePage({
         <div className="flex items-center gap-2">
           <Link
             href={`/recipes/${id}/edit`}
-            className="rounded-lg border border-black/10 px-3.5 py-2 text-xs font-medium text-black/60 transition hover:bg-black/[0.03]"
+            className="rounded-lg border border-line px-3.5 py-2 text-xs font-medium text-ink/60 transition hover:bg-ink/5"
           >
             Edit
           </Link>
           <Link
             href="/recipes/new"
-            className="rounded-lg bg-[#1f6f4a] px-4 py-2 text-xs font-medium text-white transition hover:bg-[#1a5c3d]"
+            className="rounded-lg bg-accent px-4 py-2 text-xs font-medium text-accent-ink transition hover:bg-accent-strong"
           >
             New recipe
           </Link>
@@ -69,31 +76,31 @@ export default async function RecipePage({
       </div>
 
       <section className="mt-4 grid gap-4 sm:grid-cols-[1.1fr_1fr]">
-        <div className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+        <div className="rounded-2xl border border-line bg-surface p-5 shadow-card">
           <div className="tabular text-4xl font-semibold leading-none">
             {fmt(snapshot.perServing.totals.ENERC_KCAL, 0)}
-            <span className="ml-1.5 text-sm font-normal text-black/40">kcal / serving</span>
+            <span className="ml-1.5 text-sm font-normal text-ink/40">kcal / serving</span>
           </div>
-          <p className="mt-2 text-[11px] leading-relaxed text-black/45">
+          <p className="mt-2 text-[11px] leading-relaxed text-ink/45">
             {fmt(snapshot.total.totals.ENERC_KCAL, 0)} kcal total · {fmtMass(snapshot.inputGrams)}{" "}
             g of ingredients
             {snapshot.outputGrams != null && ` · ${fmtMass(snapshot.outputGrams)} g cooked`}
           </p>
 
           <div className="mt-4">
-            <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-black/35">
+            <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-ink/35">
               Per serving
             </h2>
             <NutrientRows result={snapshot.perServing} codes={MACRO_CODES} />
           </div>
         </div>
 
-        <div className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-          <h2 className="text-[10px] font-semibold uppercase tracking-wider text-black/35">
+        <div className="rounded-2xl border border-line bg-surface p-5 shadow-card">
+          <h2 className="text-[10px] font-semibold uppercase tracking-wider text-ink/35">
             How this was calculated
           </h2>
-          <p className="mt-2 text-[11px] leading-relaxed text-black/55">{yieldNote(snapshot)}</p>
-          <p className="mt-2 text-[11px] leading-relaxed text-black/55">
+          <p className="mt-2 text-[11px] leading-relaxed text-ink/55">{yieldNote(snapshot)}</p>
+          <p className="mt-2 text-[11px] leading-relaxed text-ink/55">
             Every ingredient is scaled from its per-100 g record by the weight you entered. A
             nutrient is marked <span className="font-medium">known</span> only when every
             ingredient has a value for it; otherwise the figure is the sum of what is known and
@@ -101,7 +108,7 @@ export default async function RecipePage({
           </p>
           {snapshot.per100g && (
             <div className="mt-4">
-              <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-black/35">
+              <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-ink/35">
                 Per 100 g cooked
               </h3>
               <NutrientRows result={snapshot.per100g} codes={MACRO_CODES} />
@@ -118,25 +125,25 @@ export default async function RecipePage({
           return (
             <div
               key={block.id}
-              className="rounded-2xl border border-black/[0.07] bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
+              className="rounded-2xl border border-line bg-surface p-4 shadow-card"
             >
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h3 className="text-sm font-medium">
-                  <span className="mr-1.5 text-black/35">{index + 1}.</span>
+                  <span className="mr-1.5 text-ink/35">{index + 1}.</span>
                   {block.name}
                   {block.operation && (
-                    <span className="ml-2 rounded-md bg-black/[0.05] px-1.5 py-0.5 text-[10px] font-medium text-black/50">
+                    <span className="ml-2 rounded-md bg-ink/[0.07] px-1.5 py-0.5 text-[10px] font-medium text-ink/50">
                       {block.operation}
                     </span>
                   )}
                 </h3>
-                <div className="tabular text-[11px] text-black/45">
+                <div className="tabular text-[11px] text-ink/45">
                   {fmt(blockResult?.result.totals.ENERC_KCAL, 0)} kcal
                   {block.outputGrams != null && ` · ${fmtMass(block.outputGrams)} g out`}
                 </div>
               </div>
 
-              <ul className="mt-2 divide-y divide-black/5">
+              <ul className="mt-2 divide-y divide-line">
                 {block.inputs.map((input) => {
                   const food = getFood(input.foodId);
                   const kcal =
@@ -152,17 +159,17 @@ export default async function RecipePage({
                       <span className="min-w-0 text-sm">
                         {food?.name ?? input.foodId}
                         {input.preparation && (
-                          <span className="ml-1.5 text-[11px] text-black/35">
+                          <span className="ml-1.5 text-[11px] text-ink/35">
                             {input.preparation}
                           </span>
                         )}
                         {input.note && (
-                          <span className="ml-1.5 text-[11px] italic text-black/35">
+                          <span className="ml-1.5 text-[11px] italic text-ink/35">
                             {input.note}
                           </span>
                         )}
                       </span>
-                      <span className="tabular shrink-0 text-[11px] text-black/45">
+                      <span className="tabular shrink-0 text-[11px] text-ink/45">
                         {fmtQuantity(input.amount, input.unit)} · {fmtMass(input.grams)} g ·{" "}
                         {fmt(kcal, 0)} kcal
                       </span>
@@ -176,25 +183,25 @@ export default async function RecipePage({
       </section>
 
       {version.instructions && (
-        <section className="mt-4 rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+        <section className="mt-4 rounded-2xl border border-line bg-surface p-5 shadow-card">
           <h2 className="text-sm font-semibold">Instructions</h2>
-          <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-black/70">
+          <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-ink/70">
             {version.instructions}
           </p>
         </section>
       )}
 
       <section className="mt-4 grid gap-4 sm:grid-cols-2">
-        <div className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-          <h2 className="text-[10px] font-semibold uppercase tracking-wider text-black/35">
+        <div className="rounded-2xl border border-line bg-surface p-5 shadow-card">
+          <h2 className="text-[10px] font-semibold uppercase tracking-wider text-ink/35">
             Minerals
           </h2>
           <div className="mt-2">
             <NutrientRows result={snapshot.total} codes={MICRO_CODES.slice(0, 6)} />
           </div>
         </div>
-        <div className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-          <h2 className="text-[10px] font-semibold uppercase tracking-wider text-black/35">
+        <div className="rounded-2xl border border-line bg-surface p-5 shadow-card">
+          <h2 className="text-[10px] font-semibold uppercase tracking-wider text-ink/35">
             Vitamins
           </h2>
           <div className="mt-2">
@@ -203,24 +210,27 @@ export default async function RecipePage({
         </div>
       </section>
 
-      <section className="mt-4 rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+      <section className="mt-4 rounded-2xl border border-line bg-surface p-5 shadow-card">
         <h2 className="text-sm font-semibold">Versions</h2>
-        <p className="mt-1 text-[11px] text-black/45">
+        <p className="mt-1 text-[11px] text-ink/45">
           Editing saves a new version. The plan that used an older version keeps using it.
         </p>
-        <ul className="mt-3 divide-y divide-black/5">
+        <ul className="mt-3 divide-y divide-line">
           {recipe.versions.map((entry) => (
             <li key={entry.id} className="flex items-center justify-between gap-3 py-2">
               <div className="min-w-0">
                 <div className="text-xs font-medium">
                   Version {entry.versionNo}
+                  {entry.label && (
+                    <span className="ml-1.5 font-normal text-ink/55">· {entry.label}</span>
+                  )}
                   {entry.isCurrent && (
-                    <span className="ml-2 rounded-md bg-[#1f6f4a]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#1f6f4a]">
+                    <span className="ml-2 rounded-md bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent">
                       current
                     </span>
                   )}
                 </div>
-                <div className="text-[11px] text-black/40">
+                <div className="text-[11px] text-ink/40">
                   {new Date(entry.createdAt).toLocaleString("en-IN", {
                     day: "numeric",
                     month: "short",
@@ -232,12 +242,12 @@ export default async function RecipePage({
               </div>
 
               <div className="flex items-center gap-3">
-                <span className="tabular text-[11px] text-black/45">
+                <span className="tabular text-[11px] text-ink/45">
                   {fmt(entry.kcalPerServing, 0)} kcal / serving
                 </span>
                 <Link
                   href={`/recipes/${id}?version=${entry.id}`}
-                  className="text-[11px] text-[#1f6f4a] hover:underline"
+                  className="text-[11px] text-accent hover:underline"
                 >
                   View
                 </Link>
@@ -247,7 +257,7 @@ export default async function RecipePage({
         </ul>
       </section>
 
-      <p className="mt-4 text-[11px] leading-relaxed text-black/35">
+      <p className="mt-4 text-[11px] leading-relaxed text-ink/35">
         Values come from the seed dataset (USDA SR Legacy and IFCT 2017, unverified). Missing
         values are shown as unknown, never as zero. Calculation version{" "}
         {version.calculationVersion}. Nutrient vocabulary:{" "}

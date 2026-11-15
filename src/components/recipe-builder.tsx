@@ -166,7 +166,7 @@ export function RecipeBuilder({ foods, initial, recipeId }: RecipeBuilderProps) 
 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <div className="text-[11px] font-medium uppercase tracking-wider text-black/35">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-ink/35">
             {recipeId ? "Editing recipe" : "New recipe"}
           </div>
           <input
@@ -174,10 +174,20 @@ export function RecipeBuilder({ foods, initial, recipeId }: RecipeBuilderProps) 
             onChange={(event) => patch({ name: event.target.value })}
             placeholder="Name this recipe"
             aria-label="Recipe name"
-            className="mt-1 w-full border-none bg-transparent p-0 text-2xl font-semibold tracking-tight outline-none placeholder:text-black/20"
+            className="mt-1 w-full border-none bg-transparent p-0 text-2xl font-semibold tracking-tight outline-none placeholder:text-ink/20"
           />
+          <label className="mt-1 flex items-center gap-1.5 text-[11px] text-ink/40">
+            <span className="shrink-0">Version note</span>
+            <input
+              value={state.versionLabel}
+              onChange={(event) => patch({ versionLabel: event.target.value })}
+              placeholder="optional — e.g. less salt, trial 2"
+              aria-label="Version note"
+              className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[11px] text-ink/70 outline-none placeholder:text-ink/25 hover:border-line focus:border-accent/50 focus:bg-surface"
+            />
+          </label>
         </div>
-        <div className="text-xs text-black/40">
+        <div className="text-xs text-ink/40">
           Step {step + 1} of {STEPS.length}
         </div>
       </div>
@@ -190,10 +200,10 @@ export function RecipeBuilder({ foods, initial, recipeId }: RecipeBuilderProps) 
             onClick={() => setStep(index)}
             className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
               index === step
-                ? "bg-[#1f6f4a] text-white"
+                ? "bg-accent text-accent-ink"
                 : index < step
-                  ? "bg-[#1f6f4a]/10 text-[#1f6f4a]"
-                  : "text-black/45 hover:bg-black/[0.04]"
+                  ? "bg-accent/10 text-accent"
+                  : "text-ink/45 hover:bg-ink/[0.06]"
             }`}
           >
             {label}
@@ -201,7 +211,7 @@ export function RecipeBuilder({ foods, initial, recipeId }: RecipeBuilderProps) 
         ))}
       </nav>
 
-      <section className="mt-3 rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+      <section className="mt-3 rounded-2xl border border-line bg-surface p-5 shadow-card">
         {step === 0 && (
           <IngredientsStep
             foods={foods}
@@ -222,7 +232,7 @@ export function RecipeBuilder({ foods, initial, recipeId }: RecipeBuilderProps) 
         {step === 2 && (
           <div>
             <h2 className="text-sm font-semibold">Instructions</h2>
-            <p className="mt-1 text-xs text-black/45">
+            <p className="mt-1 text-xs text-ink/45">
               Saved with this version as written. The MVP stores them as evidence; it does not
               parse them into steps or change any number.
             </p>
@@ -231,7 +241,7 @@ export function RecipeBuilder({ foods, initial, recipeId }: RecipeBuilderProps) 
               onChange={(event) => patch({ instructions: event.target.value })}
               rows={10}
               placeholder={"1. Dice the onion…\n2. Heat the oil…"}
-              className="mt-3 w-full rounded-xl border border-black/10 bg-[#faf9f7] p-3 text-sm leading-relaxed outline-none placeholder:text-black/25 focus:border-[#1f6f4a]/50 focus:ring-2 focus:ring-[#1f6f4a]/10"
+              className="mt-3 w-full rounded-xl border border-line bg-surface-2 p-3 text-sm leading-relaxed outline-none placeholder:text-ink/25 focus:border-accent/50 focus:ring-2 focus:ring-accent/10"
             />
           </div>
         )}
@@ -244,13 +254,13 @@ export function RecipeBuilder({ foods, initial, recipeId }: RecipeBuilderProps) 
       </section>
 
       {error && (
-        <p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+        <p className="mt-3 rounded-xl border border-danger-line bg-danger-soft px-3 py-2 text-xs text-danger-ink">
           {error}
         </p>
       )}
 
       <div className="mt-4 flex items-center justify-between gap-3">
-        <Link href="/recipes" className="text-xs text-black/45 hover:text-black/70">
+        <Link href="/recipes" className="text-xs text-ink/45 hover:text-ink/70">
           Cancel
         </Link>
 
@@ -259,7 +269,7 @@ export function RecipeBuilder({ foods, initial, recipeId }: RecipeBuilderProps) 
             <button
               type="button"
               onClick={() => setStep((current) => Math.max(0, current - 1))}
-              className="rounded-lg border border-black/10 px-3.5 py-2 text-xs font-medium text-black/60 transition hover:bg-black/[0.03]"
+              className="rounded-lg border border-line px-3.5 py-2 text-xs font-medium text-ink/60 transition hover:bg-ink/5"
             >
               Back
             </button>
@@ -269,7 +279,7 @@ export function RecipeBuilder({ foods, initial, recipeId }: RecipeBuilderProps) 
             <button
               type="button"
               onClick={() => setStep((current) => Math.min(STEPS.length - 1, current + 1))}
-              className="rounded-lg bg-[#1f6f4a] px-4 py-2 text-xs font-medium text-white transition hover:bg-[#1a5c3d]"
+              className="rounded-lg bg-accent px-4 py-2 text-xs font-medium text-accent-ink transition hover:bg-accent-strong"
             >
               Continue
             </button>
@@ -278,7 +288,7 @@ export function RecipeBuilder({ foods, initial, recipeId }: RecipeBuilderProps) 
               type="button"
               onClick={save}
               disabled={!canSave}
-              className="rounded-lg bg-[#1f6f4a] px-4 py-2 text-xs font-medium text-white transition hover:bg-[#1a5c3d] disabled:opacity-40"
+              className="rounded-lg bg-accent px-4 py-2 text-xs font-medium text-accent-ink transition hover:bg-accent-strong disabled:opacity-40"
             >
               {pending ? "Saving…" : recipeId ? "Save as new version" : "Save recipe"}
             </button>
@@ -287,7 +297,7 @@ export function RecipeBuilder({ foods, initial, recipeId }: RecipeBuilderProps) 
       </div>
 
       {result && (
-        <p className="mt-3 text-[11px] text-black/35">
+        <p className="mt-3 text-[11px] text-ink/35">
           {fmt(result.perServing.totals.ENERC_KCAL, 0)} kcal per serving ·{" "}
           {fmt(state.servings ? toNumber(state.servings) : null, 1)} servings
         </p>
@@ -320,16 +330,16 @@ function IngredientsStep({
   return (
     <div>
       <h2 className="text-sm font-semibold">Ingredients</h2>
-      <p className="mt-1 text-xs text-black/45">
+      <p className="mt-1 text-xs text-ink/45">
         Add one ingredient at a time. Group them into steps if the dish is cooked in stages —
         each step gets its own subtotal and can record a measured output weight.
       </p>
 
       <div className="mt-4 space-y-4">
         {blocks.map((block, blockIndex) => (
-          <div key={block.key} className="rounded-xl border border-black/[0.07] p-3">
+          <div key={block.key} className="rounded-xl border border-line p-3">
             <div className="flex items-center gap-2">
-              <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-black/[0.05] text-[10px] font-semibold text-black/50">
+              <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-ink/[0.07] text-[10px] font-semibold text-ink/50">
                 {blockIndex + 1}
               </span>
               <input
@@ -342,7 +352,7 @@ function IngredientsStep({
                 <button
                   type="button"
                   onClick={() => onRemoveBlock(block.key)}
-                  className="text-[11px] text-black/35 transition hover:text-red-700"
+                  className="text-[11px] text-ink/35 transition hover:text-danger"
                 >
                   Remove step
                 </button>
@@ -365,7 +375,7 @@ function IngredientsStep({
             <button
               type="button"
               onClick={() => onAddInput(block.key)}
-              className="mt-2 rounded-lg border border-dashed border-black/15 px-3 py-1.5 text-[11px] font-medium text-black/50 transition hover:border-[#1f6f4a]/40 hover:text-[#1f6f4a]"
+              className="mt-2 rounded-lg border border-dashed border-line px-3 py-1.5 text-[11px] font-medium text-ink/50 transition hover:border-accent/40 hover:text-accent"
             >
               + Add ingredient
             </button>
@@ -376,7 +386,7 @@ function IngredientsStep({
       <button
         type="button"
         onClick={onAddBlock}
-        className="mt-3 rounded-lg border border-dashed border-black/15 px-3 py-2 text-[11px] font-medium text-black/50 transition hover:border-[#1f6f4a]/40 hover:text-[#1f6f4a]"
+        className="mt-3 rounded-lg border border-dashed border-line px-3 py-2 text-[11px] font-medium text-ink/50 transition hover:border-accent/40 hover:text-accent"
       >
         + Add another step
       </button>
@@ -405,7 +415,7 @@ function IngredientRow({
       : null;
 
   return (
-    <div className="rounded-xl bg-[#faf9f7] p-2.5">
+    <div className="rounded-xl bg-surface-2 p-2.5">
       <div className="flex items-start gap-2">
         <FoodPicker foods={foods} value={input.foodId} onSelect={(foodId) => onChange({ foodId, unitKey: "g" })} />
         <button
@@ -413,7 +423,7 @@ function IngredientRow({
           onClick={onRemove}
           disabled={!canRemove}
           aria-label="Remove ingredient"
-          className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-md text-black/30 transition hover:bg-black/5 hover:text-black/60 disabled:opacity-30"
+          className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-md text-ink/30 transition hover:bg-ink/5 hover:text-ink/60 disabled:opacity-30"
         >
           ×
         </button>
@@ -423,25 +433,25 @@ function IngredientRow({
         <>
           <div className="mt-2 grid grid-cols-3 gap-2">
             <label className="block">
-              <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-black/35">
+              <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-ink/35">
                 Amount
               </span>
               <input
                 inputMode="decimal"
                 value={input.amount}
                 onChange={(event) => onChange({ amount: event.target.value })}
-                className="w-full rounded-lg border border-black/10 bg-white px-2 py-1.5 text-sm outline-none focus:border-[#1f6f4a]/50"
+                className="w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-sm outline-none focus:border-accent/50"
               />
             </label>
 
             <label className="block">
-              <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-black/35">
+              <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-ink/35">
                 Unit
               </span>
               <select
                 value={input.unitKey}
                 onChange={(event) => onChange({ unitKey: event.target.value })}
-                className="w-full rounded-lg border border-black/10 bg-white px-2 py-1.5 text-sm outline-none focus:border-[#1f6f4a]/50"
+                className="w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-sm outline-none focus:border-accent/50"
               >
                 {unitOptions(food).map((option) => (
                   <option key={option.value} value={option.value}>
@@ -452,7 +462,7 @@ function IngredientRow({
             </label>
 
             <label className="block">
-              <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-black/35">
+              <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-ink/35">
                 Preparation
               </span>
               <input
@@ -460,12 +470,12 @@ function IngredientRow({
                 value={input.preparation}
                 onChange={(event) => onChange({ preparation: event.target.value })}
                 placeholder="raw, boiled…"
-                className="w-full rounded-lg border border-black/10 bg-white px-2 py-1.5 text-sm outline-none placeholder:text-black/25 focus:border-[#1f6f4a]/50"
+                className="w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-sm outline-none placeholder:text-ink/25 focus:border-accent/50"
               />
             </label>
           </div>
 
-          <p className="mt-1.5 text-[11px] text-black/45">
+          <p className="mt-1.5 text-[11px] text-ink/45">
             {grams.ok ? (
               <>
                 = <span className="tabular font-medium">{fmtMass(grams.grams)} g</span>
@@ -475,10 +485,10 @@ function IngredientRow({
                     <span className="tabular font-medium">{fmt(kcal, 0)} kcal</span>
                   </>
                 )}
-                {grams.note && <span className="block text-amber-700/80">{grams.note}</span>}
+                {grams.note && <span className="block text-warn-ink">{grams.note}</span>}
               </>
             ) : (
-              <span className="text-red-700">{grams.reason}</span>
+              <span className="text-danger">{grams.reason}</span>
             )}
           </p>
         </>
@@ -510,19 +520,19 @@ function FoodPicker({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="min-w-0 flex-1 rounded-lg px-1 py-0.5 text-left transition hover:bg-black/[0.03]"
+        className="min-w-0 flex-1 rounded-lg px-1 py-0.5 text-left transition hover:bg-ink/5"
       >
         {selected ? (
           <>
             <span className="block truncate text-sm font-medium">{selected.name}</span>
-            <span className="block text-[11px] text-black/40">
+            <span className="block text-[11px] text-ink/40">
               {selected.category} · {fmt(selected.nutrients.ENERC_KCAL.amount, 0)} kcal/100 g
             </span>
           </>
         ) : (
           <>
-            <span className="block text-sm text-black/35">Choose a food…</span>
-            <span className="block text-[11px] text-black/30">search by name or Indian name</span>
+            <span className="block text-sm text-ink/35">Choose a food…</span>
+            <span className="block text-[11px] text-ink/30">search by name or Indian name</span>
           </>
         )}
       </button>
@@ -542,9 +552,9 @@ function FoodPicker({
           }
         }}
         placeholder="paneer, palak, dal…"
-        className="w-full rounded-lg border border-black/10 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-[#1f6f4a]/50"
+        className="w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-sm outline-none focus:border-accent/50"
       />
-      <ul className="mt-1 max-h-56 overflow-auto rounded-lg border border-black/10 bg-white">
+      <ul className="mt-1 max-h-56 overflow-auto rounded-lg border border-line bg-surface">
         {results.map((food) => (
           <li key={food.id}>
             <button
@@ -554,17 +564,17 @@ function FoodPicker({
                 setOpen(false);
                 setQuery("");
               }}
-              className="flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left transition hover:bg-[#faf9f7]"
+              className="flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left transition hover:bg-surface-2"
             >
               <span className="truncate text-sm">{food.name}</span>
-              <span className="tabular shrink-0 text-[11px] text-black/40">
+              <span className="tabular shrink-0 text-[11px] text-ink/40">
                 {fmt(food.nutrients.ENERC_KCAL.amount, 0)} kcal
               </span>
             </button>
           </li>
         ))}
         {results.length === 0 && (
-          <li className="px-2.5 py-2 text-xs text-black/40">No match in the food list.</li>
+          <li className="px-2.5 py-2 text-xs text-ink/40">No match in the food list.</li>
         )}
       </ul>
     </div>
@@ -585,7 +595,7 @@ function MethodStep({
   return (
     <div>
       <h2 className="text-sm font-semibold">Method</h2>
-      <p className="mt-1 text-xs text-black/45">
+      <p className="mt-1 text-xs text-ink/45">
         Name each step and say what happens to it. An operation is a label: it changes no number
         unless you record a measured output weight in the next section.
       </p>
@@ -604,9 +614,9 @@ function MethodStep({
           return (
             <div
               key={block.key}
-              className="grid gap-2 rounded-xl border border-black/[0.07] p-3 sm:grid-cols-[auto_1fr_auto] sm:items-center"
+              className="grid gap-2 rounded-xl border border-line p-3 sm:grid-cols-[auto_1fr_auto] sm:items-center"
             >
-              <span className="grid h-6 w-6 place-items-center rounded-md bg-black/[0.05] text-[11px] font-semibold text-black/50">
+              <span className="grid h-6 w-6 place-items-center rounded-md bg-ink/[0.07] text-[11px] font-semibold text-ink/50">
                 {index + 1}
               </span>
 
@@ -617,7 +627,7 @@ function MethodStep({
                   aria-label={`Step ${index + 1} name`}
                   className="w-full border-none bg-transparent p-0 text-sm font-medium outline-none"
                 />
-                <p className="mt-0.5 truncate text-[11px] text-black/40">
+                <p className="mt-0.5 truncate text-[11px] text-ink/40">
                   {items.length > 0 ? items.join(" · ") : "No ingredients yet"}
                 </p>
               </div>
@@ -626,7 +636,7 @@ function MethodStep({
                 value={block.operation}
                 onChange={(event) => onPatchBlock(block.key, { operation: event.target.value })}
                 aria-label={`Operation for step ${index + 1}`}
-                className="rounded-lg border border-black/10 bg-white px-2 py-1.5 text-xs outline-none focus:border-[#1f6f4a]/50"
+                className="rounded-lg border border-line bg-surface px-2 py-1.5 text-xs outline-none focus:border-accent/50"
               >
                 <option value="">no operation</option>
                 {OPERATIONS.map((operation) => (
@@ -659,20 +669,20 @@ function YieldStep({
   return (
     <div>
       <h2 className="text-sm font-semibold">Yield and servings</h2>
-      <p className="mt-1 text-xs text-black/45">
+      <p className="mt-1 text-xs text-ink/45">
         Weigh the pan after cooking if you can. That is the only thing that changes the per-100 g
         figure — the total amount of protein in the dish does not change when water boils off.
       </p>
 
       <label className="mt-4 block max-w-[12rem]">
-        <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-black/40">
+        <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-ink/40">
           Servings
         </span>
         <input
           inputMode="decimal"
           value={state.servings}
           onChange={(event) => onPatch({ servings: event.target.value })}
-          className="w-full rounded-lg border border-black/10 bg-white px-2.5 py-2 text-sm outline-none focus:border-[#1f6f4a]/50"
+          className="w-full rounded-lg border border-line bg-surface px-2.5 py-2 text-sm outline-none focus:border-accent/50"
         />
       </label>
 
@@ -688,20 +698,20 @@ function YieldStep({
           return (
             <div
               key={block.key}
-              className="flex flex-wrap items-center gap-3 rounded-xl border border-black/[0.07] p-3"
+              className="flex flex-wrap items-center gap-3 rounded-xl border border-line p-3"
             >
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium">
                   {index + 1}. {block.name}
                 </div>
-                <div className="text-[11px] text-black/40">
+                <div className="text-[11px] text-ink/40">
                   {fmtMass(inputMass)} g in
                   {block.operation ? ` · ${block.operation}` : ""}
                 </div>
               </div>
 
               <label className="flex items-center gap-2">
-                <span className="text-[11px] text-black/45">output</span>
+                <span className="text-[11px] text-ink/45">output</span>
                 <input
                   inputMode="decimal"
                   value={block.outputGrams}
@@ -709,13 +719,13 @@ function YieldStep({
                     onPatchBlock(block.key, { outputGrams: event.target.value })
                   }
                   placeholder="—"
-                  className="w-20 rounded-lg border border-black/10 bg-white px-2 py-1.5 text-sm outline-none placeholder:text-black/25 focus:border-[#1f6f4a]/50"
+                  className="w-20 rounded-lg border border-line bg-surface px-2 py-1.5 text-sm outline-none placeholder:text-ink/25 focus:border-accent/50"
                 />
-                <span className="text-[11px] text-black/45">g</span>
+                <span className="text-[11px] text-ink/45">g</span>
               </label>
 
               {Number.isFinite(output) && output > 0 && inputMass > 0 && (
-                <span className="tabular text-[11px] text-black/45">
+                <span className="tabular text-[11px] text-ink/45">
                   {fmt((output / inputMass) * 100, 0)}% of input mass
                 </span>
               )}
@@ -744,7 +754,7 @@ function ReviewStep({
     return (
       <div>
         <h2 className="text-sm font-semibold">Review</h2>
-        <p className="mt-2 rounded-xl border border-dashed border-black/10 px-3 py-6 text-center text-xs text-black/40">
+        <p className="mt-2 rounded-xl border border-dashed border-line px-3 py-6 text-center text-xs text-ink/40">
           {problem === "servings"
             ? "Enter how many servings this makes to see the totals."
             : "Add at least one ingredient with a quantity to see the totals."}
@@ -765,23 +775,23 @@ function ReviewStep({
     <div>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <h2 className="text-sm font-semibold">Review</h2>
-        <label className="flex items-center gap-2 text-[11px] text-black/45">
+        <label className="flex items-center gap-2 text-[11px] text-ink/45">
           servings
           <input
             inputMode="decimal"
             value={state.servings}
             onChange={(event) => onPatch({ servings: event.target.value })}
-            className="w-16 rounded-lg border border-black/10 bg-white px-2 py-1 text-sm text-black outline-none focus:border-[#1f6f4a]/50"
+            className="w-16 rounded-lg border border-line bg-surface px-2 py-1 text-sm text-ink outline-none focus:border-accent/50"
           />
         </label>
       </div>
 
-      <div className="mt-3 rounded-xl bg-[#faf9f7] p-4">
+      <div className="mt-3 rounded-xl bg-surface-2 p-4">
         <div className="tabular text-3xl font-semibold leading-none">
           {fmt(result.perServing.totals.ENERC_KCAL, 0)}
-          <span className="ml-1 text-sm font-normal text-black/40">kcal / serving</span>
+          <span className="ml-1 text-sm font-normal text-ink/40">kcal / serving</span>
         </div>
-        <p className="mt-1 text-[11px] text-black/45">
+        <p className="mt-1 text-[11px] text-ink/45">
           {fmt(result.total.totals.ENERC_KCAL, 0)} kcal total · {fmtMass(result.inputGrams)} g of
           ingredients
           {result.outputGrams != null && ` · ${fmtMass(result.outputGrams)} g cooked`}
@@ -790,13 +800,13 @@ function ReviewStep({
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <div>
-          <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-black/35">
+          <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-ink/35">
             Per serving
           </h3>
           <NutrientRows result={result.perServing} codes={MACRO_CODES} />
         </div>
         <div>
-          <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-black/35">
+          <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-ink/35">
             Steps
           </h3>
           <ul className="space-y-1.5">
@@ -805,13 +815,13 @@ function ReviewStep({
                 key={`${block.name}-${index}`}
                 className="flex items-baseline justify-between gap-2 text-xs"
               >
-                <span className="min-w-0 truncate text-black/60">
+                <span className="min-w-0 truncate text-ink/60">
                   {index + 1}. {block.name}
                   {block.operation && (
-                    <span className="text-black/30"> · {block.operation}</span>
+                    <span className="text-ink/30"> · {block.operation}</span>
                   )}
                 </span>
-                <span className="tabular shrink-0 text-black/55">
+                <span className="tabular shrink-0 text-ink/55">
                   {fmt(block.result.totals.ENERC_KCAL, 0)} kcal
                 </span>
               </li>
@@ -822,7 +832,7 @@ function ReviewStep({
 
       {result.per100g && (
         <div className="mt-4">
-          <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-black/35">
+          <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-ink/35">
             Per 100 g cooked
           </h3>
           <NutrientRows result={result.per100g} codes={MACRO_CODES} />
@@ -830,10 +840,10 @@ function ReviewStep({
       )}
 
       <div className="mt-4 space-y-2 text-[11px] leading-relaxed">
-        <p className="rounded-lg bg-[#faf9f7] px-3 py-2 text-black/50">{yieldNote(result)}</p>
+        <p className="rounded-lg bg-surface-2 px-3 py-2 text-ink/50">{yieldNote(result)}</p>
 
         {partial.length > 0 && (
-          <p className="rounded-lg bg-amber-50 px-3 py-2 text-amber-800">
+          <p className="rounded-lg bg-warn-soft px-3 py-2 text-warn-ink">
             Partial data for {partial.length}{" "}
             {partial.length === 1 ? "nutrient" : "nutrients"} — the figure is the sum of the
             ingredients that have a value, not a guess at the rest. The small number beside a
@@ -842,7 +852,7 @@ function ReviewStep({
         )}
 
         {incomplete > 0 && (
-          <p className="rounded-lg bg-amber-50 px-3 py-2 text-amber-800">
+          <p className="rounded-lg bg-warn-soft px-3 py-2 text-warn-ink">
             {incomplete} {incomplete === 1 ? "row is" : "rows are"} incomplete and will be left
             out.
           </p>

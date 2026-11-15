@@ -5,6 +5,7 @@ import { addEntry, removeEntry, today } from "@/lib/db/entries";
 import {
   addPlanEntry,
   getOrCreatePlan,
+  movePlanEntry,
   removePlanEntry,
   updatePlanEntryQuantity,
 } from "@/lib/db/plan";
@@ -240,6 +241,44 @@ export async function removePlanEntryAction(id: string): Promise<void> {
   removePlanEntry(id);
 }
 
+/**
+ * Move a planned item to another day or slot.
+ *
+ * The week and the day are checked exactly as they are on add: the client
+ * cannot move an entry into a day that is not part of the week it claims.
+ * What the entry points at and its quantity are untouched.
+ */
+export async function movePlanEntryAction(input: {
+  week: string;
+  id: string;
+  day: string;
+  slot: string;
+}): Promise<PlanActionResult> {
+  if (!isDay(input.week)) return { ok: false, message: "That week is not valid." };
+
+  const start = weekStart(input.week);
+  if (!isDay(input.day) || !weekDays(start).includes(input.day)) {
+    return { ok: false, message: "That day is not in this week." };
+  }
+
+  if (!SLOTS.includes(input.slot as Slot)) {
+    return { ok: false, message: "Unknown meal slot." };
+  }
+
+  try {
+    const entry = movePlanEntry(input.id, {
+      day: input.day,
+      slot: input.slot as Slot,
+    });
+    return { ok: true, entry };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Could not move that item.",
+    };
+  }
+}
+
 /* ------------------------------------------------------------- profile */
 
 export interface ProfileFormState {
@@ -265,6 +304,9 @@ export async function saveProfileAction(
     weightKg: formData.get("weightKg"),
     activity: formData.get("activity"),
     goal: formData.get("goal"),
+    bodyFatPercent: formData.get("bodyFatPercent"),
+    pace: formData.get("pace"),
+    targetWeightKg: formData.get("targetWeightKg"),
   });
 
   if (!parsed.ok) return { ok: false, message: parsed.message };
@@ -272,6 +314,7 @@ export async function saveProfileAction(
   saveProfile(parsed.profile);
   revalidatePath("/");
   revalidatePath("/plan");
+  revalidatePath("/profile");
 
   return { ok: true, message: "Saved. Targets now use these numbers." };
 }

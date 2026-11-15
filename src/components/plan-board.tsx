@@ -1,21 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import {
   addPlanEntryAction,
+  movePlanEntryAction,
   removePlanEntryAction,
   updatePlanEntryQuantityAction,
 } from "@/app/actions";
+import { CopyIcon, GripIcon } from "@/components/icons";
 import { NutrientBar } from "@/components/nutrient-bar";
 import { fmt, fmtMass } from "@/lib/format";
 import type { Rollup } from "@/lib/nutrition/engine";
-import {
-  NUTRIENTS,
-  NUTRIENT_CODES,
-  type Food,
-  type NutrientGroup,
-} from "@/lib/nutrition/types";
+import { type Food } from "@/lib/nutrition/types";
 import {
   SLOTS,
   SLOT_LABELS,
@@ -24,13 +21,21 @@ import {
   dayRollup,
   entriesForDay,
   entryRollup,
+  versionName,
   weekdayShort,
   weekDays,
   type PlanEntry,
   type PlanRecipeOption,
   type Slot,
 } from "@/lib/plan";
-import type { Target } from "@/lib/targets";
+import {
+  GUIDANCE_GROUPS,
+  assessDay,
+  assessWeek,
+  type Assessment,
+  type GuidanceRole,
+  type Target,
+} from "@/lib/targets";
 
 interface PlanBoardProps {
   week: string;
@@ -42,19 +47,33 @@ interface PlanBoardProps {
   profileIsDefault: boolean;
 }
 
+/**
+ * What the palette currently holds.
+ *
+ * The quantity travels with the selection so that copying a placed item
+ * can seed the palette with the same portion instead of a default one.
+ */
 type Selection =
-  | { kind: "food"; id: string }
-  | { kind: "recipe"; versionId: string };
+  | { kind: "food"; id: string; grams: number }
+  | { kind: "recipe"; versionId: string; servings: number };
 
-const GROUPS: { key: NutrientGroup; label: string }[] = [
-  { key: "macro", label: "Macros" },
-  { key: "mineral", label: "Minerals" },
-  { key: "vitamin", label: "Vitamins" },
-];
+/** What is being dragged: something new, or something already placed. */
+type DragPayload =
+  | { kind: "palette"; selection: Selection }
+  | { kind: "entry"; id: string };
+
+/**
+ * A private drag type, so a drag from another tab or app is ignored
+ * instead of being half-understood. `text/plain` is still written because
+ * some browsers refuse to start a drag without it.
+ */
+const DRAG_MIME = "application/x-nutriplan";
 
 /** Default amounts for a tap-to-add: a sensible portion, editable in place. */
 const DEFAULT_FOOD_GRAMS = 100;
 const DEFAULT_RECIPE_SERVINGS = 1;
+
+type Period = "day" | "week";
 
 export function PlanBoard({
   week,
@@ -69,12 +88,33 @@ export function PlanBoard({
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<"food" | "recipe">("recipe");
   const [selection, setSelection] = useState<Selection | null>(null);
+  const [period, setPeriod] = useState<Period>("day");
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<string>(
     weekDays(week).includes(today) ? today : week,
   );
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  const dragRef = useRef<DragPayload | null>(null);
+  const paletteRef = useRef<HTMLElement | null>(null);
+
+  /**
+   * Which version of each recipe the palette offers.
+   *
+   * Every version is listed, not only the current one, because a plan may
+   * deliberately repeat an older version. The current version is the
+   * default, which is what most placements want.
+   */
+  const [versionChoice, setVersionChoice] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {};
+    for (const option of recipes) {
+      if (!initial[option.recipeId] || option.isCurrent) {
+        initial[option.recipeId] = option.versionId;
+      }
+    }
+    return initial;
+  });
 
   const days = useMemo(() => weekDays(week), [week]);
 
@@ -115,26 +155,73 @@ export function PlanBoard({
     );
   }, [foods, query]);
 
-  const paletteRecipes = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return recipes;
-    return recipes.filter((recipe) => recipe.name.toLowerCase().includes(q));
-  }, [recipes, query]);
+  const recipeGroups = useMemo(() => {
+    const byRecipe = new Map<string, PlanRecipeOption[]>();
+    for (const option of recipes) {
+      const list = byRecipe.get(option.recipeId);
+      if (list) list.push(option);
+      else byRecipe.set(option.recipeId, [option]);
+    }
 
-  const energyTarget = targetByCode.get("ENERC_KCAL");
+    return [...byRecipe.entries()].map(([recipeId, versions]) => {
+      const ordered = [...versions].sort((a, b) => b.versionNo - a.versionNo);
+      return {
+        recipeId,
+        name: ordered[0].name,
+        versions: ordered,
+        current: ordered.find((version) => version.isCurrent) ?? ordered[0],
+      };
+    });
+  }, [recipes]);
+
+  const paletteGroups = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return recipeGroups;
+    return recipeGroups.filter((group) => group.name.toLowerCase().includes(q));
+  }, [recipeGroups, query]);
+
   const selectedRollup = rollupsByDay.get(selectedDay) ?? null;
   const selectedEntries = entriesForDay(entries, selectedDay);
+
+  /**
+   * The panel judges the window it is showing.
+   *
+   * A day can only answer for energy and protein; the week is where the
+   * reference intakes actually live, so the week view judges everything.
+   */
+  const assessments = useMemo(() => {
+    if (period === "day") {
+      return assessDay(rollupsByDay.get(selectedDay) ?? dayRollup([], foodById, recipeByVersion), targets);
+    }
+    const weekRollups = days
+      .map((day) => rollupsByDay.get(day))
+      .filter((rollup): rollup is Rollup => rollup != null);
+    return assessWeek(weekRollups, targets);
+  }, [period, selectedDay, rollupsByDay, days, targets, foodById, recipeByVersion]);
+
+  const energy = assessments.find((entry) => entry.code === "ENERC_KCAL") ?? null;
+  const periodItems = entries.filter((entry) => days.includes(entry.day));
 
   function describe(selection: Selection): string {
     if (selection.kind === "food") {
       const food = foodById.get(selection.id);
-      return `${food?.name ?? "Food"} · ${DEFAULT_FOOD_GRAMS} g`;
+      return `${food?.name ?? "Food"} · ${fmtMass(selection.grams)} g`;
     }
     const recipe = recipeByVersion.get(selection.versionId);
-    return `${recipe?.name ?? "Recipe"} · ${DEFAULT_RECIPE_SERVINGS} serving`;
+    return `${recipe ? versionName(recipe) : "Recipe"} · ${servingsLabel(
+      selection.servings,
+    )}`;
   }
 
-  function addTo(day: string, slot: Slot, picked: Selection) {
+  function selectionTitle(selection: Selection): string {
+    if (selection.kind === "food") {
+      return foodById.get(selection.id)?.name ?? "Food";
+    }
+    const recipe = recipeByVersion.get(selection.versionId);
+    return recipe ? versionName(recipe) : "Recipe";
+  }
+
+  function place(day: string, slot: Slot, picked: Selection) {
     setError(null);
     setSelectedDay(day);
 
@@ -154,7 +241,7 @@ export function PlanBoard({
             id: `pending-${crypto.randomUUID()}`,
             foodId: picked.id,
             recipeVersionId: null,
-            grams: DEFAULT_FOOD_GRAMS,
+            grams: picked.grams,
             servings: null,
           }
         : {
@@ -163,7 +250,7 @@ export function PlanBoard({
             foodId: null,
             recipeVersionId: picked.versionId,
             grams: null,
-            servings: DEFAULT_RECIPE_SERVINGS,
+            servings: picked.servings,
           };
 
     setEntries((current) => [...current, optimistic]);
@@ -175,8 +262,8 @@ export function PlanBoard({
         slot,
         foodId: picked.kind === "food" ? picked.id : null,
         recipeVersionId: picked.kind === "recipe" ? picked.versionId : null,
-        grams: picked.kind === "food" ? DEFAULT_FOOD_GRAMS : null,
-        servings: picked.kind === "recipe" ? DEFAULT_RECIPE_SERVINGS : null,
+        grams: picked.kind === "food" ? picked.grams : null,
+        servings: picked.kind === "recipe" ? picked.servings : null,
       });
 
       if (!response.ok || !response.entry) {
@@ -189,6 +276,36 @@ export function PlanBoard({
       setEntries((current) =>
         current.map((entry) => (entry.id === optimistic.id ? saved : entry)),
       );
+    });
+  }
+
+  /** Move a placed item to another day or slot. The item itself is unchanged. */
+  function move(entry: PlanEntry, day: string, slot: Slot) {
+    if (entry.day === day && entry.slot === slot) return;
+
+    setError(null);
+    setSelectedDay(day);
+
+    const previous = entry;
+    const position =
+      entries
+        .filter((item) => item.day === day && item.slot === slot && item.id !== entry.id)
+        .reduce((max, item) => Math.max(max, item.position), -1) + 1;
+
+    setEntries((current) =>
+      current.map((item) =>
+        item.id === entry.id ? { ...item, day, slot, position } : item,
+      ),
+    );
+
+    startTransition(async () => {
+      const response = await movePlanEntryAction({ week, id: entry.id, day, slot });
+      if (!response.ok) {
+        setEntries((current) =>
+          current.map((item) => (item.id === previous.id ? previous : item)),
+        );
+        setError(response.message ?? "Could not move that item.");
+      }
     });
   }
 
@@ -230,19 +347,85 @@ export function PlanBoard({
     });
   }
 
+  /**
+   * Put an item already on the board back in the palette.
+   *
+   * This is the tap-based equivalent of an Alt-drag: the selection keeps
+   * the item's quantity, so placing it elsewhere is a duplicate rather
+   * than a re-entry.
+   */
+  function copyToPalette(entry: PlanEntry) {
+    const picked = selectionOf(entry);
+    if (!picked) return;
+
+    setError(null);
+    setSelection(picked);
+    setSelectedDay(entry.day);
+    setTab(picked.kind === "food" ? "food" : "recipe");
+
+    if (picked.kind === "recipe") {
+      const recipe = recipeByVersion.get(picked.versionId);
+      if (recipe) {
+        setVersionChoice((current) => ({ ...current, [recipe.recipeId]: recipe.versionId }));
+      }
+    }
+
+    paletteRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  function startPaletteDrag(event: React.DragEvent, picked: Selection) {
+    const payload: DragPayload = { kind: "palette", selection: picked };
+    dragRef.current = payload;
+    event.dataTransfer.setData(DRAG_MIME, JSON.stringify(payload));
+    event.dataTransfer.setData("text/plain", describe(picked));
+    event.dataTransfer.effectAllowed = "copy";
+    dragGhost(event, selectionTitle(picked), describe(picked));
+  }
+
+  function startEntryDrag(event: React.DragEvent, entry: PlanEntry) {
+    const payload: DragPayload = { kind: "entry", id: entry.id };
+    dragRef.current = payload;
+    event.dataTransfer.setData(DRAG_MIME, JSON.stringify(payload));
+    event.dataTransfer.setData("text/plain", entryName(entry, foodById, recipeByVersion));
+    event.dataTransfer.effectAllowed = "copyMove";
+    dragGhost(
+      event,
+      entryName(entry, foodById, recipeByVersion),
+      `${quantityLabel(entry)} · ${fmt(entryKcal.get(entry.id) ?? null, 0)} kcal`,
+    );
+  }
+
+  function onDragOver(event: React.DragEvent, dropKey: string) {
+    event.preventDefault();
+    // A placed item moves by default; Alt turns the same drag into a copy.
+    event.dataTransfer.dropEffect =
+      dragRef.current?.kind === "entry" && !event.altKey ? "move" : "copy";
+    if (dragOver !== dropKey) setDragOver(dropKey);
+  }
+
   function onDrop(event: React.DragEvent, day: string, slot: Slot) {
     event.preventDefault();
     setDragOver(null);
 
-    const raw = event.dataTransfer.getData("text/plain");
-    if (!raw) return;
+    const payload = readPayload(event, dragRef);
+    dragRef.current = null;
+    if (!payload) return;
 
-    try {
-      const parsed = JSON.parse(raw) as Selection;
-      if (parsed.kind === "food" || parsed.kind === "recipe") addTo(day, slot, parsed);
-    } catch {
-      // A drag from outside the palette carries nothing we understand.
+    if (payload.kind === "palette") {
+      place(day, slot, payload.selection);
+      return;
     }
+
+    const entry = entries.find((item) => item.id === payload.id);
+    if (!entry) return;
+
+    if (event.altKey) {
+      const picked = selectionOf(entry);
+      if (picked) place(day, slot, picked);
+      return;
+    }
+
+    move(entry, day, slot);
   }
 
   const weekLabel = `${shortDate(week)} – ${shortDate(addDays(week, 6), true)}`;
@@ -253,25 +436,25 @@ export function PlanBoard({
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Plan</h1>
-            <p className="mt-1 text-xs text-black/45">{weekLabel}</p>
+            <p className="mt-1 text-xs text-ink/45">{weekLabel}</p>
           </div>
 
           <div className="flex items-center gap-1">
             <Link
               href={`/plan?week=${addDays(week, -7)}`}
-              className="rounded-lg border border-black/10 bg-white px-3 py-1.5 text-xs font-medium text-black/60 transition hover:bg-black/[0.03]"
+              className="rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink/60 transition hover:bg-ink/5"
             >
               ← Previous
             </Link>
             <Link
               href="/plan"
-              className="rounded-lg border border-black/10 bg-white px-3 py-1.5 text-xs font-medium text-black/60 transition hover:bg-black/[0.03]"
+              className="rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink/60 transition hover:bg-ink/5"
             >
               This week
             </Link>
             <Link
               href={`/plan?week=${addDays(week, 7)}`}
-              className="rounded-lg border border-black/10 bg-white px-3 py-1.5 text-xs font-medium text-black/60 transition hover:bg-black/[0.03]"
+              className="rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink/60 transition hover:bg-ink/5"
             >
               Next →
             </Link>
@@ -279,7 +462,7 @@ export function PlanBoard({
         </div>
 
         {profileIsDefault && (
-          <p className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+          <p className="mb-3 rounded-xl border border-warn-line bg-warn-soft px-3 py-2 text-[11px] text-warn-ink">
             Targets use the default profile (a 30-year-old woman, moderate activity).{" "}
             <Link href="/profile" className="font-medium underline underline-offset-2">
               Set your own numbers
@@ -289,18 +472,21 @@ export function PlanBoard({
         )}
 
         {error && (
-          <p className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-800">
+          <p className="mb-3 rounded-xl border border-danger-line bg-danger-soft px-3 py-2 text-[11px] text-danger-ink">
             {error}
           </p>
         )}
 
         {/* ---- Palette --------------------------------------------------- */}
-        <section className="rounded-2xl border border-black/[0.07] bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+        <section
+          ref={paletteRef}
+          className="rounded-2xl border border-line bg-surface p-4 shadow-card"
+        >
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-1 rounded-lg bg-black/[0.04] p-0.5">
+            <div className="flex items-center gap-1 rounded-lg bg-ink/[0.06] p-0.5">
               {(
                 [
-                  { key: "recipe", label: `Recipes (${recipes.length})` },
+                  { key: "recipe", label: `Recipes (${recipeGroups.length})` },
                   { key: "food", label: `Foods (${foods.length})` },
                 ] as const
               ).map((option) => (
@@ -310,8 +496,8 @@ export function PlanBoard({
                   onClick={() => setTab(option.key)}
                   className={`rounded-md px-3 py-1 text-xs font-medium transition ${
                     tab === option.key
-                      ? "bg-white text-[#1f6f4a] shadow-sm"
-                      : "text-black/45 hover:text-black/70"
+                      ? "bg-surface text-accent shadow-sm"
+                      : "text-ink/45 hover:text-ink/70"
                   }`}
                 >
                   {option.label}
@@ -323,51 +509,120 @@ export function PlanBoard({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={tab === "recipe" ? "Search recipes…" : "paneer, palak, dal…"}
-              className="w-full max-w-xs rounded-lg border border-black/10 bg-[#faf9f7] px-3 py-1.5 text-xs outline-none placeholder:text-black/30 focus:border-[#1f6f4a]/50 focus:ring-2 focus:ring-[#1f6f4a]/10"
+              className="w-full max-w-xs rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-xs outline-none placeholder:text-ink/30 focus:border-accent/50 focus:ring-2 focus:ring-accent/10"
             />
           </div>
 
-          <p className="mt-2 text-[11px] text-black/40">
+          <p className="mt-2 text-[11px] text-ink/40">
             {selection
-              ? `Selected: ${describe(selection)}. Tap a slot to place it, or drag it there.`
-              : "Pick an item, then tap a slot — or drag it onto the day."}
+              ? `Selected: ${describe(selection)} — tap a slot, or drag it there.`
+              : "Pick an item, then tap a slot. Drag a placed item by its handle to move it, or hold Alt while dropping to copy."}
           </p>
 
-          <div className="mt-2 flex max-h-52 flex-wrap gap-1.5 overflow-y-auto">
+          <div className="mt-2 flex max-h-56 flex-wrap gap-1.5 overflow-y-auto">
             {tab === "recipe"
-              ? paletteRecipes.map((recipe) => {
-                  const picked: Selection = { kind: "recipe", versionId: recipe.versionId };
+              ? paletteGroups.map((group) => {
+                  const chosen =
+                    group.versions.find(
+                      (version) => version.versionId === versionChoice[group.recipeId],
+                    ) ?? group.current;
+                  const picked: Selection = {
+                    kind: "recipe",
+                    versionId: chosen.versionId,
+                    servings: DEFAULT_RECIPE_SERVINGS,
+                  };
                   const active =
                     selection?.kind === "recipe" &&
-                    selection.versionId === recipe.versionId;
+                    selection.versionId === chosen.versionId;
 
                   return (
-                    <PaletteChip
-                      key={recipe.versionId}
-                      active={active}
-                      onPick={() => setSelection(active ? null : picked)}
-                      payload={picked}
-                      title={recipe.name}
-                      detail={`v${recipe.versionNo} · ${fmt(
-                        recipe.perServing.totals.ENERC_KCAL,
-                        0,
-                      )} kcal / serving`}
-                    />
+                    <div
+                      key={group.recipeId}
+                      className={`w-[212px] rounded-xl border p-1.5 transition ${
+                        active
+                          ? "border-accent/50 bg-accent/[0.07]"
+                          : "border-line bg-surface-2"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        draggable
+                        onDragStart={(event) => startPaletteDrag(event, picked)}
+                        onDragEnd={() => {
+                          dragRef.current = null;
+                          setDragOver(null);
+                        }}
+                        onClick={() => setSelection(active ? null : picked)}
+                        className="block w-full cursor-grab px-1 pt-0.5 text-left active:cursor-grabbing"
+                      >
+                        <span className="block truncate text-xs font-medium">{group.name}</span>
+                        <span className="block truncate text-[10px] text-ink/40">
+                          {group.versions.length > 1 ? `v${chosen.versionNo} · ` : ""}
+                          {chosen.label ? `${chosen.label} · ` : ""}
+                          {fmt(chosen.perServing.totals.ENERC_KCAL, 0)} kcal / serving
+                        </span>
+                      </button>
+
+                      {group.versions.length > 1 && (
+                        <label className="mt-1 block">
+                          <span className="sr-only">Version of {group.name}</span>
+                          <select
+                            value={chosen.versionId}
+                            onChange={(event) => {
+                              const versionId = event.target.value;
+                              setVersionChoice((current) => ({
+                                ...current,
+                                [group.recipeId]: versionId,
+                              }));
+                              setSelection({
+                                kind: "recipe",
+                                versionId,
+                                servings: DEFAULT_RECIPE_SERVINGS,
+                              });
+                            }}
+                            className="w-full rounded-md border border-line bg-surface px-1.5 py-1 text-[10px] text-ink/60 outline-none focus:border-accent/50"
+                          >
+                            {group.versions.map((version) => (
+                              <option key={version.versionId} value={version.versionId}>
+                                {versionOptionLabel(version)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                    </div>
                   );
                 })
               : paletteFoods.map((food) => {
-                  const picked: Selection = { kind: "food", id: food.id };
+                  const picked: Selection = {
+                    kind: "food",
+                    id: food.id,
+                    grams: DEFAULT_FOOD_GRAMS,
+                  };
                   const active = selection?.kind === "food" && selection.id === food.id;
 
                   return (
-                    <PaletteChip
+                    <button
                       key={food.id}
-                      active={active}
-                      onPick={() => setSelection(active ? null : picked)}
-                      payload={picked}
-                      title={food.name}
-                      detail={`${fmt(food.nutrients.ENERC_KCAL.amount, 0)} kcal / 100 g`}
-                    />
+                      type="button"
+                      draggable
+                      onDragStart={(event) => startPaletteDrag(event, picked)}
+                      onDragEnd={() => {
+                        dragRef.current = null;
+                        setDragOver(null);
+                      }}
+                      onClick={() => setSelection(active ? null : picked)}
+                      className={`max-w-[230px] cursor-grab rounded-lg border px-2.5 py-1.5 text-left transition active:cursor-grabbing ${
+                        active
+                          ? "border-accent/50 bg-accent/[0.07]"
+                          : "border-line bg-surface-2 hover:border-line-strong"
+                      }`}
+                    >
+                      <span className="block truncate text-xs font-medium">{food.name}</span>
+                      <span className="block truncate text-[10px] text-ink/40">
+                        {fmt(food.nutrients.ENERC_KCAL.amount, 0)} kcal / 100 g
+                      </span>
+                    </button>
                   );
                 })}
           </div>
@@ -376,7 +631,7 @@ export function PlanBoard({
             <button
               type="button"
               onClick={() => setSelection(null)}
-              className="mt-2 text-[11px] font-medium text-black/40 underline underline-offset-2 hover:text-black/60"
+              className="mt-2 text-[11px] font-medium text-ink/40 underline underline-offset-2 hover:text-ink/60"
             >
               Clear selection
             </button>
@@ -385,13 +640,14 @@ export function PlanBoard({
 
         {/* ---- Week ------------------------------------------------------ */}
         <section className="mt-4 overflow-x-auto pb-1">
-          <div className="grid min-w-[960px] grid-cols-7 gap-2">
+          <div className="grid min-w-[1080px] grid-cols-7 gap-2">
             {days.map((day) => {
               const rollup = rollupsByDay.get(day);
               const kcal = rollup?.totals.ENERC_KCAL ?? null;
+              const dayTarget = targetByCode.get("ENERC_KCAL");
               const pct =
-                kcal != null && energyTarget
-                  ? Math.min(100, (kcal / energyTarget.value) * 100)
+                kcal != null && dayTarget
+                  ? Math.min(100, (kcal / dayTarget.value) * 100)
                   : 0;
               const dayEntries = entriesForDay(entries, day);
               const isToday = day === today;
@@ -399,26 +655,26 @@ export function PlanBoard({
               return (
                 <div
                   key={day}
-                  className={`flex flex-col rounded-xl border bg-white transition ${
+                  className={`flex flex-col rounded-xl border bg-surface transition ${
                     selectedDay === day
-                      ? "border-[#1f6f4a]/40 ring-2 ring-[#1f6f4a]/10"
-                      : "border-black/[0.07]"
+                      ? "border-accent/40 ring-2 ring-accent/10"
+                      : "border-line"
                   }`}
                 >
                   <button
                     type="button"
                     onClick={() => setSelectedDay(day)}
-                    className="rounded-t-xl px-2.5 pb-2 pt-2 text-left transition hover:bg-[#faf9f7]"
+                    className="rounded-t-xl px-2.5 pb-2 pt-2 text-left transition hover:bg-surface-2"
                   >
                     <div className="flex items-baseline justify-between gap-1">
                       <span
                         className={`text-[11px] font-semibold uppercase tracking-wide ${
-                          isToday ? "text-[#1f6f4a]" : "text-black/50"
+                          isToday ? "text-accent" : "text-ink/50"
                         }`}
                       >
                         {weekdayShort(day)}
                       </span>
-                      <span className="tabular text-[11px] text-black/35">
+                      <span className="tabular text-[11px] text-ink/35">
                         {dayOfMonth(day)}
                       </span>
                     </div>
@@ -427,19 +683,19 @@ export function PlanBoard({
                       <span className="tabular text-sm font-semibold">
                         {kcal == null ? "—" : fmt(kcal, 0)}
                       </span>
-                      <span className="text-[10px] text-black/35">kcal</span>
+                      <span className="text-[10px] text-ink/35">kcal</span>
                     </div>
 
-                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-black/[0.06]">
+                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-ink/10">
                       {kcal != null && (
                         <div
-                          className="bar-fill h-full rounded-full bg-[#1f6f4a]"
+                          className="bar-fill h-full rounded-full bg-accent"
                           style={{ width: `${pct}%` }}
                         />
                       )}
                     </div>
 
-                    <div className="mt-1 text-[10px] text-black/35">
+                    <div className="mt-1 text-[10px] text-ink/35">
                       {dayEntries.length === 0
                         ? "nothing planned"
                         : `${dayEntries.length} ${
@@ -457,29 +713,29 @@ export function PlanBoard({
                       return (
                         <div
                           key={slot}
-                          onDragOver={(event) => {
-                            event.preventDefault();
-                            event.dataTransfer.dropEffect = "copy";
-                            if (dragOver !== dropKey) setDragOver(dropKey);
-                          }}
-                          onDragLeave={() => setDragOver((current) => (current === dropKey ? null : current))}
+                          onDragOver={(event) => onDragOver(event, dropKey)}
+                          onDragLeave={() =>
+                            setDragOver((current) => (current === dropKey ? null : current))
+                          }
                           onDrop={(event) => onDrop(event, day, slot)}
                           className={`rounded-lg border border-dashed p-1 transition ${
                             isOver
-                              ? "border-[#1f6f4a]/60 bg-[#1f6f4a]/[0.06]"
+                              ? "border-accent/60 bg-accent/[0.06]"
                               : "border-transparent"
                           }`}
                         >
                           <div className="flex items-center justify-between gap-1">
-                            <span className="text-[9px] font-semibold uppercase tracking-wider text-black/30">
+                            <span className="text-[9px] font-semibold uppercase tracking-wider text-ink/30">
                               {SLOT_LABELS[slot]}
                             </span>
                             {selection && (
                               <button
                                 type="button"
-                                onClick={() => addTo(day, slot, selection)}
-                                aria-label={`Add ${describe(selection)} to ${SLOT_LABELS[slot]} on ${weekdayShort(day)}`}
-                                className="grid h-4 w-4 place-items-center rounded text-[11px] leading-none text-[#1f6f4a] transition hover:bg-[#1f6f4a]/10"
+                                onClick={() => place(day, slot, selection)}
+                                aria-label={`Add ${describe(selection)} to ${
+                                  SLOT_LABELS[slot]
+                                } on ${weekdayShort(day)}`}
+                                className="grid h-4 w-4 place-items-center rounded text-[11px] leading-none text-accent transition hover:bg-accent/10"
                               >
                                 +
                               </button>
@@ -490,13 +746,13 @@ export function PlanBoard({
                             selection ? (
                               <button
                                 type="button"
-                                onClick={() => addTo(day, slot, selection)}
-                                className="mt-0.5 w-full rounded border border-dashed border-black/15 py-1 text-[10px] text-black/35 transition hover:border-[#1f6f4a]/40 hover:text-[#1f6f4a]"
+                                onClick={() => place(day, slot, selection)}
+                                className="mt-0.5 w-full rounded border border-dashed border-line py-1 text-[10px] text-ink/35 transition hover:border-accent/40 hover:text-accent"
                               >
                                 Place here
                               </button>
                             ) : (
-                              <p className="py-1 text-center text-[10px] text-black/20">—</p>
+                              <p className="py-1 text-center text-[10px] text-ink/20">—</p>
                             )
                           ) : (
                             <ul className="mt-0.5 space-y-1">
@@ -507,7 +763,13 @@ export function PlanBoard({
                                   name={entryName(entry, foodById, recipeByVersion)}
                                   kcal={entryKcal.get(entry.id) ?? null}
                                   onQuantity={(value) => setQuantity(entry, value)}
+                                  onCopy={() => copyToPalette(entry)}
                                   onRemove={() => remove(entry)}
+                                  onDragStart={(event) => startEntryDrag(event, entry)}
+                                  onDragEnd={() => {
+                                    dragRef.current = null;
+                                    setDragOver(null);
+                                  }}
                                 />
                               ))}
                             </ul>
@@ -522,42 +784,51 @@ export function PlanBoard({
           </div>
         </section>
 
-        {/* ---- Selected day --------------------------------------------- */}
+        {/* ---- Selected day + nutrition --------------------------------- */}
         <section className="mt-5 grid gap-4 lg:grid-cols-[1fr_420px] lg:items-start">
-          <div className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+          <div className="rounded-2xl border border-line bg-surface p-5 shadow-card">
             <div className="flex items-baseline justify-between gap-2">
               <h2 className="text-sm font-semibold">
                 {weekdayShort(selectedDay)} {dayOfMonth(selectedDay)}
               </h2>
-              <span className="text-[11px] text-black/40">
+              <span className="text-[11px] text-ink/40">
                 {selectedEntries.length}{" "}
                 {selectedEntries.length === 1 ? "item" : "items"}
               </span>
             </div>
 
             {selectedEntries.length === 0 ? (
-              <p className="mt-3 rounded-xl border border-dashed border-black/10 px-3 py-8 text-center text-xs text-black/40">
+              <p className="mt-3 rounded-xl border border-dashed border-line px-3 py-8 text-center text-xs text-ink/40">
                 Nothing planned for this day yet. Pick a recipe or food above and place it in a
                 slot.
               </p>
             ) : (
-              <ul className="mt-3 divide-y divide-black/5">
+              <ul className="mt-3 divide-y divide-line">
                 {selectedEntries.map((entry) => (
-                  <li key={entry.id} className="flex items-center gap-3 py-2">
-                    <span className="w-16 shrink-0 text-[10px] uppercase tracking-wide text-black/30">
+                  <li key={entry.id} className="group flex items-center gap-3 py-2">
+                    <span className="w-16 shrink-0 text-[10px] uppercase tracking-wide text-ink/30">
                       {SLOT_LABELS[entry.slot]}
                     </span>
                     <span className="min-w-0 flex-1 truncate text-sm">
                       {entryName(entry, foodById, recipeByVersion)}
                     </span>
-                    <span className="tabular text-xs text-black/45">
-                      {entry.foodId
-                        ? `${fmtMass(entry.grams)} g`
-                        : `${fmt(entry.servings, entry.servings === 1 ? 0 : 1)} serving`}
-                    </span>
-                    <span className="tabular w-14 text-right text-xs text-black/55">
+                    <span className="tabular text-xs text-ink/45">{quantityLabel(entry)}</span>
+                    <span className="tabular w-14 text-right text-xs text-ink/55">
                       {fmt(entryKcal.get(entry.id) ?? null, 0)} kcal
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => copyToPalette(entry)}
+                      aria-label={`Copy ${entryName(
+                        entry,
+                        foodById,
+                        recipeByVersion,
+                      )} to the palette`}
+                      title="Copy to the palette, keeping this quantity"
+                      className="grid h-6 w-6 shrink-0 place-items-center rounded text-ink/30 opacity-0 transition hover:bg-ink/5 hover:text-ink/70 focus-visible:opacity-100 group-hover:opacity-100"
+                    >
+                      <CopyIcon className="h-3.5 w-3.5" />
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -565,74 +836,94 @@ export function PlanBoard({
           </div>
 
           <aside className="lg:sticky lg:top-20">
-            <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-              <div className="flex items-baseline justify-between">
-                <h2 className="text-sm font-semibold">Day nutrition</h2>
-                <Link
-                  href="/profile"
-                  className="text-[11px] text-black/40 underline underline-offset-2 hover:text-black/60"
-                >
-                  Targets
-                </Link>
+            <section className="rounded-2xl border border-line bg-surface p-5 shadow-card">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <h2 className="text-sm font-semibold">
+                    {period === "day" ? "Day nutrition" : "Week nutrition"}
+                  </h2>
+                  <p className="mt-0.5 text-[11px] text-ink/40">
+                    {period === "day"
+                      ? `${weekdayShort(selectedDay)} ${dayOfMonth(selectedDay)} · ${
+                          selectedEntries.length
+                        } ${selectedEntries.length === 1 ? "item" : "items"}`
+                      : `${periodItems.length} ${
+                          periodItems.length === 1 ? "item" : "items"
+                        } across 7 days`}
+                  </p>
+                </div>
+
+                <PeriodToggle period={period} onChange={setPeriod} />
               </div>
 
-              {selectedEntries.length === 0 || selectedRollup == null ? (
-                <p className="mt-3 rounded-xl border border-dashed border-black/10 px-3 py-8 text-center text-xs text-black/40">
-                  Nothing planned, so there is nothing to total.
+              {energy == null || energy.actual == null ? (
+                <p className="mt-3 rounded-xl border border-dashed border-line px-3 py-8 text-center text-xs text-ink/40">
+                  {period === "day"
+                    ? "Nothing planned, so there is nothing to total."
+                    : "Nothing planned this week, so there is nothing to total."}
                 </p>
               ) : (
                 <>
-                  <div className="mt-3 flex items-end justify-between">
-                    <div>
-                      <div className="tabular text-3xl font-semibold leading-none">
-                        {fmt(selectedRollup.totals.ENERC_KCAL, 0)}
-                        <span className="ml-1 text-sm font-normal text-black/40">kcal</span>
-                      </div>
-                      <div className="mt-1 text-[11px] text-black/40">
-                        of {fmt(energyTarget?.value ?? null, 0)} kcal target
-                      </div>
+                  <div className="mt-3">
+                    <div className="tabular text-3xl font-semibold leading-none">
+                      {fmt(energy.actual, 0)}
+                      <span className="ml-1 text-sm font-normal text-ink/40">kcal</span>
+                    </div>
+                    <div className="mt-1 text-[11px] text-ink/40">
+                      of {fmt(energy.target, 0)} kcal{" "}
+                      {period === "day" ? "target" : "weekly target"}
                     </div>
                   </div>
 
-                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-black/[0.06]">
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-ink/10">
                     <div
-                      className="bar-fill h-full rounded-full bg-[#1f6f4a]"
+                      className={`bar-fill h-full rounded-full ${
+                        energy.status === "high" ? "bg-warn" : "bg-accent"
+                      }`}
                       style={{
-                        width: `${
-                          energyTarget
-                            ? Math.min(
-                                100,
-                                ((selectedRollup.totals.ENERC_KCAL ?? 0) /
-                                  energyTarget.value) *
-                                  100,
-                              )
-                            : 0
-                        }%`,
+                        width: `${Math.min(100, (energy.ratio ?? 0) * 100)}%`,
                       }}
                     />
                   </div>
 
                   <div className="mt-5 space-y-5">
-                    {GROUPS.map((group) => (
-                      <div key={group.key}>
-                        <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-black/35">
-                          {group.label}
-                        </h3>
-                        <div className="space-y-2.5">
-                          {NUTRIENT_CODES.filter(
-                            (code) => NUTRIENTS[code].group === group.key,
-                          ).map((code) => (
-                            <NutrientBar
-                              key={code}
-                              code={code}
-                              result={selectedRollup}
-                              target={targetByCode.get(code)}
-                            />
-                          ))}
+                    {GUIDANCE_GROUPS.map((group) => {
+                      const items = assessments.filter(
+                        (entry) => entry.role === group.role,
+                      );
+                      if (items.length === 0) return null;
+                      const summary = groupSummary(items, period, group.role);
+
+                      return (
+                        <div key={group.role}>
+                          <div className="flex items-baseline justify-between gap-2">
+                            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-ink/40">
+                              {group.label}
+                            </h3>
+                            {summary && (
+                              <span className="tabular text-[10px] text-ink/35">
+                                {summary}
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-0.5 text-[10px] leading-snug text-ink/35">
+                            {group.blurb}
+                          </p>
+                          <div className="mt-2 space-y-2.5">
+                            {items.map((entry) => (
+                              <NutrientBar key={entry.code} code={entry.code} assessment={entry} />
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
+
+                  <p className="mt-4 border-t border-line pt-3 text-[10px] leading-relaxed text-ink/35">
+                    {period === "day"
+                      ? "A single day only judges energy and protein. Fibre, vitamins and the limits are averages over the week — switch to Week to judge those."
+                      : "Weekly references are seven daily references. Energy and protein still need to land on most days, not just in total."}
+                  </p>
                 </>
               )}
             </section>
@@ -640,7 +931,7 @@ export function PlanBoard({
         </section>
 
         <footer className="mx-auto max-w-7xl pb-8 pt-4">
-          <p className="text-[11px] leading-relaxed text-black/35">
+          <p className="text-[11px] leading-relaxed text-ink/35">
             {pending ? "Saving… · " : ""}
             A planned recipe is pinned to the version you added. Editing the recipe later creates
             a new version and leaves this week alone. Targets are estimates from your profile and
@@ -654,37 +945,36 @@ export function PlanBoard({
 
 /* ---------------------------------------------------------------- pieces */
 
-function PaletteChip({
-  title,
-  detail,
-  active,
-  onPick,
-  payload,
+function PeriodToggle({
+  period,
+  onChange,
 }: {
-  title: string;
-  detail: string;
-  active: boolean;
-  onPick: () => void;
-  payload: Selection;
+  period: Period;
+  onChange: (period: Period) => void;
 }) {
   return (
-    <button
-      type="button"
-      draggable
-      onDragStart={(event) => {
-        event.dataTransfer.setData("text/plain", JSON.stringify(payload));
-        event.dataTransfer.effectAllowed = "copy";
-      }}
-      onClick={onPick}
-      className={`max-w-[230px] cursor-grab rounded-lg border px-2.5 py-1.5 text-left transition active:cursor-grabbing ${
-        active
-          ? "border-[#1f6f4a]/50 bg-[#1f6f4a]/[0.07]"
-          : "border-black/[0.08] bg-[#faf9f7] hover:border-black/20"
-      }`}
-    >
-      <span className="block truncate text-xs font-medium">{title}</span>
-      <span className="block truncate text-[10px] text-black/40">{detail}</span>
-    </button>
+    <div className="flex shrink-0 items-center gap-0.5 rounded-lg bg-ink/[0.06] p-0.5">
+      {(
+        [
+          { key: "day", label: "Day" },
+          { key: "week", label: "Week" },
+        ] as const
+      ).map((option) => (
+        <button
+          key={option.key}
+          type="button"
+          onClick={() => onChange(option.key)}
+          aria-pressed={period === option.key}
+          className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition ${
+            period === option.key
+              ? "bg-surface text-accent shadow-sm"
+              : "text-ink/45 hover:text-ink/70"
+          }`}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -693,34 +983,63 @@ function PlanEntryRow({
   name,
   kcal,
   onQuantity,
+  onCopy,
   onRemove,
+  onDragStart,
+  onDragEnd,
 }: {
   entry: PlanEntry;
   name: string;
   kcal: number | null;
   onQuantity: (value: number) => void;
+  onCopy: () => void;
   onRemove: () => void;
+  onDragStart: (event: React.DragEvent) => void;
+  onDragEnd: () => void;
 }) {
   const value = entry.foodId ? entry.grams ?? 0 : entry.servings ?? 0;
 
   return (
-    <li className="rounded-md bg-[#faf9f7] px-1.5 py-1">
-      <div className="flex items-start justify-between gap-1">
+    <li className="animate-pop group rounded-md bg-surface-2 px-1.5 py-1 transition hover:bg-ink/[0.05]">
+      <div className="flex items-start gap-0.5">
+        <button
+          type="button"
+          draggable
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          aria-label={`Move ${name}. Hold Alt while dropping to copy.`}
+          title="Drag to move · hold Alt to copy"
+          className="-ml-0.5 mt-0.5 grid h-4 w-3.5 shrink-0 cursor-grab place-items-center rounded text-ink/25 transition hover:text-ink/60 active:cursor-grabbing"
+        >
+          <GripIcon className="h-3 w-3" />
+        </button>
+
         <span className="min-w-0 flex-1 truncate text-[11px] font-medium leading-tight">
           {name}
         </span>
+
+        <button
+          type="button"
+          onClick={onCopy}
+          aria-label={`Copy ${name} to the palette`}
+          title="Copy to the palette, keeping this quantity"
+          className="grid h-4 w-4 shrink-0 place-items-center rounded text-ink/25 opacity-0 transition hover:bg-ink/5 hover:text-ink/70 focus-visible:opacity-100 group-hover:opacity-100"
+        >
+          <CopyIcon className="h-3 w-3" />
+        </button>
+
         <button
           type="button"
           onClick={onRemove}
           aria-label={`Remove ${name}`}
-          className="grid h-4 w-4 shrink-0 place-items-center rounded text-[11px] leading-none text-black/25 transition hover:bg-black/5 hover:text-black/60"
+          className="grid h-4 w-4 shrink-0 place-items-center rounded text-[11px] leading-none text-ink/25 transition hover:bg-ink/5 hover:text-ink/60"
         >
           ×
         </button>
       </div>
 
-      <div className="mt-0.5 flex items-center justify-between gap-1">
-        <label className="flex items-center gap-0.5 text-[10px] text-black/35">
+      <div className="mt-0.5 flex items-center justify-between gap-1 pl-3.5">
+        <label className="flex items-center gap-0.5 text-[10px] text-ink/35">
           <input
             key={`${entry.id}:${value}`}
             type="number"
@@ -739,14 +1058,102 @@ function PlanEntryRow({
             onKeyDown={(event) => {
               if (event.key === "Enter") (event.target as HTMLInputElement).blur();
             }}
-            className="tabular w-11 rounded border border-black/10 bg-white px-1 py-0.5 text-[10px] outline-none focus:border-[#1f6f4a]/50"
+            className="tabular w-11 rounded border border-line bg-surface px-1 py-0.5 text-[10px] outline-none focus:border-accent/50"
           />
           {entry.foodId ? "g" : "srv"}
         </label>
-        <span className="tabular text-[10px] text-black/40">{fmt(kcal, 0)} kcal</span>
+        <span className="tabular text-[10px] text-ink/40">{fmt(kcal, 0)} kcal</span>
       </div>
     </li>
   );
+}
+
+/* --------------------------------------------------------------- helpers */
+
+/**
+ * A drag image we control.
+ *
+ * The browser's default is a snapshot of the dragged element, which
+ * renders its rounded corners as an opaque rectangle. A detached, rounded
+ * node with the app's own surface colour looks like the thing being
+ * carried instead of a cut-out of it.
+ */
+function dragGhost(event: React.DragEvent, title: string, detail: string) {
+  const node = document.createElement("div");
+  const heading = document.createElement("span");
+  const sub = document.createElement("span");
+
+  heading.textContent = title;
+  sub.textContent = detail;
+
+  heading.style.cssText = "display:block;font-weight:600;font-size:12px;line-height:1.3";
+  sub.style.cssText = "display:block;font-size:10px;line-height:1.3;opacity:0.55;margin-top:2px";
+  node.style.cssText = [
+    "position:fixed",
+    "top:-1000px",
+    "left:-1000px",
+    "max-width:240px",
+    "padding:7px 11px",
+    "border-radius:12px",
+    "border:1px solid var(--accent)",
+    "background:var(--surface)",
+    "color:var(--ink)",
+    "box-shadow:0 14px 32px oklch(0 0 0 / 0.22)",
+    "font:500 12px/1.3 ui-sans-serif, system-ui, sans-serif",
+    "white-space:nowrap",
+    "overflow:hidden",
+    "text-overflow:ellipsis",
+    "pointer-events:none",
+  ].join(";");
+
+  node.append(heading, sub);
+  document.body.appendChild(node);
+
+  event.dataTransfer.setDragImage(node, 16, 16);
+  // The snapshot is taken during this event; the node can go straight after.
+  setTimeout(() => node.remove(), 0);
+}
+
+function readPayload(
+  event: React.DragEvent,
+  ref: React.RefObject<DragPayload | null>,
+): DragPayload | null {
+  if (ref.current) return ref.current;
+
+  const raw = event.dataTransfer.getData(DRAG_MIME);
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw) as DragPayload;
+  } catch {
+    return null;
+  }
+}
+
+function selectionOf(entry: PlanEntry): Selection | null {
+  if (entry.foodId && entry.grams != null) {
+    return { kind: "food", id: entry.foodId, grams: entry.grams };
+  }
+  if (entry.recipeVersionId && entry.servings != null) {
+    return { kind: "recipe", versionId: entry.recipeVersionId, servings: entry.servings };
+  }
+  return null;
+}
+
+function versionOptionLabel(option: PlanRecipeOption): string {
+  const name = option.label ? `${option.label} · v${option.versionNo}` : `v${option.versionNo}`;
+  return option.isCurrent ? `${name} (current)` : name;
+}
+
+function servingsLabel(servings: number): string {
+  return `${fmt(servings, servings % 1 === 0 ? 0 : 1)} ${
+    servings === 1 ? "serving" : "servings"
+  }`;
+}
+
+function quantityLabel(entry: PlanEntry): string {
+  if (entry.foodId) return `${fmtMass(entry.grams)} g`;
+  return servingsLabel(entry.servings ?? 0);
 }
 
 function entryName(
@@ -757,9 +1164,35 @@ function entryName(
   if (entry.foodId) return foodById.get(entry.foodId)?.name ?? entry.foodId;
   if (entry.recipeVersionId) {
     const recipe = recipeByVersion.get(entry.recipeVersionId);
-    return recipe ? `${recipe.name} v${recipe.versionNo}` : entry.recipeVersionId;
+    return recipe ? versionName(recipe) : entry.recipeVersionId;
   }
   return "Unknown item";
+}
+
+/**
+ * A one-line verdict for a guidance group.
+ *
+ * The day view only counts the anchors: telling someone "3 of 8 vitamins
+ * met" on a Tuesday would invent a failure the model does not have.
+ */
+function groupSummary(
+  items: Assessment[],
+  period: Period,
+  role: GuidanceRole,
+): string | null {
+  if (period === "day" && role !== "daily-anchor") return null;
+
+  const known = items.filter((entry) => entry.status !== "unknown");
+  if (known.length === 0) return "no data";
+
+  const met = known.filter((entry) => entry.status === "met").length;
+  const issues = known.filter(
+    (entry) => entry.status === "low" || entry.status === "high",
+  ).length;
+
+  return issues > 0
+    ? `${met}/${known.length} met · ${issues} to check`
+    : `${met}/${known.length} met`;
 }
 
 function shortDate(day: string, withYear = false): string {

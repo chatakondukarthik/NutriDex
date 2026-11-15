@@ -44,8 +44,19 @@ export interface PlanRecipeOption {
   name: string;
   versionId: string;
   versionNo: number;
+  /** Optional human name for the version. */
+  label: string | null;
+  /** True for the recipe's current version. */
+  isCurrent: boolean;
   servings: number;
   perServing: Rollup;
+}
+
+/** How a planned recipe version is written in the UI. */
+export function versionName(option: PlanRecipeOption): string {
+  return option.label
+    ? `${option.name} · ${option.label}`
+    : `${option.name} · v${option.versionNo}`;
 }
 
 /**

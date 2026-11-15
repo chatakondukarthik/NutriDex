@@ -186,6 +186,46 @@ export function updatePlanEntryQuantity(
   db.prepare("UPDATE plan_entries SET servings = ? WHERE id = ?").run(patch.servings, id);
 }
 
+/**
+ * Move an entry to another day or slot.
+ *
+ * Only the place changes: the pinned food or recipe version and its
+ * quantity stay exactly as they were. The entry goes to the end of the
+ * destination, which keeps the existing order stable.
+ */
+export function movePlanEntry(
+  id: string,
+  destination: { day: string; slot: Slot },
+): PlanEntry {
+  const row = db
+    .prepare("SELECT * FROM plan_entries WHERE id = ?")
+    .get(id) as unknown as EntryRow | undefined;
+
+  if (!row) throw new Error("That plan entry no longer exists.");
+
+  const next = db
+    .prepare(
+      "SELECT COALESCE(MAX(position), -1) + 1 AS position FROM plan_entries WHERE plan_id = ? AND day = ? AND slot = ? AND id <> ?",
+    )
+    .get(row.plan_id, destination.day, destination.slot, id) as unknown as {
+    position: number;
+  };
+
+  db.prepare("UPDATE plan_entries SET day = ?, slot = ?, position = ? WHERE id = ?").run(
+    destination.day,
+    destination.slot,
+    next.position,
+    id,
+  );
+
+  return toEntry({
+    ...row,
+    day: destination.day,
+    slot: destination.slot,
+    position: next.position,
+  });
+}
+
 export function removePlanEntry(id: string): void {
   db.prepare("DELETE FROM plan_entries WHERE id = ?").run(id);
 }

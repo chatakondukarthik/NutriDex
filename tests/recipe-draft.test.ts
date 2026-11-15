@@ -13,6 +13,7 @@ import { prepareVersion } from "@/lib/recipe-validate";
 function state(): BuilderState {
   return {
     name: "Test dish",
+    versionLabel: "",
     instructions: "Cook it.",
     servings: "2",
     blocks: [
@@ -145,6 +146,7 @@ describe("builder round trip", () => {
       recipeName: "Stored",
       kind: "dish",
       versionNo: 3,
+      label: "extra paneer",
       instructions: "Stir.",
       servings: 2,
       yieldGrams: 250,

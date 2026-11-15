@@ -18,7 +18,7 @@ export default async function NewRecipePage({
     <>
       {preset && (
         <div className="mx-auto max-w-4xl px-5 pt-5">
-          <p className="rounded-xl border border-[#1f6f4a]/20 bg-[#1f6f4a]/5 px-3 py-2 text-[11px] text-[#1f6f4a]">
+          <p className="rounded-xl border border-accent/20 bg-accent/5 px-3 py-2 text-[11px] text-accent">
             Starting from <span className="font-semibold">{preset.name}</span>. Change anything —
             saving creates your own recipe.
           </p>

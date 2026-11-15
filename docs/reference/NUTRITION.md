@@ -322,16 +322,43 @@ contains nothing, which is a different statement from "we know nothing".
 ## 13. Targets
 
 Bars need a denominator. Targets are **derived from a stored profile on read**,
-never stored as numbers:
+never stored as numbers (D-030).
+
+### 13.1 Energy
+
+Energy is the only target with a goal adjustment, and it is built in the open:
+`energyBreakdown(profile)` returns every intermediate value, and the profile page
+renders that object directly, so the explanation cannot drift from the number.
+
+| Step | Rule |
+|---|---|
+| BMR | Mifflin–St Jeor by default; Katch–McArdle when a body-fat percentage is given, because lean mass predicts resting energy better than height and weight alone |
+| maintenance | BMR × activity multiplier (1.2 sedentary / 1.375 light / 1.55 moderate / 1.725 active) |
+| pace | a share of current body weight per week: loss 0.25 / 0.5 / 0.75 %, gain 0.125 / 0.25 / 0.5 % |
+| adjustment | rate × 7,700 kcal/kg ÷ 7 days, applied in the goal's direction |
+| floor | never below 1,200 kcal (female) / 1,500 kcal (male) |
+| deficit rail | no more than 25 % below maintenance |
+| surplus rail | no more than 15 % above maintenance |
+
+The pace is stored as an enum (`gentle`, `steady`, `fast`) and the rate is
+derived from it, so the kg/week figure moves with body weight instead of being a
+fixed number that becomes wrong after a few kilos.
+
+The rails are guard rails, not prescriptions. When one bites, the UI shows the
+**effective** rate — what the applied deficit or surplus actually implies —
+rather than repeating the pace the user asked for. A target-weight projection
+uses the same effective rate, so a capped plan does not promise a date it cannot
+keep.
+
+### 13.2 Everything else
 
 | Value | Source |
 |---|---|
-| energy | Mifflin–St Jeor BMR × activity multiplier, goal delta (−400 / 0 / +300 kcal), floor of 1200 kcal (female) / 1500 kcal (male) |
 | protein | body weight × 1.0 (maintain) / 1.2 (lose) / 1.4 g/kg (gain) |
-| fat | 30% of energy, as a **ceiling** |
+| fat | 30 % of energy, as a **ceiling** |
 | carbohydrate | energy left after protein and fat, as a minimum |
-| fibre | 14 g per 1000 kcal |
-| sugars | 10% of energy, as a ceiling — stricter than the free-sugar guidance because the field is total sugars |
+| fibre | 14 g per 1,000 kcal |
+| sugars | 10 % of energy, as a ceiling — stricter than the free-sugar guidance because the field is total sugars |
 | minerals, vitamins | ICMR–NIN 2020 reference allowances, banded by sex and age |
 
 The direction of each target comes from the nutrient vocabulary (D-025), so a
@@ -341,3 +368,40 @@ nutrient cannot be a limit on one screen and a minimum on another.
 an equation, not a prescription. The profile defaults are a neutral placeholder,
 the micro values are unverified seed data, and Q-003 (one value versus a range)
 is still open. The UI shows targets to aim at and never a pass/fail.
+
+---
+
+## 14. Day and week are different windows (D-032)
+
+A target is a daily reference, but a day is not always the right window to judge
+it in. Fibre and most vitamins are averages over time; a low-fibre Tuesday is not
+a mistake if the week adds up. Energy and protein are different: they need to
+land on most days, not just in total.
+
+Every target therefore carries a `role`:
+
+| Role | Nutrients | Judged over |
+|---|---|---|
+| `daily-anchor` | energy, protein | a day |
+| `weekly-minimum` | carbohydrate, fibre, potassium, calcium, iron, zinc, magnesium, vitamins A/C/D/B12, folate, B6 | the week |
+| `weekly-limit` | fat, total sugars, sodium | the week |
+
+`assessDay()` only passes judgement on the anchors. `assessWeek()` judges
+everything, because seven daily references are a valid weekly reference for an
+average. This is a product rule, not a display preference: the day view cannot
+say "3 of 8 vitamins met" without inventing a failure the model does not have.
+
+The plan's nutrition panel offers both windows. The Day view shows the anchors
+as a verdict and leaves the weekly nutrients grey; the Week view judges all
+three groups. The diary is a single day, so it judges the anchors and the
+crossed ceilings, and says in words that the rest are weekly.
+
+A bar's colour follows its status, not its fill percentage:
+
+| Status | Meaning | Colour |
+|---|---|---|
+| `met` | at or past the reference (or under a ceiling) | accent |
+| `low` | below a daily anchor | amber |
+| `high` | above a weekly limit | amber |
+| `neutral` | the wrong window to judge it, or nothing to judge | grey |
+| `unknown` | no contributing data | no bar |

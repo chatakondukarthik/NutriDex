@@ -1,8 +1,168 @@
 @import "tailwindcss";
 
+/*
+ * Design tokens.
+ *
+ * Every screen reads semantic names (`surface`, `ink`, `accent`), never a
+ * literal colour. A new page gets the current theme for free, and adding a
+ * theme or accent is a change to this file plus `src/lib/theme.ts` — not a
+ * hunt through components.
+ *
+ * Tailwind 4 has no config file here, so the tokens live in `@theme inline`.
+ */
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-ink: var(--accent-ink);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-warn-line: var(--warn-line);
+  --color-warn-ink: var(--warn-ink);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-line: var(--danger-line);
+  --color-danger-ink: var(--danger-ink);
+  --shadow-card: var(--card-shadow);
+  --shadow-card-hover: var(--card-shadow-hover);
+  --radius-card: 1rem;
+  --radius-control: 0.625rem;
+}
+
+/* ---------------------------------------------------------------- light */
+
 :root {
   color-scheme: light;
+
+  --canvas: oklch(0.985 0.004 95);
+  --surface: oklch(1 0 0);
+  --surface-2: oklch(0.964 0.006 95);
+  --line: oklch(0.9 0.006 95);
+  --line-strong: oklch(0.81 0.008 95);
+
+  --ink: oklch(0.24 0.015 260);
+  --muted: oklch(0.5 0.012 260);
+  --faint: oklch(0.66 0.012 260);
+
+  --accent-base: oklch(0.47 0.105 158);
+  --accent-strong-base: oklch(0.41 0.105 158);
+  --accent: var(--accent-base);
+  --accent-strong: var(--accent-strong-base);
+  --accent-ink: oklch(0.99 0.01 158);
+
+  --warn: oklch(0.72 0.15 78);
+  --warn-soft: oklch(0.972 0.03 85);
+  --warn-line: oklch(0.88 0.06 85);
+  --warn-ink: oklch(0.43 0.08 70);
+
+  --danger: oklch(0.58 0.18 25);
+  --danger-soft: oklch(0.972 0.02 25);
+  --danger-line: oklch(0.88 0.06 25);
+  --danger-ink: oklch(0.45 0.15 25);
+
+  --card-shadow: 0 1px 2px oklch(0.2 0.02 260 / 0.05);
+  --card-shadow-hover: 0 8px 24px oklch(0.2 0.02 260 / 0.08);
+  --skeleton-highlight: oklch(0.99 0.004 95);
 }
+
+/* --------------------------------------------------------------- accents */
+
+[data-accent="forest"] {
+  --accent-base: oklch(0.47 0.105 158);
+  --accent-strong-base: oklch(0.41 0.105 158);
+}
+
+[data-accent="ocean"] {
+  --accent-base: oklch(0.47 0.115 238);
+  --accent-strong-base: oklch(0.41 0.115 238);
+}
+
+[data-accent="plum"] {
+  --accent-base: oklch(0.47 0.115 315);
+  --accent-strong-base: oklch(0.41 0.115 315);
+}
+
+[data-accent="ember"] {
+  --accent-base: oklch(0.5 0.13 38);
+  --accent-strong-base: oklch(0.44 0.13 38);
+}
+
+/* ---------------------------------------------------------------- dark */
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --canvas: oklch(0.17 0.012 255);
+  --surface: oklch(0.215 0.014 255);
+  --surface-2: oklch(0.262 0.014 255);
+  --line: oklch(0.325 0.014 255);
+  --line-strong: oklch(0.43 0.016 255);
+
+  --ink: oklch(0.95 0.006 255);
+  --muted: oklch(0.73 0.012 255);
+  --faint: oklch(0.6 0.012 255);
+
+  --accent: color-mix(in oklab, var(--accent-base) 64%, white);
+  --accent-strong: color-mix(in oklab, var(--accent-strong-base) 78%, white);
+  --accent-ink: oklch(0.19 0.03 158);
+
+  --warn: oklch(0.78 0.14 80);
+  --warn-soft: oklch(0.285 0.04 80);
+  --warn-line: oklch(0.4 0.06 80);
+  --warn-ink: oklch(0.91 0.06 85);
+
+  --danger: oklch(0.7 0.16 25);
+  --danger-soft: oklch(0.285 0.04 25);
+  --danger-line: oklch(0.4 0.07 25);
+  --danger-ink: oklch(0.91 0.05 25);
+
+  --card-shadow: 0 1px 2px oklch(0 0 0 / 0.4);
+  --card-shadow-hover: 0 10px 30px oklch(0 0 0 / 0.5);
+  --skeleton-highlight: oklch(0.33 0.014 255);
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-theme="system"] {
+    color-scheme: dark;
+
+    --canvas: oklch(0.17 0.012 255);
+    --surface: oklch(0.215 0.014 255);
+    --surface-2: oklch(0.262 0.014 255);
+    --line: oklch(0.325 0.014 255);
+    --line-strong: oklch(0.43 0.016 255);
+
+    --ink: oklch(0.95 0.006 255);
+    --muted: oklch(0.73 0.012 255);
+    --faint: oklch(0.6 0.012 255);
+
+    --accent: color-mix(in oklab, var(--accent-base) 64%, white);
+    --accent-strong: color-mix(in oklab, var(--accent-strong-base) 78%, white);
+    --accent-ink: oklch(0.19 0.03 158);
+
+    --warn: oklch(0.78 0.14 80);
+    --warn-soft: oklch(0.285 0.04 80);
+    --warn-line: oklch(0.4 0.06 80);
+    --warn-ink: oklch(0.91 0.06 85);
+
+    --danger: oklch(0.7 0.16 25);
+    --danger-soft: oklch(0.285 0.04 25);
+    --danger-line: oklch(0.4 0.07 25);
+    --danger-ink: oklch(0.91 0.05 25);
+
+    --card-shadow: 0 1px 2px oklch(0 0 0 / 0.4);
+    --card-shadow-hover: 0 10px 30px oklch(0 0 0 / 0.5);
+    --skeleton-highlight: oklch(0.33 0.014 255);
+  }
+}
+
+/* ---------------------------------------------------------------- base */
 
 html,
 body {
@@ -10,6 +170,21 @@ body {
 }
 
 body {
+  min-height: 100%;
+  background-color: var(--canvas);
+  background-image:
+    radial-gradient(
+      1100px 520px at 12% -10%,
+      color-mix(in oklab, var(--accent) 9%, transparent),
+      transparent 62%
+    ),
+    radial-gradient(
+      800px 420px at 100% 0%,
+      color-mix(in oklab, var(--accent) 5%, transparent),
+      transparent 56%
+    );
+  background-attachment: fixed;
+  color: var(--ink);
   font-family:
     ui-sans-serif,
     system-ui,
@@ -19,12 +194,30 @@ body {
     "Helvetica Neue",
     Arial,
     sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--accent) 24%, transparent);
+}
+
+:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
 }
 
 /* Keep number columns from jumping as values change. */
 .tabular {
   font-variant-numeric: tabular-nums;
 }
+
+/* ------------------------------------------------------------- motion */
 
 @keyframes fill {
   from {
@@ -37,5 +230,81 @@ body {
 
 .bar-fill {
   transform-origin: left center;
-  animation: fill 240ms ease-out;
+  animation: fill 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transition: width 520ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-rise {
+  animation: rise 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-pop {
+  animation: pop 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* ------------------------------------------------------------- skeleton */
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton {
+  background-color: var(--surface-2);
+  background-image: linear-gradient(
+    90deg,
+    var(--surface-2) 25%,
+    var(--skeleton-highlight) 50%,
+    var(--surface-2) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+  border-radius: 0.5rem;
+}
+
+/* The user can turn motion off in Settings; the OS can ask for it too. */
+[data-motion="off"] *,
+[data-motion="off"] *::before,
+[data-motion="off"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

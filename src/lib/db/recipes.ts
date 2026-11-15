@@ -29,6 +29,7 @@ export interface RecipeSummary {
   versionCount: number;
   currentVersionId: string | null;
   currentVersionNo: number | null;
+  currentVersionLabel: string | null;
   servings: number | null;
   kcalPerServing: number | null;
   updatedAt: string;
@@ -40,6 +41,8 @@ export interface RecipeVersionDetail {
   recipeName: string;
   kind: "dish" | "component";
   versionNo: number;
+  /** Optional human name for this version, e.g. "less salt". */
+  label: string | null;
   instructions: string;
   servings: number;
   yieldGrams: number | null;
@@ -52,6 +55,7 @@ export interface RecipeVersionDetail {
 export interface VersionRef {
   id: string;
   versionNo: number;
+  label: string | null;
   createdAt: string;
   servings: number;
   kcalPerServing: number | null;
@@ -59,6 +63,8 @@ export interface VersionRef {
 }
 
 export interface VersionInput {
+  /** Optional human name for the version, not the recipe. */
+  label?: string | null;
   instructions: string;
   servings: number;
   yieldGrams: number | null;
@@ -96,6 +102,7 @@ interface VersionRow {
   yield_g: number | null;
   snapshot: string;
   calculation_version: string;
+  label: string | null;
   created_at: string;
 }
 
@@ -190,8 +197,8 @@ function insertVersion(
 
   db.prepare(
     `INSERT INTO recipe_versions
-       (id, recipe_id, version_no, instructions, servings, yield_g, snapshot, calculation_version, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, recipe_id, version_no, instructions, servings, yield_g, snapshot, calculation_version, label, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     versionId,
     recipeId,
@@ -201,6 +208,7 @@ function insertVersion(
     version.yieldGrams,
     JSON.stringify(version.snapshot),
     version.snapshot.calculationVersion,
+    version.label?.trim() || null,
     new Date().toISOString(),
   );
 
@@ -238,13 +246,19 @@ export function listRecipes(): RecipeSummary[] {
     .prepare(
       `SELECT r.id, r.kind, r.name, r.current_version_id, r.created_at, r.updated_at,
               (SELECT COUNT(*) FROM recipe_versions v WHERE v.recipe_id = r.id) AS version_count,
-              v.version_no, v.servings, v.snapshot
+              v.version_no, v.label, v.servings, v.snapshot
        FROM recipes r
        LEFT JOIN recipe_versions v ON v.id = r.current_version_id
        ORDER BY r.updated_at DESC, r.rowid DESC`,
     )
     .all() as unknown as Array<
-    RecipeRow & { version_count: number; version_no: number | null; servings: number | null; snapshot: string | null }
+    RecipeRow & {
+      version_count: number;
+      version_no: number | null;
+      label: string | null;
+      servings: number | null;
+      snapshot: string | null;
+    }
   >;
 
   return rows.map((row) => {
@@ -256,6 +270,7 @@ export function listRecipes(): RecipeSummary[] {
       versionCount: row.version_count,
       currentVersionId: row.current_version_id,
       currentVersionNo: row.version_no,
+      currentVersionLabel: row.label,
       servings: row.servings,
       kcalPerServing: snapshot ? kcalPerServing(snapshot) : null,
       updatedAt: row.updated_at,
@@ -271,16 +286,17 @@ export function getRecipe(
 
   const rows = db
     .prepare(
-      `SELECT id, version_no, created_at, servings, snapshot
+      `SELECT id, version_no, label, created_at, servings, snapshot
        FROM recipe_versions WHERE recipe_id = ? ORDER BY version_no DESC`,
     )
     .all(recipeId) as unknown as Array<
-    Pick<VersionRow, "id" | "version_no" | "created_at" | "servings" | "snapshot">
+    Pick<VersionRow, "id" | "version_no" | "label" | "created_at" | "servings" | "snapshot">
   >;
 
   const versions: VersionRef[] = rows.map((row) => ({
     id: row.id,
     versionNo: row.version_no,
+    label: row.label,
     createdAt: row.created_at,
     servings: row.servings,
     kcalPerServing: kcalPerServing(parseSnapshot(row.snapshot)),
@@ -335,6 +351,7 @@ export function getVersion(versionId: string): RecipeVersionDetail | undefined {
     recipeName: version.recipe_name,
     kind: version.recipe_kind === "component" ? "component" : "dish",
     versionNo: version.version_no,
+    label: version.label,
     instructions: version.instructions,
     servings: version.servings,
     yieldGrams: version.yield_g,
@@ -359,24 +376,29 @@ export function countRecipes(): number {
 }
 
 /**
- * Every recipe's current version, in the shape the plan needs.
+ * Every recipe version, in the shape the plan needs.
  *
- * The plan pins a version, so it needs the version id and that version's
- * stored snapshot — not the recipe's current numbers, which may move.
+ * The plan pins a version, so the palette offers every version — not just
+ * the current one — and each option carries that version's stored
+ * snapshot. Editing a recipe later creates a new version and leaves a
+ * planned week alone (D-024).
  */
 export function listRecipeOptions(): PlanRecipeOption[] {
   const rows = db
     .prepare(
-      `SELECT r.id, r.name, v.id AS version_id, v.version_no, v.servings, v.snapshot
+      `SELECT r.id, r.name, r.current_version_id,
+              v.id AS version_id, v.version_no, v.label, v.servings, v.snapshot
        FROM recipes r
-       JOIN recipe_versions v ON v.id = r.current_version_id
-       ORDER BY r.name COLLATE NOCASE ASC`,
+       JOIN recipe_versions v ON v.recipe_id = r.id
+       ORDER BY r.name COLLATE NOCASE ASC, v.version_no DESC`,
     )
     .all() as unknown as Array<{
     id: string;
     name: string;
+    current_version_id: string | null;
     version_id: string;
     version_no: number;
+    label: string | null;
     servings: number;
     snapshot: string;
   }>;
@@ -388,6 +410,8 @@ export function listRecipeOptions(): PlanRecipeOption[] {
       name: row.name,
       versionId: row.version_id,
       versionNo: row.version_no,
+      label: row.label,
+      isCurrent: row.version_id === row.current_version_id,
       servings: row.servings,
       perServing: snapshot.perServing,
     };

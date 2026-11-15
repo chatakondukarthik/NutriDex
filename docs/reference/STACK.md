@@ -1,6 +1,6 @@
 # NutriPlan — Stack
 
-**Status:** Implemented for S0–S1
+**Status:** Implemented for S0–S3.5
 **Decision:** D-027
 
 ---
@@ -12,10 +12,33 @@
 | Runtime | Node 26 | Ships `node:sqlite`, so no native dependency |
 | Framework | Next.js 16 (App Router, Turbopack) | Server components keep the engine on the server; server actions remove most API boilerplate |
 | UI | React 19 + Tailwind 4 | No component library yet; the design is small enough to hand-build |
+| Motion | `motion` (formerly Framer Motion) | Small, declarative, respects `prefers-reduced-motion` |
+| Styling helpers | `clsx` + `tailwind-merge` via `cn()` | Conditional class lists without duplicate utilities |
 | Language | TypeScript, strict | The nutrition model is the product; types are the cheapest tests |
 | Database | SQLite via `node:sqlite` | Zero setup for a walking skeleton |
 | Tests | Vitest | Fast, no DOM needed for the engine |
 | Deploy | Vercel (planned) | Later; SQLite is local-only |
+
+## Design tokens
+
+There is no `tailwind.config`. Tokens are CSS custom properties declared in
+`src/app/globals.css` and exposed to utilities with Tailwind 4's `@theme inline`:
+
+```
+--canvas, --surface, --surface-2, --line, --ink, --muted, --faint
+--accent, --accent-strong, --accent-ink
+--warn, --danger, --radius-*, --motion-*
+```
+
+The active theme is selected by `data-theme` / `data-accent` / `data-motion` on
+`<html>`, and the choice is stored in cookies so the server can render the right
+theme on the first byte (no flash). Components only ever use semantic names
+(`bg-surface`, `text-muted`), so a new page inherits the theme and a new theme is
+a change to one CSS block plus `src/lib/theme.ts` — not a search across the
+codebase.
+
+`useMotionEnabled()` is the single switch every animated component reads, so the
+settings toggle and the OS `prefers-reduced-motion` setting agree.
 
 ## Why SQLite now
 

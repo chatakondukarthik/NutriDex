@@ -28,16 +28,16 @@ export function NutrientRows({
 
         return (
           <div key={code} className="flex items-baseline justify-between gap-3 text-xs">
-            <dt className="text-black/60">{meta.label}</dt>
+            <dt className="text-ink/60">{meta.label}</dt>
             <dd className="tabular shrink-0 text-right">
               {total == null ? (
-                <span className="text-black/30">unknown</span>
+                <span className="text-ink/30">unknown</span>
               ) : (
                 <>
                   <span className="font-medium">{fmt(total, meta.precision)}</span>
-                  <span className="text-black/35"> {meta.unit}</span>
+                  <span className="text-ink/35"> {meta.unit}</span>
                   {partial && (
-                    <span className="ml-1.5 text-[10px] text-amber-700/80">
+                    <span className="ml-1.5 text-[10px] text-warn-ink">
                       {coverage.known}/{coverage.total}
                     </span>
                   )}

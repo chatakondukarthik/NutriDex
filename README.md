@@ -5,8 +5,9 @@ Plan your meals. Know what is in them.
 A nutrition-first meal planner: build a recipe from real ingredients, see what
 it actually contains, put it in a week, and watch the day fill up.
 
-**Status:** S0–S3 done. Food entry, recipes and the weekly plan work end to end.
-Trust and ship is next (see [`docs/build/PLAN.md`](docs/build/PLAN.md)).
+**Status:** S0–S3.5 done. Food entry, recipes, the weekly plan, theming and the
+target explanation work end to end. Trust and ship is next (see
+[`docs/build/PLAN.md`](docs/build/PLAN.md)).
 
 ---
 
@@ -15,7 +16,7 @@ Trust and ship is next (see [`docs/build/PLAN.md`](docs/build/PLAN.md)).
 ```bash
 npm install
 npm run dev      # http://localhost:3000
-npm test         # 109 tests: engine, recipes, plan, profile, persistence
+npm test         # 131 tests: engine, recipes, plan, profile, targets, persistence
 npm run build    # production build
 ```
 
@@ -39,11 +40,23 @@ runs from a clean checkout.
 - Start from a preset (paneer bhurji, dal tadka, rajma masala) and save your own
   copy.
 - Plan a week: four slots a day, recipes or foods placed by tap or drag.
+- Move a placed item between slots by its handle, or hold Alt while dropping to
+  copy it. The copy button puts it back in the palette with the same quantity.
+- Pick which version of a recipe to place. Every version is offered, labelled and
+  grouped under its recipe.
 - Watch a day's energy bar and the full nutrient panel move as you plan, with no
   reload.
+- Read the plan panel as a **day** or a **week**. A day judges energy and protein;
+  the week judges fibre, vitamins and the limits too.
 - Planned recipes are pinned to a version. Editing the recipe later leaves the
   planned week alone.
 - Set a profile; daily energy and protein targets are derived from it.
+- Give a body-fat percentage to switch the energy equation to lean mass, and
+  choose a gentle/steady/fast pace. The profile page shows the equation, the
+  rails and the resulting rate, live.
+- Switch light/dark/system, four accents and motion from `/settings`. The choice
+  is a cookie, applied before paint.
+- Skeletons on every route while data loads.
 
 ## What does not work yet
 
@@ -59,17 +72,18 @@ runs from a clean checkout.
 
 ```
 src/
-  app/                 Next.js routes and server actions
-  components/          UI
+  app/                 Next.js routes, loading skeletons and server actions
+  components/          UI, including the token-driven theme controls
   lib/
     nutrition/         the calculation engine — pure, tested, no I/O
     plan.ts            week math and plan rollups — pure, tested, no I/O
-    profile.ts         profile shape and energy/protein formulas
-    targets.ts         derived daily targets
+    profile.ts         profile shape, energy equations, pace and rails
+    targets.ts         derived targets, guidance roles, day/week assessment
+    theme.ts           theme tokens, accents and cookie helpers
     data/              seed foods and preset recipe templates
     db/                SQLite persistence (thin)
 docs/                  product and technical memory
-tests/                 engine, recipe and persistence tests
+tests/                 engine, recipe, plan, profile, target and repo tests
 ```
 
 The engine in `src/lib/nutrition/` is the heart of the product. It is a pure
