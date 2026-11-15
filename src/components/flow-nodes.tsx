@@ -23,7 +23,7 @@ export const FoodNode = memo(function FoodNode({ data, selected }: NodeProps) {
         selected ? "border-accent ring-2 ring-accent/20" : "border-line"
       }`}
     >
-      <Handle type="source" position={Position.Right} id="out" className="!bg-accent" />
+      <Handle type="source" position={Position.Right} id="out" className="!bg-accent" aria-label="Output — connect to a step input" role="button" title="Output" />
       <div className="text-[10px] font-medium uppercase tracking-wider text-ink/40">Ingredient</div>
       <div className="mt-0.5 text-sm font-semibold leading-tight">{d.label}</div>
       <div className="tabular mt-0.5 text-[11px] text-ink/55">
@@ -45,8 +45,8 @@ export const ProcessNode = memo(function ProcessNode({ data, selected }: NodePro
         selected ? "border-accent ring-2 ring-accent/20" : "border-line"
       }`}
     >
-      <Handle type="target" position={Position.Left} id="in" />
-      <Handle type="source" position={Position.Right} id="out" className="!bg-accent" />
+      <Handle type="target" position={Position.Left} id="in" aria-label="Input — connect an ingredient output here" role="button" title="Input" />
+      <Handle type="source" position={Position.Right} id="out" className="!bg-accent" aria-label="Output — connect to a step input" role="button" title="Output" />
       <div className="text-[10px] font-medium uppercase tracking-wider text-ink/40">
         {d.operation}
       </div>

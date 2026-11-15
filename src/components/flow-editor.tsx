@@ -6,7 +6,6 @@ import {
   ReactFlow,
   Background,
   Controls,
-  MiniMap,
   addEdge,
   applyNodeChanges,
   applyEdgeChanges,
@@ -19,14 +18,16 @@ import {
   type Connection,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { saveGraphAction, estimateNodeDeltasAction } from "@/app/actions";
+import { saveGraphAction, estimateNodeDeltasAction, searchUsdaAction, importUsdaAction, saveCapturedFoodAction } from "@/app/actions";
 import { searchFoods } from "@/lib/nutrition/food-search";
 import { computeGraph, type Graph, type GraphNode as EngineNode, type GraphProcessNode } from "@/lib/nutrition/graph";
 import dagre from "@dagrejs/dagre";
 import { tableFromRows, type FactorRow } from "@/lib/nutrition/factor-table";
 import { fmt } from "@/lib/format";
+import { NUTRIENT_CODES, NUTRIENTS } from "@/lib/nutrition/types";
 import type { Food } from "@/lib/nutrition/types";
 import { nodeTypes } from "@/components/flow-nodes";
+import { FlowMinimap } from "@/components/flow-minimap";
 
 const OPERATION_OPTIONS = [
   "assemble", "mix", "boil", "pressure-cook", "steam", "sauté", "fry", "deep-fry",
@@ -76,6 +77,11 @@ function FlowEditorInner({
   const [estimating, setEstimating] = useState(false);
   const [pending, startTransition] = useTransition();
   const [selectionIds, setSelectionIds] = useState<string[]>([]);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [usdaQuery, setUsdaQuery] = useState("");
+  const [usdaResults, setUsdaResults] = useState<{ fdcId: number; name: string; category?: string; nutrients: number }[]>([]);
+  const [usdaSearching, setUsdaSearching] = useState(false);
+  const [library, setLibrary] = useState(foods);
   const [notice, setNotice] = useState<string | null>(null);
   const [pasteOffset, setPasteOffset] = useState(0);
   const historyRef = useRef<{ past: { nodes: Node[]; edges: Edge[] }[]; future: { nodes: Node[]; edges: Edge[] }[] }>({ past: [], future: [] });
@@ -109,8 +115,8 @@ function FlowEditorInner({
   const selectionRef = useRef<string[]>([]);
 
   const resolve = useCallback(
-    (foodId: string) => foods.find((f) => f.id === foodId)?.nutrients ?? (() => { throw new Error("unknown food"); })(),
-    [foods],
+    (foodId: string) => library.find((f) => f.id === foodId)?.nutrients ?? (() => { throw new Error("unknown food"); })(),
+    [library],
   );
 
   const graph = useMemo<Graph>(() => buildGraph(nodes, edges), [nodes, edges]);
@@ -172,16 +178,10 @@ function FlowEditorInner({
       },
     };
     const current = nodesRef.current;
-    const foodNodes = current.filter((n) => n.type === "food");
     const next = [...current, processNode];
     nodesRef.current = next;
     setNodes(next);
-    if (foodNodes.length) {
-      setEdges((edges) => [
-        ...edges,
-        ...foodNodes.map((f) => ({ id: crypto.randomUUID(), source: f.id, target: id })),
-      ]);
-    }
+    flashNotice("Step added. Drag from an ingredient's output dot into this step.");
     setSelectedId(id);
     setTimeout(() => reactFlow.fitView({ padding: 0.2 }), 60);
   }
@@ -205,6 +205,18 @@ function FlowEditorInner({
     (changes: EdgeChange[]) => setEdges((current) => applyEdgeChanges(changes, current)),
     [],
   );
+  const onClickConnectStart = useCallback(
+    (_event: unknown, params: { nodeId: string | null; handleType: "source" | "target" | null }) => {
+      if (!params.nodeId || !params.handleType) return;
+      flashNotice(params.handleType === "source" ? "Now tap an input dot on a step." : "Now tap the output dot on an ingredient.");
+    },
+    [],
+  );
+
+  const onClickConnectEnd = useCallback(() => {
+    flashNotice("Connected.");
+  }, []);
+
   const onConnect = useCallback(
     (connection: Connection) => setEdges((current) => addEdge({ ...connection, id: crypto.randomUUID() }, current)),
     [],
@@ -223,6 +235,82 @@ function FlowEditorInner({
         return pos ? { ...n, position: { x: pos.x - 105, y: pos.y - 55 } } : n;
       });
     });
+  }
+
+  async function runUsdaSearch() {
+    if (!usdaQuery.trim() || usdaSearching) return;
+    setUsdaSearching(true);
+    try {
+      const result = await searchUsdaAction(usdaQuery.trim());
+      setUsdaResults(result.ok ? (result.results ?? []) : []);
+      if (!result.ok) setError(result.message ?? "Search failed.");
+    } finally {
+      setUsdaSearching(false);
+    }
+  }
+
+  async function importUsdaAndAdd(fdcId: number) {
+    const result = await importUsdaAction(fdcId);
+    if (!result.ok || !result.proposal) {
+      setError(result.message ?? "Could not import that food.");
+      return;
+    }
+    const proposal = result.proposal as {
+      name: string;
+      aliases?: string[];
+      category?: string;
+      kind?: string;
+      state?: string;
+      basis?: string;
+      servingSizeG?: number;
+      nutrients: Record<string, number>;
+      sourceCode?: string;
+    };
+    const saved = await saveCapturedFoodAction({
+      name: proposal.name,
+      aliases: proposal.aliases,
+      category: proposal.category,
+      kind: (proposal.kind as never) ?? "branded",
+      state: "raw",
+      basis: (proposal.basis as never) ?? "per_100g",
+      servingSizeG: proposal.servingSizeG,
+      source: "usda",
+      sourceCode: String(fdcId),
+      nutrients: proposal.nutrients,
+    });
+    if (!saved.ok || !saved.foodId) {
+      setError(saved.message ?? "Could not create that food.");
+      return;
+    }
+    // Refresh local library so the node can resolve nutrients immediately
+    const newFood: Food = {
+      id: saved.foodId,
+      name: proposal.name,
+      aliases: proposal.aliases ?? [],
+      category: proposal.category ?? "Custom",
+      kind: (proposal.kind as never) ?? "branded",
+      state: "raw",
+      portions: [],
+      nutrients: Object.fromEntries(
+        Object.entries(proposal.nutrients).map(([code, amount]) => [
+          code,
+          { amount, status: "known" as const, source: "usda" },
+        ]),
+      ) as Food["nutrients"],
+      source: "usda",
+    };
+    setLibrary((current) => [...current, newFood]);
+    const id = crypto.randomUUID();
+    setNodes((current) => [
+      ...current,
+      {
+        id,
+        type: "food",
+        position: { x: 80 + Math.random() * 120, y: 100 + Math.random() * 220 },
+        data: { label: proposal.name, grams: 100, foodId: saved.foodId, unknownCount: 0 },
+      },
+    ]);
+    setSelectedId(id);
   }
 
   function patchNode(id: string, patch: Record<string, unknown>) {
@@ -450,7 +538,7 @@ function FlowEditorInner({
     });
   }
 
-  const queryResults = query.trim() ? searchFoods(foods, query).slice(0, 6) : [];
+  const queryResults = query.trim() ? searchFoods(library, query).slice(0, 6) : [];
 
   return (
     <div className="relative flex h-[calc(100vh-57px)] flex-col">
@@ -526,6 +614,46 @@ function FlowEditorInner({
               </li>
             ))}
           </ul>
+          <div className="mt-3 border-t border-line pt-3">
+            <label className="flex flex-col gap-1 text-[11px]">
+              <span className="font-medium text-ink/60">Search the USDA database</span>
+              <div className="flex gap-1">
+                <input
+                  value={usdaQuery}
+                  onChange={(e) => setUsdaQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && runUsdaSearch()}
+                  placeholder="moong dal, sprouts, paneer…"
+                  aria-label="Search USDA database"
+                  className="min-w-0 flex-1 rounded-md border border-line bg-bg px-2 py-1.5 text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={runUsdaSearch}
+                  disabled={usdaSearching || !usdaQuery.trim()}
+                  className="rounded-md border border-line px-2 py-1.5 text-xs font-medium disabled:opacity-50"
+                >
+                  {usdaSearching ? "…" : "Go"}
+                </button>
+              </div>
+            </label>
+            {usdaResults.length > 0 && (
+              <ul className="mt-2 max-h-40 space-y-0.5 overflow-auto">
+                {usdaResults.map((r) => (
+                  <li key={r.fdcId}>
+                    <button
+                      type="button"
+                      onClick={() => importUsdaAndAdd(r.fdcId)}
+                      className="flex w-full items-baseline justify-between gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-ink/5"
+                    >
+                      <span className="truncate">{r.name}</span>
+                      <span className="shrink-0 text-[10px] text-muted">import</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
           <button
             type="button"
             onClick={addProcess}
@@ -548,10 +676,18 @@ function FlowEditorInner({
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onClickConnectStart={onClickConnectStart}
+            onClickConnectEnd={onClickConnectEnd}
             onNodeClick={(event, node) => {
               if (!(event.metaKey || event.ctrlKey || event.shiftKey)) {
+                setSelectedEdgeId(null);
                 setSelectedId(node.id);
               }
+            }}
+            onEdgeClick={(_, edge) => {
+              setSelectedEdgeId(edge.id);
+              setSelectedId(null);
+              setSelectionIds([edge.source, edge.target]);
             }}
             onSelectionChange={handleSelectionChange}
             onPaneClick={() => {
@@ -567,18 +703,28 @@ function FlowEditorInner({
           >
             <Background gap={18} size={1} color="var(--line)" />
             <Controls />
-            <MiniMap pannable zoomable nodeColor="var(--accent)" className="rounded-md border border-line" />
+            <FlowMinimap nodes={nodes} />
           </ReactFlow>
         </div>
 
         {/* inspector */}
         <aside className="w-80 shrink-0 overflow-y-auto border-l border-line bg-surface p-3">
-          {!selectedNode ? (
+          {selectedEdgeId ? (
+            <ConnectionInspector
+              edgeId={selectedEdgeId}
+              nodes={nodes}
+              edges={edges}
+              onDisconnect={() => {
+                setEdges((current) => current.filter((e) => e.id !== selectedEdgeId));
+                setSelectedEdgeId(null);
+              }}
+            />
+          ) : !selectedNode ? (
             <div className="mt-8 text-center text-xs text-muted">
-              Select a block to inspect its nutrients.
+              Select a block to inspect its nutrients, or a connection to disconnect it.
             </div>
           ) : selectedNode.type === "food" ? (
-            <FoodInspector node={selectedNode} onPatch={patchNode} onRemove={removeNode} />
+            <FoodInspector node={selectedNode} onPatch={patchNode} onRemove={removeNode} foods={library} />
           ) : (
             <ProcessInspector
               node={selectedNode}
@@ -661,16 +807,25 @@ function inputsForNode(
 /* ------------------------------------------------------------------ */
 
 function FoodInspector({
-  node, onPatch, onRemove,
+  node, onPatch, onRemove, foods,
 }: {
   node: Node;
   onPatch: (id: string, patch: Record<string, unknown>) => void;
   onRemove: (id: string) => void;
+  foods: Food[];
 }) {
-  const d = node.data as { label: string; grams: number };
+  const d = node.data as { label: string; grams: number; foodId: string };
+  const food = foods.find((f) => f.id === d.foodId);
+  const [showAll, setShowAll] = useState(false);
+  const isUsda = food?.source === "usda" || food?.source === "openfoodfacts";
   return (
     <div>
       <h2 className="text-sm font-semibold">{d.label}</h2>
+      {food?.source && (
+        <p className="mt-0.5 text-[11px] text-muted">
+          {isUsda ? `Imported from ${food.source === "usda" ? "USDA FoodData Central" : "Open Food Facts"}` : `Source: ${food.source}`}
+        </p>
+      )}
       <label className="mt-3 flex flex-col gap-1 text-xs">
         <span className="font-medium">Amount (g)</span>
         <input
@@ -681,7 +836,44 @@ function FoodInspector({
           className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm"
         />
       </label>
-      <p className="mt-2 text-[11px] text-muted">Nutrients are loaded from the food record.</p>
+
+      {food && (
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={() => setShowAll((v) => !v)}
+            className="flex items-center gap-1 text-xs font-medium text-muted hover:text-ink"
+          >
+            <span className={`transition-transform ${showAll ? "rotate-90" : ""}`}>▸</span>
+            Nutrients per 100 g{food.nutrients && Object.values(food.nutrients).some((v) => v?.amount == null) ? " (some unknown)" : ""}
+          </button>
+          {showAll && (
+            <ul className="mt-2 divide-y divide-line border-t border-line text-xs">
+              {NUTRIENT_CODES.map((code) => {
+                const v = food.nutrients[code];
+                const meta = NUTRIENTS[code];
+                const unknown = v?.amount == null;
+                return (
+                  <li key={code} className="flex items-baseline justify-between gap-2 py-1.5">
+                    <span className="text-ink/70">{meta.label}</span>
+                    <span className="tabular text-ink/55">
+                      {unknown ? <span className="text-ink/30">unknown</span> : `${fmt(v.amount!, meta.precision)} ${meta.unit}`}
+                      {v?.status === "estimated" && <span className="ml-1 rounded bg-warn-soft px-1 text-[9px] text-warn-ink">est</span>}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {!food && (
+        <p className="mt-3 rounded-md border border-warn-line bg-warn-soft p-2 text-[11px] text-warn-ink">
+          This food is not in your library — its nutrients are not available. Re-add it from the palette.
+        </p>
+      )}
+
       <button type="button" onClick={() => onRemove(node.id)} className="mt-4 text-xs text-danger-ink underline">
         Remove ingredient
       </button>
@@ -787,8 +979,17 @@ function ProcessInspector({
               );
             })}
           </ul>
+        ) : computed && computed.unknownNutrients.length > 0 && computed.inputGrams > 0 ? (
+          <p className="mt-1 text-[11px] text-ink/55">
+            No changes from the table. {computed.unknownNutrients.length} nutrient{computed.unknownNutrients.length === 1 ? "" : "s"} not known for these inputs:{" "}
+            {computed.unknownNutrients.map((code) => NUTRIENTS[code].label).join(", ")}.
+          </p>
+        ) : computed && computed.inputGrams === 0 ? (
+          <p className="mt-1 text-[11px] text-muted">
+            Connect an ingredient to see what this step does to its nutrients.
+          </p>
         ) : (
-          <p className="mt-1 text-[11px] text-muted">No change expected for this operation (or no data).</p>
+          <p className="mt-1 text-[11px] text-muted">No change expected for this operation.</p>
         )}
         <button
           type="button"
@@ -803,6 +1004,45 @@ function ProcessInspector({
       <button type="button" onClick={() => onRemove(node.id)} className="mt-4 text-xs text-danger-ink underline">
         Remove step
       </button>
+    </div>
+  );
+}
+
+function ConnectionInspector({
+  edgeId,
+  nodes,
+  edges,
+  onDisconnect,
+}: {
+  edgeId: string;
+  nodes: Node[];
+  edges: Edge[];
+  onDisconnect: () => void;
+}) {
+  const edge = edges.find((e) => e.id === edgeId);
+  const fromNode = edge ? nodes.find((n) => n.id === edge.source) : undefined;
+  const toNode = edge ? nodes.find((n) => n.id === edge.target) : undefined;
+  const nameOf = (n: Node | undefined) =>
+    n ? String((n.data as { name?: string; label?: string }).name ?? (n.data as { label?: string }).label ?? "block") : "?";
+  return (
+    <div>
+      <h2 className="text-sm font-semibold">Connection</h2>
+      <p className="mt-2 text-sm leading-snug text-ink/80">
+        <span className="font-medium">{nameOf(fromNode)}</span>
+        <span className="mx-1.5 text-muted">→</span>
+        <span className="font-medium">{nameOf(toNode)}</span>
+      </p>
+      <p className="mt-2 text-[11px] text-muted">
+        This wire feeds the output of one block into the next. Delete removes the connection, not the blocks.
+      </p>
+      <button
+        type="button"
+        onClick={onDisconnect}
+        className="mt-3 w-full rounded-md border border-danger-line bg-danger-soft px-3 py-2 text-xs font-medium text-danger-ink hover:bg-danger/10"
+      >
+        Disconnect
+      </button>
+      <p className="mt-2 text-[11px] text-muted">Or press Delete / Backspace with the wire selected.</p>
     </div>
   );
 }
