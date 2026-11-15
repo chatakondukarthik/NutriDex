@@ -24,7 +24,7 @@ export function ThemeToggle() {
       onClick={() => setMode(next)}
       aria-label={`Theme: ${MODE_LABELS[settings.mode]}. Switch to ${MODE_LABELS[next]}.`}
       title={`Theme: ${MODE_LABELS[settings.mode]}`}
-      className="grid h-8 w-8 place-items-center rounded-lg text-muted transition hover:bg-ink/5 hover:text-ink"
+      className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-ink/5 hover:text-ink"
     >
       <Icon className="h-4 w-4" />
     </button>

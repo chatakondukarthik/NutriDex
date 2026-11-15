@@ -522,7 +522,7 @@ export function PlanBoard({
                       aria-label={`Add ${describe(selection)} to ${
                         SLOT_LABELS[slot]
                       } on ${weekdayShort(day)}`}
-                      className="grid h-4 w-4 place-items-center rounded text-[11px] leading-none text-accent transition hover:bg-accent/10"
+                      className="grid h-6 w-6 place-items-center rounded text-[13px] leading-none text-accent transition hover:bg-accent/10 lg:h-4 lg:w-4 lg:text-[11px]"
                     >
                       +
                     </button>
@@ -1072,7 +1072,7 @@ function PlanEntryRow({
           onClick={onCopy}
           aria-label={`Copy ${name} to the palette`}
           title="Copy to the palette, keeping this quantity"
-          className="grid h-4 w-4 shrink-0 place-items-center rounded text-ink/25 opacity-0 transition hover:bg-ink/5 hover:text-ink/70 focus-visible:opacity-100 group-hover:opacity-100"
+          className="grid h-5 w-5 shrink-0 place-items-center rounded text-ink/30 transition hover:bg-ink/5 hover:text-ink/70 lg:h-4 lg:w-4 lg:opacity-0 lg:focus-visible:opacity-100 lg:group-hover:opacity-100"
         >
           <CopyIcon className="h-3 w-3" />
         </button>
@@ -1081,7 +1081,7 @@ function PlanEntryRow({
           type="button"
           onClick={onRemove}
           aria-label={`Remove ${name}`}
-          className="grid h-4 w-4 shrink-0 place-items-center rounded text-[11px] leading-none text-ink/25 transition hover:bg-ink/5 hover:text-ink/60"
+          className="grid h-5 w-5 shrink-0 place-items-center rounded text-[13px] leading-none text-ink/30 transition hover:bg-ink/5 hover:text-ink/60 lg:h-4 lg:w-4 lg:text-[11px]"
         >
           ×
         </button>

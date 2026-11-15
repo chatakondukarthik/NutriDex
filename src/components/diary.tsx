@@ -131,7 +131,7 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
 
         <div className="grid gap-5 lg:grid-cols-[1fr_420px] lg:items-start">
         {/* ---- Food search ---------------------------------------------- */}
-        <section className="rounded-2xl border border-line bg-surface p-5 shadow-card">
+        <section className="min-w-0 rounded-2xl border border-line bg-surface p-5 shadow-card">
           <h2 className="text-sm font-semibold">Find a food</h2>
           <p className="mt-1 text-xs text-ink/45">
             Search by name or a common Indian name.
@@ -250,7 +250,7 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
         </section>
 
         {/* ---- Today ---------------------------------------------------- */}
-        <aside className="lg:sticky lg:top-20">
+        <aside className="min-w-0 lg:sticky lg:top-20">
           <section className="rounded-2xl border border-line bg-surface p-5 shadow-card">
             <div className="flex items-baseline justify-between">
               <h2 className="text-sm font-semibold">Today</h2>
@@ -317,7 +317,7 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
 
             {entries.length === 0 ? (
               <p className="mt-3 rounded-xl border border-dashed border-line px-3 py-6 text-center text-xs text-ink/40">
-                Nothing yet. Pick a food on the left to start.
+                Nothing yet. Search for a food to add your first entry.
               </p>
             ) : (
               <ul className="mt-2 divide-y divide-line">

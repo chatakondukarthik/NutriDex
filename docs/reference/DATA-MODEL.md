@@ -241,3 +241,7 @@ open, so the shape of a range-based target is not settled yet either.
 4. **Snapshots are immutable.** Editing produces a new version.
 5. **Archive, do not delete,** anything a version references.
 6. **Store what the user meant,** not just what it computed.
+7. **One connection per process, with a busy timeout.** The dev server and the
+   parallel build workers each open the same SQLite file, so the connection sets
+   `busy_timeout` before any DDL. Without it, two workers starting at once fail
+   with `database is locked`.

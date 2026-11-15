@@ -20,6 +20,10 @@ function resolveDbPath(): string {
 }
 
 const SCHEMA = `
+  -- Build workers and the dev server each open the file. Without a busy
+  -- timeout, two of them running DDL at the same moment fail with
+  -- "database is locked" instead of waiting a few milliseconds.
+  PRAGMA busy_timeout = 5000;
   PRAGMA journal_mode = WAL;
   PRAGMA foreign_keys = ON;
 
