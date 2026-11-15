@@ -11,7 +11,7 @@ import {
 } from "@/lib/nutrition/engine";
 import { NUTRIENT_CODES } from "@/lib/nutrition/types";
 import { FOODS, getFood, searchFoods } from "@/lib/data/foods";
-import { toGrams } from "@/lib/nutrition/units";
+import { toGrams, MAX_GRAMS } from "@/lib/nutrition/units";
 
 describe("profiles", () => {
   it("treats omitted nutrients as unknown, never as zero", () => {
@@ -191,6 +191,17 @@ describe("units", () => {
   it("rejects non-positive quantities", () => {
     expect(toGrams(paneer, { amount: 0, unit: "g" }).ok).toBe(false);
     expect(toGrams(paneer, { amount: -5, unit: "g" }).ok).toBe(false);
+  });
+
+  it("rejects a quantity whose gram weight overflows", () => {
+    // 1e308 is a finite number; multiplying by 1000 is not.
+    const result = toGrams(paneer, { amount: 1e308, unit: "kg" });
+    expect(result.ok).toBe(false);
+  });
+
+  it("rejects an absurd but finite quantity instead of storing it", () => {
+    expect(toGrams(paneer, { amount: 1e9, unit: "g" }).ok).toBe(false);
+    expect(toGrams(paneer, { amount: MAX_GRAMS, unit: "g" }).ok).toBe(true);
   });
 });
 

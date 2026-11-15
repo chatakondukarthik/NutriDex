@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 import { saveRecipeAction } from "@/app/actions";
 import { searchFoods } from "@/lib/data/foods";
 import { fmt, fmtMass } from "@/lib/format";
@@ -111,11 +111,14 @@ export function RecipeBuilder({ foods, initial, recipeId }: RecipeBuilderProps) 
   function removeInput(blockKey: string, inputKey: string) {
     setState((current) => ({
       ...current,
-      blocks: current.blocks.map((block) =>
-        block.key === blockKey
-          ? { ...block, inputs: block.inputs.filter((input) => input.key !== inputKey) }
-          : block,
-      ),
+      blocks: current.blocks.map((block) => {
+        if (block.key !== blockKey) return block;
+        const remaining = block.inputs.filter((input) => input.key !== inputKey);
+        // A step always keeps one row so there is somewhere to type. Removing
+        // the last ingredient therefore clears it back to "choose a food"
+        // instead of leaving an empty step with no way in.
+        return { ...block, inputs: remaining.length > 0 ? remaining : [emptyInput()] };
+      }),
     }));
   }
 
@@ -367,7 +370,6 @@ function IngredientsStep({
                   input={input}
                   onChange={(next) => onPatchInput(block.key, input.key, next)}
                   onRemove={() => onRemoveInput(block.key, input.key)}
-                  canRemove={block.inputs.length > 1}
                 />
               ))}
             </div>
@@ -399,13 +401,11 @@ function IngredientRow({
   input,
   onChange,
   onRemove,
-  canRemove,
 }: {
   foods: Food[];
   input: BuilderInput;
   onChange: (next: Partial<BuilderInput>) => void;
   onRemove: () => void;
-  canRemove: boolean;
 }) {
   const food = foods.find((candidate) => candidate.id === input.foodId);
   const grams = inputGrams(food, input);
@@ -421,9 +421,9 @@ function IngredientRow({
         <button
           type="button"
           onClick={onRemove}
-          disabled={!canRemove}
           aria-label="Remove ingredient"
-          className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-md text-ink/30 transition hover:bg-ink/5 hover:text-ink/60 disabled:opacity-30"
+          title="Remove ingredient"
+          className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-md text-ink/35 transition hover:bg-ink/5 hover:text-ink/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           ×
         </button>
@@ -508,6 +508,12 @@ function FoodPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const restoreFocusRef = useRef(false);
+  const listId = useId();
 
   const selected = foods.find((food) => food.id === value);
   const results = useMemo(() => {
@@ -515,12 +521,63 @@ function FoodPicker({
     return list.slice(0, 8);
   }, [query, foods]);
 
+  // Clamp rather than store: the list shrinks as the query narrows, and an
+  // out-of-range index would make Enter a no-op.
+  const active = results.length === 0 ? -1 : Math.min(activeIndex, results.length - 1);
+
+  const close = useCallback((restoreFocus: boolean) => {
+    restoreFocusRef.current = restoreFocus;
+    setOpen(false);
+    setQuery("");
+    setActiveIndex(0);
+  }, []);
+
+  // The trigger only exists while the picker is closed, so focus has to be
+  // restored after the commit that removes the search input.
+  useEffect(() => {
+    if (!open && restoreFocusRef.current) {
+      restoreFocusRef.current = false;
+      triggerRef.current?.focus();
+    }
+  }, [open]);
+
+  // A picker has no backdrop, so anything outside it is a dismissal. Pointer
+  // events cover mouse, touch and pen; click also covers keyboard activation
+  // and programmatic clicks. Capture phase means this fires even when the
+  // click lands on another picker (which then opens itself).
+  useEffect(() => {
+    if (!open) return;
+
+    function onOutside(event: Event) {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+        setQuery("");
+        setActiveIndex(0);
+      }
+    }
+
+    document.addEventListener("pointerdown", onOutside, true);
+    document.addEventListener("click", onOutside, true);
+    return () => {
+      document.removeEventListener("pointerdown", onOutside, true);
+      document.removeEventListener("click", onOutside, true);
+    };
+  }, [open]);
+
+  function choose(food: Food) {
+    onSelect(food.id);
+    close(true);
+  }
+
   if (!open) {
     return (
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen(true)}
-        className="min-w-0 flex-1 rounded-lg px-1 py-0.5 text-left transition hover:bg-ink/5"
+        aria-haspopup="listbox"
+        aria-expanded={false}
+        className="min-w-0 flex-1 rounded-lg px-1 py-0.5 text-left transition hover:bg-ink/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
       >
         {selected ? (
           <>
@@ -540,37 +597,72 @@ function FoodPicker({
   }
 
   return (
-    <div className="min-w-0 flex-1">
+    <div ref={containerRef} className="min-w-0 flex-1">
       <input
         autoFocus
+        role="combobox"
+        aria-expanded
+        aria-controls={listId}
+        aria-autocomplete="list"
+        aria-activedescendant={active >= 0 ? `${listId}-${active}` : undefined}
         value={query}
-        onChange={(event) => setQuery(event.target.value)}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          setActiveIndex(0);
+        }}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
-            setOpen(false);
-            setQuery("");
+            event.preventDefault();
+            close(true);
+            return;
+          }
+          if (event.key === "Tab") {
+            // Let focus leave, but do not leave a floating list behind.
+            close(false);
+            return;
+          }
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            if (results.length === 0) return;
+            setActiveIndex((current) => {
+              const from = Math.min(current, results.length - 1);
+              const next = event.key === "ArrowDown" ? from + 1 : from - 1;
+              return Math.max(0, Math.min(results.length - 1, next));
+            });
+            return;
+          }
+          if (event.key === "Enter") {
+            const food = results[active];
+            if (!food) return;
+            event.preventDefault();
+            choose(food);
           }
         }}
         placeholder="paneer, palak, dal…"
         className="w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-sm outline-none focus:border-accent/50"
       />
-      <ul className="mt-1 max-h-56 overflow-auto rounded-lg border border-line bg-surface">
-        {results.map((food) => (
-          <li key={food.id}>
-            <button
-              type="button"
-              onClick={() => {
-                onSelect(food.id);
-                setOpen(false);
-                setQuery("");
-              }}
-              className="flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left transition hover:bg-surface-2"
-            >
-              <span className="truncate text-sm">{food.name}</span>
-              <span className="tabular shrink-0 text-[11px] text-ink/40">
-                {fmt(food.nutrients.ENERC_KCAL.amount, 0)} kcal
-              </span>
-            </button>
+      <ul
+        id={listId}
+        role="listbox"
+        aria-label="Foods"
+        className="mt-1 max-h-56 overflow-auto rounded-lg border border-line bg-surface"
+      >
+        {results.map((food, index) => (
+          <li
+            key={food.id}
+            id={`${listId}-${index}`}
+            role="option"
+            aria-selected={index === active}
+            onClick={() => choose(food)}
+            onMouseEnter={() => setActiveIndex(index)}
+            className={`flex cursor-pointer items-center justify-between gap-3 px-2.5 py-2 text-left transition ${
+              index === active ? "bg-surface-2" : ""
+            }`}
+          >
+            <span className="truncate text-sm">{food.name}</span>
+            <span className="tabular shrink-0 text-[11px] text-ink/40">
+              {fmt(food.nutrients.ENERC_KCAL.amount, 0)} kcal
+            </span>
           </li>
         ))}
         {results.length === 0 && (

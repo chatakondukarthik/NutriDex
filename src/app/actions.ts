@@ -12,7 +12,7 @@ import {
 import { saveProfile } from "@/lib/db/profile";
 import { getVersion } from "@/lib/db/recipes";
 import { getFood } from "@/lib/data/foods";
-import { toGrams, type Unit } from "@/lib/nutrition/units";
+import { toGrams, MAX_GRAMS, type Unit } from "@/lib/nutrition/units";
 import { SLOTS, weekDays, weekStart, type PlanEntry, type Slot } from "@/lib/plan";
 import { parseProfile } from "@/lib/profile";
 import { saveRecipeDraft, type RecipeDraft } from "@/lib/recipes";
@@ -178,6 +178,9 @@ export async function addPlanEntryAction(input: {
     if (!Number.isFinite(grams) || grams <= 0) {
       return { ok: false, message: "Weight must be a positive number." };
     }
+    if (grams > MAX_GRAMS) {
+      return { ok: false, message: "That weight is too large — check the amount." };
+    }
   } else {
     const version = getVersion(input.recipeVersionId as string);
     if (!version) return { ok: false, message: "That recipe version does not exist." };
@@ -219,6 +222,9 @@ export async function updatePlanEntryQuantityAction(
       const grams = Number(patch.grams);
       if (!Number.isFinite(grams) || grams <= 0) {
         return { ok: false, message: "Weight must be a positive number." };
+      }
+      if (grams > MAX_GRAMS) {
+        return { ok: false, message: "That weight is too large — check the amount." };
       }
       updatePlanEntryQuantity(id, { grams });
     } else {

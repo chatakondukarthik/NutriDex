@@ -28,6 +28,25 @@ export const UNITS: { value: Unit; label: string }[] = [
 ];
 
 /**
+ * One tonne. Well beyond any plausible single ingredient, recipe batch or
+ * diary entry, but small enough to catch a typo or an overflow before it
+ * becomes an infinite nutrient total.
+ */
+export const MAX_GRAMS = 1_000_000;
+
+function gramResult(grams: number, basis: "mass" | "volume" | "portion", note?: string): GramResult {
+  // Check the *result*, not just the input: `1e308 kg` is a finite number
+  // that overflows to Infinity grams, and Infinity in a total is invisible.
+  if (!Number.isFinite(grams) || grams <= 0) {
+    return { ok: false, reason: "Quantity must be a positive number." };
+  }
+  if (grams > MAX_GRAMS) {
+    return { ok: false, reason: "That quantity is too large — check the amount." };
+  }
+  return note ? { ok: true, grams, basis, note } : { ok: true, grams, basis };
+}
+
+/**
  * Convert a user quantity to grams.
  *
  * This is the highest-risk function in the product: a wrong conversion
@@ -42,35 +61,33 @@ export function toGrams(food: Food, quantity: Quantity): GramResult {
 
   switch (quantity.unit) {
     case "g":
-      return { ok: true, grams: quantity.amount, basis: "mass" };
+      return gramResult(quantity.amount, "mass");
 
     case "kg":
-      return { ok: true, grams: quantity.amount * 1000, basis: "mass" };
+      return gramResult(quantity.amount * 1000, "mass");
 
     case "ml": {
       const density = food.densityGPerMl;
       if (density == null) {
-        return {
-          ok: true,
-          grams: quantity.amount,
-          basis: "volume",
-          note: "Assumed 1 g/ml; this food has no density on record.",
-        };
+        return gramResult(
+          quantity.amount,
+          "volume",
+          "Assumed 1 g/ml; this food has no density on record.",
+        );
       }
-      return { ok: true, grams: quantity.amount * density, basis: "volume" };
+      return gramResult(quantity.amount * density, "volume");
     }
 
     case "l": {
       const density = food.densityGPerMl;
       if (density == null) {
-        return {
-          ok: true,
-          grams: quantity.amount * 1000,
-          basis: "volume",
-          note: "Assumed 1 g/ml; this food has no density on record.",
-        };
+        return gramResult(
+          quantity.amount * 1000,
+          "volume",
+          "Assumed 1 g/ml; this food has no density on record.",
+        );
       }
-      return { ok: true, grams: quantity.amount * 1000 * density, basis: "volume" };
+      return gramResult(quantity.amount * 1000 * density, "volume");
     }
 
     case "portion": {
@@ -81,11 +98,7 @@ export function toGrams(food: Food, quantity: Quantity): GramResult {
           reason: `No portion "${quantity.portionLabel ?? "?"}" is defined for ${food.name}.`,
         };
       }
-      return {
-        ok: true,
-        grams: quantity.amount * portion.grams,
-        basis: "portion",
-      };
+      return gramResult(quantity.amount * portion.grams, "portion");
     }
 
     default:
