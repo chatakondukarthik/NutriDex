@@ -853,10 +853,11 @@ export async function createRecipeFromPlanAction(
 ): Promise<{ ok: boolean; recipeId?: string; message?: string }> {
   try {
     const base = input as RecipePlan;
-    const { recipeId } = await materializeRecipe(base, input.recipeId ?? undefined, {
+    const saved = await materializeRecipe(base, input.recipeId ?? undefined, {
       mode: input.mode,
       replaceVersionId: input.replaceVersionId ?? null,
     });
+    const { recipeId } = saved;
     revalidatePath("/recipes");
     if (input.recipeId) revalidatePath(`/recipes/${input.recipeId}`);
     return { ok: true, recipeId };

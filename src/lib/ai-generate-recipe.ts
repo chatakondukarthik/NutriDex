@@ -130,8 +130,8 @@ export async function materializeRecipe(
   plan: RecipePlan,
   recipeId?: string,
   opts?: { mode?: "new-version" | "replace-current"; replaceVersionId?: string | null },
-): Promise<{ recipeId: string }> {
-  const { map: foodIndex } = await resolvePlanFoods(plan, listFoods(), { persist: true });
+): Promise<{ recipeId: string; resolutions: import("@/lib/ai/food-resolve").PlanFoodResolution[] }> {
+  const { map: foodIndex, resolutions } = await resolvePlanFoods(plan, listFoods(), { persist: true });
   const idBase = `gen-${Date.now().toString(36)}`;
   const nodes: Graph["nodes"] = [];
   const edges: Graph["edges"] = [];
@@ -203,5 +203,5 @@ export async function materializeRecipe(
   if (!saved.ok || !saved.recipeId) {
     throw new Error(saved.message ?? "Could not save the generated recipe.");
   }
-  return { recipeId: saved.recipeId };
+  return { recipeId: saved.recipeId, resolutions };
 }
