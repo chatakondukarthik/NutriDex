@@ -96,6 +96,15 @@ Entities: [`../reference/DATA-MODEL.md`](../reference/DATA-MODEL.md).
 | D-031 | Pace is a body-weight rate, and the energy rails are visible | Agreed | [below](#d-031--pace-is-a-body-weight-rate-and-the-rails-are-visible) |
 | D-032 | A day and a week are different judgement windows | Agreed | [below](#d-032--a-day-and-a-week-are-different-judgement-windows) |
 
+### Recipes — process flowchart (R1–R6)
+
+| ID | Decision | Status | Full record |
+|---|---|---|---|
+| D-040 | Store the process graph as JSON in `recipe_versions.process_graph` (nullable; null = legacy linear blocks) | Proposed | [spec](../spec/RECIPE_FLOWCHART.md) |
+| D-041 | Cooling/resistant-starch is reported as a note in v1, not a new nutrient code | Proposed | [spec](../spec/RECIPE_FLOWCHART.md) |
+| D-042 | The LLM may propose retention factors only for nutrients the record already knows | Proposed | [spec](../spec/RECIPE_FLOWCHART.md) |
+| D-043 | Use `@xyflow/react` for the flowchart canvas, lazy-loaded | Proposed | [spec](../spec/RECIPE_FLOWCHART.md) |
+
 ### Capture and AI
 
 | ID | Decision | Status | Full record |
@@ -696,6 +705,114 @@ review says so in words.
 | Colour only, with a legend | A legend is not on the element; colour-blind users still cannot read it |
 | Icon only | An icon is ambiguous without a shared vocabulary |
 | Text only | Loses the at-a-glance read that makes the bars useful |
+
+---
+
+## New records (D-040 onward)
+
+### D-040 — Store the process graph as JSON in `recipe_versions.process_graph`
+
+**Status:** Proposed
+**Date:** 2026-11-15
+**Relates to:** D-021, D-024
+
+**Context**
+
+The linear block model cannot express branches, merges, splits or mid-flow
+ingredients. A graph is needed. Two storage options: a JSON column on
+`recipe_versions`, or new `process_nodes`/`process_edges` tables.
+
+**Decision**
+
+Add `process_graph TEXT` (nullable) to `recipe_versions`. Null means "legacy
+linear blocks" and the existing `components`/`component_inputs` tables are
+used. Non-null means the graph is authoritative and `components` is ignored.
+
+**Consequences**
+
+- No migration of existing rows; old versions stay readable.
+- New versions write the graph; reads check `process_graph` first.
+- Querying "which recipes use paneer as a node input" is not possible without
+  parsing JSON. Acceptable for v1; revisit if needed.
+
+**Alternatives rejected**
+
+| Alternative | Why it lost |
+|---|---|
+| New tables | Cleaner queries, but a real migration and a second code path for old versions |
+| Replace components entirely | Breaks every existing version; not worth it |
+
+---
+
+### D-041 — Cooling and resistant starch is a note in v1
+
+**Status:** Proposed
+**Date:** 2026-11-15
+**Relates to:** D-025
+
+**Context**
+
+Cooling cooked rice increases resistant starch, which lowers digestible
+carbohydrate. Our 18-nutrient model has no resistant-starch code, so the
+change cannot be represented as a number without either mislabelling it as
+fibre or adding a 19th nutrient.
+
+**Decision**
+
+Report cooling's effect as a text note on the node ("cooling increases
+resistant starch; not tracked as a separate nutrient yet"). Do not add a
+nutrient code in v1.
+
+**Consequences**
+
+- Honest: we say what we cannot quantify.
+- The model stays at 18 nutrients.
+
+---
+
+### D-042 — The LLM proposes retention factors, never values
+
+**Status:** Proposed
+**Date:** 2026-11-15
+**Relates to:** D-009, D-016, D-034
+
+**Context**
+
+Process effects need per-nutrient retention factors. Where no reference data
+exists, an LLM estimates them. The same trust rules as capture apply.
+
+**Decision**
+
+The LLM returns a `ProcessEffect` proposal (retention factors, added,
+removed). It may only propose factors for nutrients the record already knows.
+The engine re-derives the after-profile through `applyEffect`. The proposal
+is shown as a per-nutrient diff and is revertible.
+
+**Consequences**
+
+- A hallucinated "vitamin C drops 90%" becomes an estimated, revertible diff,
+  not a silent fact.
+
+---
+
+### D-043 — Use reactflow for the flowchart canvas
+
+**Status:** Proposed
+**Date:** 2026-11-15
+
+**Context**
+
+Building a node canvas from scratch is weeks of work and a source of bugs.
+
+**Decision**
+
+Use `@xyflow/react` (reactflow), lazy-loaded on the recipe route. Fall back
+to a vertical list on mobile.
+
+**Consequences**
+
+- ~150 KB gzipped, lazy-loaded, so it does not affect the diary or plan.
+- Standard, well-documented, accessible enough for our needs.
 
 ---
 

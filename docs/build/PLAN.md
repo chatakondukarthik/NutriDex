@@ -251,6 +251,82 @@ Full design: [`spec/BYO_LLM.md`](../spec/BYO_LLM.md).
 
 ---
 
+## R1 — Recipe process graph: data model + migration
+
+The recipe becomes a DAG of process nodes. Foundation for R2–R6.
+
+**Done when:**
+
+- [ ] `ProcessNode`, `ProcessInput`, `ProcessOutput`, `ProcessOperation`,
+      `ProcessEffect` types in `src/lib/recipe-graph.ts`.
+- [ ] `recipe_versions.process_graph TEXT` column (migration).
+- [ ] Old linear blocks migrate to a straight-line graph on read.
+- [ ] `applyEffect` pure function with unit tests.
+- [ ] Snapshot carries `blocks[]` with before/after/change per node.
+
+**Depends on:** nothing.
+
+---
+
+## R2 — Process effects + retention reference table
+
+**Done when:**
+
+- [ ] `process_retention` table seeded for boil/fry/steam/bake/cool/freeze.
+- [ ] `applyEffect` handles retention, added, removed, yield.
+- [ ] Unit tests for at least three operations.
+
+**Depends on:** R1.
+
+---
+
+## R3 — LLM estimation for unknown process effects
+
+**Done when:**
+
+- [ ] Server action proposes a `ProcessEffect` from operation + inputs + before.
+- [ ] Diff UI (reuses D-016) with accept/revert.
+- [ ] Provenance stored (source = estimated, model + prompt version).
+
+**Depends on:** R2, S7.1.
+
+---
+
+## R4 — Flowchart UI, desktop (reactflow)
+
+**Done when:**
+
+- [ ] `@xyflow/react` installed, lazy-loaded on `/recipes/[id]`.
+- [ ] Nodes render before/after cards; edges show flow.
+- [ ] Split (multi-output) and merge (multi-input) render correctly.
+
+**Depends on:** R1.
+
+---
+
+## R5 — Flowchart UI, mobile + builder
+
+**Done when:**
+
+- [ ] Vertical list fallback on small screens.
+- [ ] Builder node editor: add node, pick inputs/operation, enter output mass.
+- [ ] Review step shows the flowchart + totals.
+
+**Depends on:** R4.
+
+---
+
+## R6 — Multi-output splits (hung curd)
+
+**Done when:**
+
+- [ ] Split node produces named outputs with their own masses.
+- [ ] Downstream nodes can consume any output.
+
+**Depends on:** R4.
+
+---
+
 ## S9 — Food search and glossary
 
 Make the food library searchable as you type (already in /foods) and give
