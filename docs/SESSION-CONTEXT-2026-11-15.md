@@ -184,6 +184,59 @@ npx next start -p 3100   # prod
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3100/<route>
 ```
 
+## Skills available and when to use them
+
+This repo ships a working app; UI work should apply the design skills rather
+than freestyle. Use them, in this order, **before** a page or surface is
+reshaped:
+
+1. **`ui-ux-pro-max`** (installed at `.agents/skills/ui-ux-pro-max/` and
+   `.codex/skills/ui-ux-pro-max/`) — searchable local SQLite-backed database:
+   80 product palettes, 192 font pairings, 74 font files, 120 UX guidelines,
+   stack-specific stack CSV (this project: Next.js 16 + Tailwind 4 + React).
+   Use it to pick a coherent set of tokens and to check a specific surface
+   against its `ux-guidelines.csv` before touching CSS. Command:
+   `python3 .agents/skills/ui-ux-pro-max/scripts/search.py "<problem>" --domain ux|palette|typography|motion|chart`
+   The reference lists live in `references/quick-reference.md` and
+   `references/pro-rules.md` — load those when auditing, not each time.
+2. **`frontend-design`** (`.agents/skills/frontend-design/`) — opinionated
+   visual direction: palette, typography, layout, subject-grounded styling.
+   Use it when a page needs to be *designed*, not decorated — e.g. the Diary
+   or Plan nutrition pane, the recipe editor canvas, the New Food flow.
+3. **`impeccable`** (v0.1.23, installed globally in `~/.opencode/`) — full
+   design-system engine: can generate palettes, typography, shapes, motion
+   recipes on demand. Use sparingly; only when the work *is* a UI redesign
+   (Diary revamp, canvas restructure). Don't spin it up for small edits.
+4. **`ui-ux-pro-max` scripts** are the cheapest of the three. Reach for them
+   first for targeted lookups (palette for preview canvas, typography pair
+   for the settings panel, motion timing for an animations pass).
+
+### How to use them
+
+- **Before building a new piece of UI**, find 2–3 authoritative patterns in
+  `ux-guidelines.csv` (filterable by domain and stack) and treat them as
+  acceptance criteria.
+- **When the user's request is vague** ("revamp the Diary", "make the plan
+  look nicer"), translate it into: *product role* (what job does this page do
+  for the user — plan meals quickly? avoid mistakes? explore?) and *audience
+  knowledge* (novice vs experienced cooks).
+- **Any time a component gets more expensive** (adds a mode, a new pane, a new
+  field), audit labels, contrast, focus order and hit targets against the
+  same guidelines, not just vibes.
+- **Decisions go into D-records** (`docs/decisions/DECISIONS.md`). If the work
+  reverses an earlier call (e.g. "AI-off should hide" vs "display but
+  non-clickable"), write the superseding record and link both ways.
+
+### Where they apply in this app
+
+- `/plan` — dense data grid, mobile overflow, empty/loading states,
+  skeletons, drag-and-drop a11y
+- `/` (Diary) — before/after comparison layout, search ergonomics, focus order
+- `/recipes/[id]/edit` — canvas ergonomics, minimap theme tokens, drag
+  threshold, tap-to-connect affordance
+- `/foods/new` — long form, method choice UX, destructive-action confirm
+- `/settings` — AI provider form, capability filters, destructive removes
+
 ## Rules of engagement recapped
 
 - Never make claims about what hydrated without querying the browser DOM.
