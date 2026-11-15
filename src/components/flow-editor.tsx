@@ -21,6 +21,7 @@ import "@xyflow/react/dist/style.css";
 import { saveGraphAction, estimateNodeDeltasAction, searchUsdaAction, importUsdaAction, saveCapturedFoodAction } from "@/app/actions";
 import { searchFoods } from "@/lib/nutrition/food-search";
 import { computeGraph, type Graph, type GraphNode as EngineNode, type GraphProcessNode } from "@/lib/nutrition/graph";
+import type { Rollup } from "@/lib/nutrition/engine";
 import dagre from "@dagrejs/dagre";
 import { tableFromRows, type FactorRow } from "@/lib/nutrition/factor-table";
 import { fmt } from "@/lib/format";
@@ -76,8 +77,11 @@ function FlowEditorInner({
   const [servings, setServings] = useState(initialServings);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [paletteCategory, setPaletteCategory] = useState("All");
+  const [mineOnly, setMineOnly] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [estimating, setEstimating] = useState(false);
+  const [aiContextNote, setAiContextNote] = useState("");
   const [pending, startTransition] = useTransition();
   const [selectionIds, setSelectionIds] = useState<string[]>([]);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
@@ -132,6 +136,13 @@ function FlowEditorInner({
   }, [graph, resolve, factorTable]);
 
   const selectedNode = nodes.find((n) => n.id === selectedId) ?? null;
+  const selectedInputLinks = useMemo(
+    () =>
+      selectedNode?.type === "process"
+        ? inputsForNode(selectedNode.id, edges, nodes, library)
+        : [],
+    [selectedNode, edges, nodes, library],
+  );
   const selectedProcess = preview.result?.perNode.get(selectedId ?? "") ?? null;
 
   function addFood(food: Food) {
@@ -501,7 +512,8 @@ function FlowEditorInner({
       const estimate = await estimateNodeDeltasAction({
         operation: String(selectedNode.data.operation),
         qualifier: (selectedNode.data.qualifier as string | null) ?? null,
-        inputs: inputsForNode(selectedNode.id, edges, nodes, foods),
+        inputs: inputsForNode(selectedNode.id, edges, nodes, library),
+        note: aiContextNote.trim() || undefined,
       });
       if (!estimate.ok || !estimate.estimate) {
         setError(estimate.message ?? "The model could not estimate this step.");
@@ -541,7 +553,24 @@ function FlowEditorInner({
     });
   }
 
-  const queryResults = query.trim() ? searchFoods(library, query).slice(0, 6) : [];
+  const paletteCategories = useMemo(() => {
+    const set = new Set(library.map((f) => f.category));
+    return ["All", ...Array.from(set).filter((c) => c !== "All").sort()];
+  }, [library]);
+
+  const paletteFiltered = useMemo(() => {
+    let list = searchFoods(library, query);
+    if (paletteCategory !== "All") list = list.filter((f) => f.category === paletteCategory);
+    if (mineOnly) {
+      list = list.filter(
+        (f) =>
+          !!f.source &&
+          f.source !== "USDA FDC SR Legacy (seed)" &&
+          f.source !== "IFCT 2017 (seed, unverified)",
+      );
+    }
+    return list.slice(0, 8);
+  }, [library, query, paletteCategory, mineOnly]);
 
   return (
     <div className="relative flex h-[calc(100vh-57px)] flex-col">
@@ -604,8 +633,24 @@ function FlowEditorInner({
             aria-label="Search foods"
             className="w-full rounded-md border border-line bg-bg px-2 py-1.5 text-xs"
           />
-          <ul className="mt-2 max-h-56 space-y-0.5 overflow-auto">
-            {queryResults.map((food) => (
+          <div className="mt-2 flex items-center gap-1.5">
+            <select
+              value={paletteCategory}
+              onChange={(e) => setPaletteCategory(e.target.value)}
+              aria-label="Filter by category"
+              className="h-7 min-w-0 flex-1 rounded-md border border-line bg-bg px-1 text-[11px] text-muted"
+            >
+              {paletteCategories.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </select>
+            <label className="flex h-7 shrink-0 cursor-pointer items-center gap-1 text-[10px] text-muted">
+              <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />
+              My foods
+            </label>
+          </div>
+          <ul className="mt-2 max-h-44 space-y-0.5 overflow-auto">
+            {paletteFiltered.map((food) => (
               <li key={food.id}>
                 <button
                   type="button"
@@ -737,6 +782,10 @@ function FlowEditorInner({
               onAskAi={askAi}
               estimating={estimating}
               aiAvailable={aiAvailable}
+              inputLinks={selectedInputLinks}
+              isTerminal={selectedNode ? !edges.some((edge) => edge.source === selectedNode.id) : false}
+              aiContextNote={aiContextNote}
+              onAiContextNoteChange={setAiContextNote}
             />
           )}
           {preview.error && (
@@ -885,8 +934,24 @@ function FoodInspector({
   );
 }
 
+interface InputLink {
+  name: string;
+  grams: number;
+  kcalPer100g: number | null;
+}
+
 function ProcessInspector({
-  node, computed, onPatch, onRemove, onAskAi, estimating, aiAvailable,
+  node,
+  computed,
+  onPatch,
+  onRemove,
+  onAskAi,
+  estimating,
+  aiAvailable,
+  inputLinks,
+  isTerminal,
+  aiContextNote,
+  onAiContextNoteChange,
 }: {
   node: Node;
   computed: ReturnType<typeof computeGraph>["perNode"] extends Map<string, infer V> ? V | null | undefined : never;
@@ -895,6 +960,10 @@ function ProcessInspector({
   onAskAi: () => void;
   estimating: boolean;
   aiAvailable: boolean;
+  inputLinks: InputLink[];
+  isTerminal: boolean;
+  aiContextNote: string;
+  onAiContextNoteChange: (note: string) => void;
 }) {
   const data = node.data as unknown as {
     name: string;
@@ -905,108 +974,241 @@ function ProcessInspector({
     factorEstimates: Record<string, number>;
   };
   const supportsQualifier = ["boil", "strain", "pressure-cook"].includes(data.operation);
+  const [detailOpen, setDetailOpen] = useState(false);
 
   return (
     <div>
-      <h2 className="text-sm font-semibold">Step</h2>
+      <h2 className="text-sm font-semibold">{data.name.trim() || "Step"}</h2>
+      <p className="mt-0.5 text-[10px] uppercase tracking-wider text-ink/40">
+        {isTerminal ? "Final step" : "Process"} · {data.operation}
+      </p>
+
       <label className="mt-2 flex flex-col gap-1 text-xs">
         <span className="font-medium">Name</span>
         <input value={data.name} onChange={(e) => onPatch(node.id, { name: e.target.value })} className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm" />
       </label>
-      <label className="mt-2 flex flex-col gap-1 text-xs">
-        <span className="font-medium">Operation</span>
-        <select value={data.operation} onChange={(e) => onPatch(node.id, { operation: e.target.value })} className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm">
-          {OPERATION_OPTIONS.map((op) => <option key={op} value={op}>{op}</option>)}
-        </select>
-      </label>
-      {supportsQualifier && (
-        <label className="mt-2 flex flex-col gap-1 text-xs">
-          <span className="font-medium">With or without water</span>
-          <select value={data.qualifier ?? ""} onChange={(e) => onPatch(node.id, { qualifier: e.target.value || null })} className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm">
-            <option value="">any</option>
-            <option value="drained">drained (water thrown away)</option>
-            <option value="undrained">undrained (kept)</option>
+
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="font-medium">Operation</span>
+          <select value={data.operation} onChange={(e) => onPatch(node.id, { operation: e.target.value })} className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm">
+            {OPERATION_OPTIONS.map((op) => <option key={op} value={op}>{op}</option>)}
           </select>
         </label>
-      )}
+        {supportsQualifier && (
+          <label className="flex flex-col gap-1 text-xs">
+            <span className="font-medium">Water</span>
+            <select value={data.qualifier ?? ""} onChange={(e) => onPatch(node.id, { qualifier: e.target.value || null })} className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm">
+              <option value="">any</option>
+              <option value="drained">drained</option>
+              <option value="undrained">kept</option>
+            </select>
+          </label>
+        )}
+      </div>
 
+      {/* ---------------- Inputs ---------------- */}
+      <div className="mt-4">
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-ink/45">Inputs</p>
+          <span className="text-[10px] tabular text-ink/35">{inputLinks.length}</span>
+        </div>
+        {inputLinks.length === 0 ? (
+          <p className="mt-1.5 rounded-md border border-dashed border-line px-2 py-2 text-[11px] text-muted">
+            Nothing connected yet. Drag from an ingredient's output dot.
+          </p>
+        ) : (
+          <ul className="mt-1.5 divide-y divide-line/60 rounded-md border border-line/60 bg-bg">
+            {inputLinks.map((link) => (
+              <li key={link.name} className="flex items-baseline justify-between gap-2 px-2 py-1.5 text-xs">
+                <span className="truncate">{link.name}</span>
+                <span className="tabular flex shrink-0 items-baseline gap-2 text-[11px] text-ink/50">
+                  <span>{Math.round(link.grams)} g</span>
+                  <span className="text-ink/30">·</span>
+                  <span>
+                    {link.kcalPer100g != null ? `${Math.round((link.kcalPer100g * link.grams) / 100)} kcal` : "? kcal"}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* ---------------- Outputs ---------------- */}
       <div className="mt-3">
-        <p className="text-xs font-medium">Outputs</p>
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-ink/45">Outputs</p>
+          <span className="text-[10px] tabular text-ink/35">
+            {isTerminal ? "goes to the plate" : "goes to the next step"}
+          </span>
+        </div>
         {data.outputs.map((output, index) => (
-          <div key={index} className="mt-1 rounded-md border border-line bg-bg p-2">
-            <input
-              value={output.label}
-              onChange={(e) => {
-                const outputs = [...data.outputs];
-                outputs[index] = { ...outputs[index], label: e.target.value };
-                onPatch(node.id, { outputs });
-              }}
-              className="w-full rounded border border-line bg-surface px-1.5 py-1 text-xs"
-            />
-            <div className="mt-1 flex items-center gap-2 text-[11px]">
-              <div className="flex gap-1">
-                <button type="button" onClick={() => { const outputs = [...data.outputs]; outputs[index] = { ...outputs[index], tag: "consumed" }; onPatch(node.id, { outputs }); }} className={`rounded px-2 py-0.5 ${output.tag === "consumed" ? "bg-accent text-accent-fg" : "border border-line text-muted"}`}>eaten</button>
-                <button type="button" onClick={() => { const outputs = [...data.outputs]; outputs[index] = { ...outputs[index], tag: "discarded" }; onPatch(node.id, { outputs }); }} className={`rounded px-2 py-0.5 ${output.tag === "discarded" ? "bg-ink/20 text-ink" : "border border-line text-muted"}`}>discarded</button>
+          <div key={index} className="mt-1.5 rounded-md border border-line bg-bg p-2">
+            <div className="flex items-center gap-2">
+              <input
+                value={output.label}
+                onChange={(e) => {
+                  const outputs = [...data.outputs];
+                  outputs[index] = { ...outputs[index], label: e.target.value };
+                  onPatch(node.id, { outputs });
+                }}
+                aria-label="Output name"
+                className="min-w-0 flex-1 rounded border border-line bg-surface px-1.5 py-1 text-xs"
+              />
+              <div className="flex shrink-0 gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const outputs = [...data.outputs];
+                    outputs[index] = { ...outputs[index], tag: "consumed" };
+                    onPatch(node.id, { outputs });
+                  }}
+                  className={`rounded px-2 py-0.5 text-[10px] font-medium ${output.tag === "consumed" ? "bg-accent text-accent-fg" : "border border-line text-muted"}`}
+                >
+                  eaten
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const outputs = [...data.outputs];
+                    outputs[index] = { ...outputs[index], tag: "discarded" };
+                    onPatch(node.id, { outputs });
+                  }}
+                  className={`rounded px-2 py-0.5 text-[10px] font-medium ${output.tag === "discarded" ? "bg-ink/20 text-ink" : "border border-line text-muted"}`}
+                >
+                  discarded
+                </button>
               </div>
+            </div>
+            <div className="mt-1 flex items-center gap-2 text-[10px] text-muted">
+              <span>weighed output</span>
               <input
                 type="number"
                 min={0}
-                placeholder="weighed g"
+                placeholder="g"
                 value={data.measuredOutputs[index] ?? ""}
                 onChange={(e) => {
                   const measuredOutputs = [...data.measuredOutputs];
                   measuredOutputs[index] = e.target.value === "" ? null : Math.max(0, Number(e.target.value));
                   onPatch(node.id, { measuredOutputs });
                 }}
-                className="w-24 rounded border border-line bg-surface px-1.5 py-0.5"
+                className="w-16 rounded border border-line bg-surface px-1.5 py-0.5 text-[11px]"
               />
+              <span>g</span>
             </div>
           </div>
         ))}
+        {isTerminal && data.outputs.length === 1 && data.outputs[0].label === "Output" && (
+          <button
+            type="button"
+            onClick={() => {
+              const outputs = [...data.outputs];
+              outputs[0] = { ...outputs[0], label: "Final product" };
+              onPatch(node.id, { outputs });
+            }}
+            className="mt-1.5 rounded-md border border-dashed border-accent/40 bg-accent/5 px-2 py-1 text-[10px] font-medium text-accent hover:bg-accent/10"
+          >
+            Name it “Final product”
+          </button>
+        )}
       </div>
 
-      <div className="mt-3">
-        <p className="text-xs font-medium">Nutrient changes</p>
-        {computed && computed.factors.length > 0 ? (
+      {/* ---------------- Nutrient changes ---------------- */}
+      <div className="mt-4">
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-ink/45">Nutrients</p>
+          {computed && computed.inputGrams > 0 && (
+            <button
+              type="button"
+              onClick={() => setDetailOpen(true)}
+              className="text-[10px] font-medium text-accent hover:underline"
+            >
+              All 18 →
+            </button>
+          )}
+        </div>
+
+        {!computed || computed.inputGrams === 0 ? (
+          <p className="mt-1 text-[10px] text-muted">Nothing flows in yet.</p>
+        ) : computed.factors.length === 0 && (computed.unknownNutrients.length > 0) ? (
+          <p className="mt-1 text-[10px] text-ink/55">
+            No table match. Unknown: {computed.unknownNutrients.map((code) => NUTRIENTS[code].label).join(", ")}.
+          </p>
+        ) : computed.factors.length === 0 ? (
+          <p className="mt-1 text-[10px] text-muted">Nothing changes with this operation.</p>
+        ) : (
           <ul className="mt-1 space-y-1 text-[11px]">
             {computed.factors.map((f) => {
               const beforeVal = computed.before.totals[f.nutrient];
               const afterVal = beforeVal != null ? beforeVal * f.factor : null;
+              const delta = beforeVal != null && afterVal != null ? afterVal - beforeVal : null;
+              const pct = beforeVal != null && beforeVal > 0 && afterVal != null ? ((afterVal - beforeVal) / beforeVal) * 100 : null;
+              const meta = NUTRIENTS[f.nutrient];
+              const lossy = delta != null && delta < 0;
+              const gained = delta != null && delta > 0;
               return (
-                <li key={f.nutrient} className="flex items-baseline justify-between gap-2 rounded bg-canvas/40 px-1.5 py-1">
-                  <span className="text-ink/70">{f.nutrient}</span>
-                  <span className="tabular text-ink/50">
-                    {beforeVal != null ? fmt(beforeVal, 1) : "?"} → {afterVal != null ? fmt(afterVal, 1) : "?"} {Math.round(f.factor * 100)}%
-                    {f.source === "estimated" && <span className="ml-1 rounded bg-warn-soft px-1 text-[9px] text-warn-ink">est</span>}
-                    {f.source === "table" && <span className="ml-1 rounded bg-accent/10 px-1 text-[9px] text-accent">tbl</span>}
+                <li key={f.nutrient} className="flex items-baseline justify-between gap-2 rounded-md border border-line/40 bg-canvas/50 px-2 py-1">
+                  <span className="text-ink/70">{meta.label}</span>
+                  <span className="tabular flex items-baseline gap-2">
+                    {beforeVal != null && afterVal != null ? (
+                      <>
+                        <span className="text-ink/45">{fmt(beforeVal, meta.precision)} {meta.unit}</span>
+                        <span className="text-ink/25">→</span>
+                        <span className={lossy ? "font-semibold text-warn-ink" : gained ? "font-semibold text-accent" : "text-ink/70"}>
+                          {fmt(afterVal, meta.precision)} {meta.unit}
+                        </span>
+                        {pct != null && (
+                          <span className={`rounded px-1 text-[9px] font-semibold ${lossy ? "bg-warn-soft text-warn-ink" : gained ? "bg-accent/10 text-accent" : "text-ink/35"}`}>
+                            {pct >= 0 ? "+" : ""}{Math.round(pct)}%
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-ink/35">? → ?</span>
+                    )}
+                    {f.source === "estimated" && <span className="rounded bg-warn-soft px-1 text-[9px] text-warn-ink">est</span>}
+                    {f.source === "table" && <span className="rounded bg-accent/10 px-1 text-[9px] text-accent">tbl</span>}
                   </span>
                 </li>
               );
             })}
           </ul>
-        ) : computed && computed.unknownNutrients.length > 0 && computed.inputGrams > 0 ? (
-          <p className="mt-1 text-[11px] text-ink/55">
-            No changes from the table. {computed.unknownNutrients.length} nutrient{computed.unknownNutrients.length === 1 ? "" : "s"} not known for these inputs:{" "}
-            {computed.unknownNutrients.map((code) => NUTRIENTS[code].label).join(", ")}.
-          </p>
-        ) : computed && computed.inputGrams === 0 ? (
-          <p className="mt-1 text-[11px] text-muted">
-            Connect an ingredient to see what this step does to its nutrients.
-          </p>
-        ) : (
-          <p className="mt-1 text-[11px] text-muted">No change expected for this operation.</p>
         )}
-        {aiAvailable && (
+      </div>
+
+      {/* ---------------- Ask AI ---------------- */}
+      {aiAvailable && (
+        <div className="mt-4 rounded-md border border-line/60 bg-bg p-2">
+          <label className="flex flex-col gap-1 text-[11px]">
+            <span className="font-medium text-ink/60">Extra context for the AI (optional)</span>
+            <textarea
+              value={aiContextNote}
+              onChange={(e) => onAiContextNoteChange(e.target.value)}
+              rows={2}
+              placeholder="e.g. tomatoes were cooked on high heat for 15 min; oil was drained before mixing"
+              className="rounded-md border border-line bg-surface px-2 py-1.5 text-[11px]"
+            />
+          </label>
           <button
             type="button"
             onClick={onAskAi}
             disabled={estimating}
-            className="mt-2 w-full rounded-md border border-line px-2 py-1.5 text-[11px] font-medium disabled:opacity-50"
+            className="mt-1.5 w-full rounded-md border border-line px-2 py-1.5 text-[11px] font-medium disabled:opacity-50"
           >
             {estimating ? "Asking…" : "Ask AI what changes"}
           </button>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* ---------------- All-18 modal ---------------- */}
+      {detailOpen && computed && (
+        <NutrientDetailModal
+          before={computed.before}
+          after={computed.after[0] ?? computed.before}
+          onClose={() => setDetailOpen(false)}
+        />
+      )}
 
       <button type="button" onClick={() => onRemove(node.id)} className="mt-4 text-xs text-danger-ink underline">
         Remove step
@@ -1014,6 +1216,76 @@ function ProcessInspector({
     </div>
   );
 }
+
+function NutrientDetailModal({
+  before,
+  after,
+  onClose,
+}: {
+  before: Rollup;
+  after: Rollup;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="All 18 nutrients, before and after"
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center"
+    >
+      <div
+        onClick={(event) => event.stopPropagation()}
+        className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-2xl border border-line bg-surface p-4 shadow-card"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-semibold">All 18 nutrients</h3>
+            <p className="text-[10px] text-muted">Before → after for this step</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="grid h-8 w-8 place-items-center rounded-lg text-ink/40 hover:bg-ink/5">
+            ✕
+          </button>
+        </div>
+        <ul className="mt-2 divide-y divide-line/60">
+          {NUTRIENT_CODES.map((code) => {
+            const meta = NUTRIENTS[code];
+            const b = before.totals[code];
+            const a = after.totals[code];
+            const changed =
+              b != null && a != null && Math.abs(a - b) > Math.max(1e-9, Math.abs(b) * 1e-4);
+            return (
+              <li key={code} className="flex items-baseline justify-between gap-2 py-1.5 text-[11px]">
+                <span className="text-ink/60">{meta.label}</span>
+                <span className="tabular flex items-baseline gap-2">
+                  {b != null && a != null ? (
+                    <>
+                      <span className="text-ink/40">{fmt(b, meta.precision)}</span>
+                      <span className="text-ink/20">→</span>
+                      <span className={changed ? "font-semibold text-accent" : "text-ink/60"}>{fmt(a, meta.precision)}</span>
+                      <span className="text-[8px] text-ink/25">{meta.unit}</span>
+                    </>
+                  ) : (
+                    <span className="text-ink/30">unknown</span>
+                  )}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 
 function ConnectionInspector({
   edgeId,

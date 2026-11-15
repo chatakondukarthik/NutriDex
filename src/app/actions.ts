@@ -777,6 +777,7 @@ export async function estimateNodeDeltasAction(input: {
   operation: string;
   qualifier?: string | null;
   inputs: { name: string; grams: number; kcalPer100g: number | null }[];
+  note?: string;
 }): Promise<{ ok: boolean; estimate?: NodeEstimate; message?: string }> {
   const { isAiEnabled, getAiConfig } = await import("@/lib/ai/client");
   if (!isAiEnabled()) return { ok: false, message: "AI is turned off in Settings." };

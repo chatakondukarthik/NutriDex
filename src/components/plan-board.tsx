@@ -13,6 +13,7 @@ import {
 } from "@/app/actions";
 import { CopyIcon, GripIcon } from "@/components/icons";
 import { NutrientBar } from "@/components/nutrient-bar";
+import { PlanItemSheet, type SheetItem } from "@/components/plan-item-sheet";
 import { fmt, fmtMass } from "@/lib/format";
 import type { Rollup } from "@/lib/nutrition/engine";
 import { type Food } from "@/lib/nutrition/types";
@@ -153,6 +154,25 @@ export function PlanBoard({
     }
     return map;
   }, [entries, foodById, recipeByVersion]);
+
+  const sheetItems: SheetItem[] = useMemo(() => {
+    const source = period === "week" ? entries : entriesForDay(entries, selectedDay);
+    return source.map((entry) => {
+      const roll = entryRollup(entry, foodById, recipeByVersion);
+      const slotLabel = SLOT_LABELS[entry.slot as keyof typeof SLOT_LABELS] ?? entry.slot;
+      return {
+        id: entry.id,
+        name: entryName(entry, foodById, recipeByVersion),
+        qty: entry.foodId ? `${fmtMass(entry.grams)} g` : servingsLabel(entry.servings ?? 0),
+        slot: entry.slot,
+        slotLabel:
+          period === "week"
+            ? `${slotLabel} · ${weekdayShort(entry.day)} ${dayOfMonth(entry.day)}`
+            : slotLabel,
+        rollup: roll,
+      };
+    });
+  }, [entries, selectedDay, foodById, recipeByVersion, period]);
 
   const paletteFoods = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -879,7 +899,7 @@ export function PlanBoard({
         </section>
 
         {/* ---- Selected day + nutrition --------------------------------- */}
-        <section className="mt-5 grid gap-4 lg:grid-cols-[1fr_420px] lg:items-start">
+        <section className="mt-5">
           <div className="rounded-2xl border border-line bg-surface p-5 shadow-card">
             <div className="flex items-baseline justify-between gap-2">
               <h2 className="text-sm font-semibold">
@@ -931,138 +951,127 @@ export function PlanBoard({
                 slot.
               </p>
             ) : (
-              <ul className="mt-3 divide-y divide-line">
-                {selectedEntries.map((entry) => (
-                  <li key={entry.id} className="group flex items-center gap-3 py-2">
-                    <span className="w-16 shrink-0 text-[10px] uppercase tracking-wide text-ink/30">
-                      {SLOT_LABELS[entry.slot]}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-sm">
-                      {entryName(entry, foodById, recipeByVersion)}
-                    </span>
-                    <span className="tabular text-xs text-ink/45">{quantityLabel(entry)}</span>
-                    <span className="tabular w-14 text-right text-xs text-ink/55">
-                      {fmt(entryKcal.get(entry.id) ?? null, 0)} kcal
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => copyToPalette(entry)}
-                      aria-label={`Copy ${entryName(
-                        entry,
-                        foodById,
-                        recipeByVersion,
-                      )} to the palette`}
-                      title="Copy to the palette, keeping this quantity"
-                      className="grid h-6 w-6 shrink-0 place-items-center rounded text-ink/30 opacity-0 transition hover:bg-ink/5 hover:text-ink/70 focus-visible:opacity-100 group-hover:opacity-100"
-                    >
-                      <CopyIcon className="h-3.5 w-3.5" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <div className="mt-3">
+                <PlanItemSheet
+                  items={sheetItems}
+                  period={period}
+                  dayLabel={
+                    period === "day"
+                      ? `${weekdayShort(selectedDay)} ${dayOfMonth(selectedDay)}`
+                      : `Week of ${weekdayShort(week)} ${dayOfMonth(week)}`
+                  }
+                  onCopy={(id) => {
+                    const entry = entries.find((e) => e.id === id);
+                    if (entry) copyToPalette(entry);
+                  }}
+                  onRemove={(id) => {
+                    const entry = entries.find((e) => e.id === id);
+                    if (entry) remove(entry);
+                  }}
+                />
+              </div>
             )}
           </div>
+        </section>
 
-          <aside className="lg:sticky lg:top-20">
-            <section className="rounded-2xl border border-line bg-surface p-5 shadow-card">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <h2 className="text-sm font-semibold">
-                    {period === "day" ? "Day nutrition" : "Week nutrition"}
-                  </h2>
-                  <p className="mt-0.5 text-[11px] text-ink/40">
-                    {period === "day"
-                      ? `${weekdayShort(selectedDay)} ${dayOfMonth(selectedDay)} · ${
-                          selectedEntries.length
-                        } ${selectedEntries.length === 1 ? "item" : "items"}`
-                      : `${periodItems.length} ${
-                          periodItems.length === 1 ? "item" : "items"
-                        } across 7 days`}
-                  </p>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          {/* ---- Anchor pane: energy + protein (the only daily judgements) ---- */}
+          <section className="flex flex-col rounded-2xl border border-line bg-surface p-4 shadow-card">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h2 className="text-sm font-semibold">
+                  {period === "day" ? "Day nutrition" : "Week nutrition"}
+                </h2>
+                <p className="mt-0.5 text-[11px] text-ink/40">
+                  {period === "day"
+                    ? `${weekdayShort(selectedDay)} ${dayOfMonth(selectedDay)} · ${selectedEntries.length} ${selectedEntries.length === 1 ? "item" : "items"}`
+                    : `${periodItems.length} ${periodItems.length === 1 ? "item" : "items"} across 7 days`}
+                </p>
+              </div>
+              <PeriodToggle period={period} onChange={setPeriod} />
+            </div>
+
+            {energy == null || energy.actual == null ? (
+              <p className="mt-3 rounded-xl border border-dashed border-line px-3 py-8 text-center text-xs text-ink/40">
+                {period === "day" ? "Nothing planned yet." : "Nothing planned this week."}
+              </p>
+            ) : (
+              <>
+                <div className="mt-3">
+                  <div className="tabular text-3xl font-semibold leading-none">
+                    {fmt(energy.actual, 0)}
+                    <span className="ml-1 text-sm font-normal text-ink/40">kcal</span>
+                  </div>
+                  <div className="mt-1 text-[11px] text-ink/40">
+                    of {fmt(energy.target, 0)} kcal {period === "day" ? "target" : "weekly target"}
+                  </div>
                 </div>
 
-                <PeriodToggle period={period} onChange={setPeriod} />
-              </div>
-
-              {energy == null || energy.actual == null ? (
-                <p className="mt-3 rounded-xl border border-dashed border-line px-3 py-8 text-center text-xs text-ink/40">
-                  {period === "day"
-                    ? "Nothing planned, so there is nothing to total."
-                    : "Nothing planned this week, so there is nothing to total."}
-                </p>
-              ) : (
-                <>
-                  <div className="mt-3">
-                    <div className="tabular text-3xl font-semibold leading-none">
-                      {fmt(energy.actual, 0)}
-                      <span className="ml-1 text-sm font-normal text-ink/40">kcal</span>
-                    </div>
-                    <div className="mt-1 text-[11px] text-ink/40">
-                      of {fmt(energy.target, 0)} kcal{" "}
-                      {period === "day" ? "target" : "weekly target"}
-                    </div>
-                  </div>
-
-                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-ink/10">
-                    <div
-                      className={`bar-fill h-full rounded-full ${
-                        (energy.ratio ?? 0) >= 1.2
-                          ? "bg-danger"
-                          : (energy.ratio ?? 0) > 1
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-ink/10">
+                  <div
+                    className={`bar-fill h-full rounded-full ${
+                      (energy.ratio ?? 0) >= 1.2
+                        ? "bg-danger"
+                        : (energy.ratio ?? 0) > 1
+                          ? "bg-warn"
+                          : energy.status === "high"
                             ? "bg-warn"
-                            : energy.status === "high"
-                              ? "bg-warn"
-                              : "bg-accent"
-                      }`}
-                      style={{
-                        width: `${Math.min(100, (energy.ratio ?? 0) * 100)}%`,
-                      }}
-                    />
+                            : "bg-accent"
+                    }`}
+                    style={{ width: `${Math.min(100, (energy.ratio ?? 0) * 100)}%` }}
+                  />
+                </div>
+
+                <div className="mt-4">
+                  <h3 className="text-[10px] font-semibold uppercase tracking-wider text-ink/40">
+                    Protein
+                  </h3>
+                  {assessments.filter((a) => a.code === "PROCNT").map((entry) => (
+                    <div key={entry.code} className="mt-2">
+                      <NutrientBar code="PROCNT" assessment={entry} />
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </section>
+
+          {/* ---- Weekly groups pane: judge everything that isn't an anchor ---- */}
+          <section className="flex flex-col rounded-2xl border border-line bg-surface p-4 shadow-card">
+            <h3 className="text-sm font-semibold">
+              {period === "day" ? "Rest of the week" : "Week totals"}
+            </h3>
+            <p className="mt-0.5 text-[10px] leading-snug text-ink/35">
+              {period === "day"
+                ? "In the day view these are data, not verdicts — the week judges them."
+                : "Seven days of planned food, judged."}
+            </p>
+            <div className="mt-2 max-h-96 flex-1 space-y-4 overflow-y-auto pr-1">
+              {GUIDANCE_GROUPS.filter((group) => group.role !== "daily-anchor").map((group) => {
+                const items = assessments.filter((entry) => entry.role === group.role);
+                if (items.length === 0) return null;
+                const summary = groupSummary(items, period, group.role);
+                return (
+                  <div key={group.role}>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <h4 className="text-[10px] font-semibold uppercase tracking-wider text-ink/40">
+                        {group.label}
+                      </h4>
+                      {summary && (
+                        <span className="tabular text-[9px] text-ink/35">{summary}</span>
+                      )}
+                    </div>
+                    <div className="mt-2 space-y-2">
+                      {items.map((entry) => (
+                        <NutrientBar key={entry.code} code={entry.code} assessment={entry} />
+                      ))}
+                    </div>
                   </div>
-
-                  <div className="mt-5 space-y-5">
-                    {GUIDANCE_GROUPS.map((group) => {
-                      const items = assessments.filter(
-                        (entry) => entry.role === group.role,
-                      );
-                      if (items.length === 0) return null;
-                      const summary = groupSummary(items, period, group.role);
-
-                      return (
-                        <div key={group.role}>
-                          <div className="flex items-baseline justify-between gap-2">
-                            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-ink/40">
-                              {group.label}
-                            </h3>
-                            {summary && (
-                              <span className="tabular text-[10px] text-ink/35">
-                                {summary}
-                              </span>
-                            )}
-                          </div>
-                          <p className="mt-0.5 text-[10px] leading-snug text-ink/35">
-                            {group.blurb}
-                          </p>
-                          <div className="mt-2 space-y-2.5">
-                            {items.map((entry) => (
-                              <NutrientBar key={entry.code} code={entry.code} assessment={entry} />
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <p className="mt-4 border-t border-line pt-3 text-[10px] leading-relaxed text-ink/35">
-                    {period === "day"
-                      ? "A single day only judges energy and protein. Fibre, vitamins and the limits are averages over the week — switch to Week to judge those."
-                      : "Weekly references are seven daily references. Energy and protein still need to land on most days, not just in total."}
-                  </p>
-                </>
-              )}
-            </section>
-          </aside>
-        </section>
+                );
+              })}
+            </div>
+          </section>
+        </div>
 
         <footer className="mx-auto max-w-7xl pb-8 pt-4">
           <p className="text-[11px] leading-relaxed text-ink/35">

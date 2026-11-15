@@ -21,6 +21,8 @@ export interface EstimateInput {
   operation: string;
   qualifier?: string | null;
   inputs: { name: string; grams: number; kcalPer100g: number | null }[];
+  /** Free-text context the cook wants the model to know. */
+  note?: string;
 }
 
 const SCHEMA = {
@@ -94,11 +96,12 @@ export async function estimateNodeDeltas(
   const lines = input.inputs
     .map((i) => `- ${i.name}: ${Math.round(i.grams)} g${i.kcalPer100g != null ? ` (~${i.kcalPer100g} kcal/100 g)` : ""}`)
     .join("\n");
+  const note = input.note?.trim() ? `\nCook's note: ${input.note.trim()}` : "";
 
   const response = await completeFn({
     capability: "text",
     system: SYSTEM,
-    prompt: `Operation: ${input.operation}${input.qualifier ? ` (${input.qualifier})` : ""}\nInputs:\n${lines}\n\nReturn the JSON object now.`,
+    prompt: `Operation: ${input.operation}${input.qualifier ? ` (${input.qualifier})` : ""}\nInputs:\n${lines}${note}\n\nReturn the JSON object now.`,
     jsonSchema: SCHEMA as unknown as Record<string, unknown>,
     temperature: 0,
     maxTokens: 1024,
