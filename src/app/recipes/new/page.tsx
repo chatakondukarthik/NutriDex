@@ -33,7 +33,7 @@ export default async function NewRecipePage({
         <p className="text-[11px] text-ink/40">
           {preset ? "Starting from a preset — edit anything, then save." : "Start from scratch, or let AI draft the diagram for you."}
         </p>
-        <RecipeGenerator aiEnabled={aiStatus().enabled} />
+        <RecipeGenerator aiEnabled={aiStatus().enabled} mode="create" />
       </div>
       <FlowEditor
         foods={foods}

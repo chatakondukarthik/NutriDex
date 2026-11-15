@@ -38,6 +38,14 @@ export interface RecipePlan {
   steps: RecipePlanStep[];
 }
 
+export interface ExistingRecipeContext {
+  name: string;
+  servings: number;
+  instructions: string;
+  /** Plain-JSON copy of the current graph (nodes + edges). */
+  graph: unknown;
+}
+
 const PLAN_SCHEMA = {
   type: "object",
   properties: {
@@ -91,6 +99,7 @@ Return ONLY a JSON object matching the schema. Rules:
 
 export async function planRecipeFromPrompt(
   prompt: string,
+  existing?: ExistingRecipeContext,
 ): Promise<RecipePlan> {
   if (!prompt.trim()) throw new Error("Ask me something first — a dish, a mood, a fridge list.");
 
@@ -98,10 +107,14 @@ export async function planRecipeFromPrompt(
   if (!isAiEnabled()) throw new Error("AI is turned off in Settings.");
   if (!hasKey(config.provider)) throw new Error("No AI key configured. Add one in Settings.");
 
+  const existingSection = existing
+    ? `\nExisting recipe (modify this, do not start over):\nName: ${existing.name}\nServings: ${existing.servings}\nInstructions: ${existing.instructions}\nGraph (nodes and edges):\n${JSON.stringify(existing.graph)}\nApply the user's request to this recipe.`
+    : "";
+
   const response = await complete({
     capability: "text",
     system: SYSTEM,
-    prompt,
+    prompt: `${prompt}${existingSection}`,
     jsonSchema: PLAN_SCHEMA as unknown as Record<string, unknown>,
     temperature: 0,
     maxTokens: 2048,
@@ -141,7 +154,10 @@ function ensureFoods(plan: RecipePlan): Map<string, string> {
   return map;
 }
 
-export function materializeRecipe(plan: RecipePlan): { recipeId: string } {
+export function materializeRecipe(
+  plan: RecipePlan,
+  recipeId?: string,
+): { recipeId: string } {
   const foodIndex = ensureFoods(plan);
   const idBase = `gen-${Date.now().toString(36)}`;
   const nodes: Graph["nodes"] = [];
@@ -200,7 +216,7 @@ export function materializeRecipe(plan: RecipePlan): { recipeId: string } {
   }
 
   const saved = saveGraphDraft({
-    recipeId: null,
+    recipeId: recipeId ?? null,
     name: plan.name,
     instructions: plan.instructions,
     servings: plan.servings,

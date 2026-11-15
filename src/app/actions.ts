@@ -808,10 +808,26 @@ export async function convertAllRecipesToV2Action(): Promise<{ ok: boolean; conv
 import { planRecipeFromPrompt, materializeRecipe, type RecipePlan } from "@/lib/ai-generate-recipe";
 
 export async function previewRecipeFromPromptAction(
-  input: { prompt: string },
+  input: { prompt: string; recipeId?: string | null },
 ): Promise<{ ok: boolean; plan?: RecipePlan; message?: string }> {
   try {
-    const plan = await planRecipeFromPrompt(input.prompt);
+    let existing;
+    if (input.recipeId) {
+      const { getVersion } = await import("@/lib/db/recipes");
+      const { getRecipe } = await import("@/lib/db/recipes");
+      const recipe = getRecipe(input.recipeId);
+      const version = recipe?.summary.currentVersionId ? getVersion(recipe.summary.currentVersionId) : undefined;
+      if (version) {
+        const snap = version.snapshot as unknown as { graph?: unknown };
+        existing = {
+          name: version.recipeName,
+          servings: version.servings,
+          instructions: version.instructions,
+          graph: snap.graph ?? null,
+        };
+      }
+    }
+    const plan = await planRecipeFromPrompt(input.prompt, existing);
     return { ok: true, plan };
   } catch (error) {
     return {
@@ -822,11 +838,13 @@ export async function previewRecipeFromPromptAction(
 }
 
 export async function createRecipeFromPlanAction(
-  input: RecipePlan,
+  input: RecipePlan & { recipeId?: string | null },
 ): Promise<{ ok: boolean; recipeId?: string; message?: string }> {
   try {
-    const { recipeId } = materializeRecipe(input);
+    const base = input as RecipePlan;
+    const { recipeId } = materializeRecipe(base, input.recipeId ?? undefined);
     revalidatePath("/recipes");
+    if (input.recipeId) revalidatePath(`/recipes/${input.recipeId}`);
     return { ok: true, recipeId };
   } catch (error) {
     return {

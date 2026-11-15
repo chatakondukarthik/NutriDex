@@ -528,7 +528,7 @@ export function PlanBoard({
           </button>
         )}
 
-        <div className={`flex flex-1 flex-col gap-1 p-1.5 ${showHeader ? "pt-0" : ""}`}>
+        <div className={`flex max-h-[280px] min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-1.5 ${showHeader ? "pt-0" : ""}`}>
           {SLOTS.map((slot) => {
             const slotEntries = dayEntries.filter((entry) => entry.slot === slot);
             const dropKey = `${day}:${slot}`;

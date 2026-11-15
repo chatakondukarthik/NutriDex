@@ -5,7 +5,14 @@ import { useRouter } from "next/navigation";
 import { previewRecipeFromPromptAction, createRecipeFromPlanAction } from "@/app/actions";
 import type { RecipePlan } from "@/lib/ai-generate-recipe";
 
-export function RecipeGenerator({ aiEnabled }: { aiEnabled: boolean }) {
+interface RecipeGeneratorProps {
+  aiEnabled: boolean;
+  mode?: "create" | "edit";
+  recipeId?: string | null;
+  existingName?: string | null;
+}
+
+export function RecipeGenerator({ aiEnabled, mode = "create", recipeId = null, existingName = null }: RecipeGeneratorProps) {
   const router = useRouter();
   const [prompt, setPrompt] = useState("");
   const [plan, setPlan] = useState<RecipePlan | null>(null);
@@ -13,14 +20,25 @@ export function RecipeGenerator({ aiEnabled }: { aiEnabled: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  if (!aiEnabled) return null;
+  if (!aiEnabled) {
+    return (
+      <button
+        type="button"
+        disabled
+        title="AI is off. Turn it on in Settings."
+        className="cursor-not-allowed rounded-lg border border-line bg-bg px-3 py-1.5 text-xs font-semibold text-muted opacity-60"
+      >
+        {mode === "edit" ? "Edit with AI" : "Create with AI"} (off)
+      </button>
+    );
+  }
 
   async function generate() {
     if (!prompt.trim()) return;
     setError(null);
     setPlan(null);
     startTransition(async () => {
-      const result = await previewRecipeFromPromptAction({ prompt });
+      const result = await previewRecipeFromPromptAction({ prompt, recipeId: mode === "edit" ? recipeId : null });
       if (!result.ok || !result.plan) {
         setError(result.message ?? "Could not plan that recipe.");
         return;
@@ -33,7 +51,7 @@ export function RecipeGenerator({ aiEnabled }: { aiEnabled: boolean }) {
     if (!plan) return;
     setError(null);
     startTransition(async () => {
-      const result = await createRecipeFromPlanAction(plan);
+      const result = await createRecipeFromPlanAction({ ...plan, recipeId: mode === "edit" ? recipeId : null });
       if (!result.ok || !result.recipeId) {
         setError(result.message ?? "Could not create the recipe.");
         return;
@@ -49,7 +67,7 @@ export function RecipeGenerator({ aiEnabled }: { aiEnabled: boolean }) {
         onClick={() => setOpen(true)}
         className="rounded-lg border border-accent/40 bg-accent/5 px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/10"
       >
-        ✨ Create with AI
+        {mode === "edit" ? "✨ Edit with AI" : "✨ Create with AI"}
       </button>
 
       {open && (
@@ -66,10 +84,11 @@ export function RecipeGenerator({ aiEnabled }: { aiEnabled: boolean }) {
           >
             <div className="flex items-start justify-between gap-2">
               <div>
-                <h2 className="text-base font-semibold">Create with AI</h2>
+                <h2 className="text-base font-semibold">{mode === "edit" ? "Edit with AI" : "Create with AI"}</h2>
                 <p className="mt-0.5 text-[11px] text-muted">
-                  Describe any dish. The AI proposes steps and inputs; unknown foods are created
-                  automatically. Nothing is saved until you confirm.
+                  {mode === "edit"
+                    ? `Tell me what to change in “${existingName ?? "this recipe"}”. The AI re-proposes the full diagram; unknown foods are created automatically. Nothing is saved until you confirm.`
+                    : "Describe any dish. The AI proposes steps and inputs; unknown foods are created automatically. Nothing is saved until you confirm."}
                 </p>
               </div>
               <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="grid h-8 w-8 place-items-center rounded-lg text-ink/40 hover:bg-ink/5">
@@ -83,7 +102,7 @@ export function RecipeGenerator({ aiEnabled }: { aiEnabled: boolean }) {
                   autoFocus
                   value={prompt}
                   onChange={(event) => setPrompt(event.target.value)}
-                  placeholder="e.g. palak sprouts bhurji, or use up this paneer &amp; tomatoes…"
+                  placeholder={mode === "edit" ? "e.g. less oil; make it spicier; double the sprouts" : "e.g. palak sprouts bhurji, or use up this paneer &amp; tomatoes…"}
                   rows={3}
                   className="mt-3 w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm"
                 />

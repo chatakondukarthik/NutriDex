@@ -2,7 +2,7 @@ import Link from "next/link";
 import { PRESETS } from "@/lib/data/preset-recipes";
 import { listRecipes, countLegacyRecipes } from "@/lib/db/recipes";
 import { ConvertRecipesButton } from "@/components/convert-recipes-button";
-import { fmt } from "@/lib/format";
+import { RecipesBrowser } from "@/components/recipes-browser";
 
 export const dynamic = "force-dynamic";
 
@@ -38,47 +38,7 @@ export default function RecipesPage() {
           </p>
         </section>
       ) : (
-        <ul className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {recipes.map((recipe) => (
-            <li key={recipe.id}>
-              <Link
-                href={`/recipes/${recipe.id}`}
-                className="block h-full rounded-2xl border border-line bg-surface p-4 shadow-card transition hover:border-accent/30 hover:shadow-card-hover"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <h2 className="text-sm font-semibold leading-snug">{recipe.name}</h2>
-                  <span className="shrink-0 rounded-md bg-ink/[0.07] px-1.5 py-0.5 text-[10px] font-medium text-ink/45">
-                    v{recipe.currentVersionNo ?? 1}
-                  </span>
-                </div>
-
-                {recipe.currentVersionLabel && (
-                  <p className="mt-0.5 truncate text-[11px] text-ink/40">
-                    {recipe.currentVersionLabel}
-                  </p>
-                )}
-
-                <div className="mt-3 flex items-baseline gap-1.5">
-                  <span className="tabular text-xl font-semibold leading-none">
-                    {fmt(recipe.kcalPerServing, 0)}
-                  </span>
-                  <span className="text-[11px] text-ink/40">kcal / serving</span>
-                </div>
-
-                <div className="mt-2 flex items-center justify-between text-[11px] text-ink/40">
-                  <span>
-                    {fmt(recipe.servings, 0)}{" "}
-                    {recipe.servings === 1 ? "serving" : "servings"}
-                  </span>
-                  <span>
-                    {recipe.versionCount}{" "}
-                    {recipe.versionCount === 1 ? "version" : "versions"}
-                  </span>
-                </div>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <RecipesBrowser recipes={recipes} />
       )}
 
       <section className="mt-8">
