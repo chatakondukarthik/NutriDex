@@ -35,6 +35,7 @@ export interface SaveGraphResult {
 export type GraphSnapshot = RecipeResult & {
   graph: Graph;
   layout?: Record<string, { x: number; y: number }>;
+  perNode?: Record<string, unknown>;
 };
 
 function scaledProfileClone(result: Rollup, factor: number): Rollup {
@@ -73,6 +74,22 @@ export function saveGraphDraft(draft: GraphDraft): SaveGraphResult {
     result: combine(node.after),
   }));
 
+  const perNode: Record<string, unknown> = {};
+  for (const [id, node] of result.perNode) {
+    perNode[id] = {
+      name: node.name,
+      operation: node.operation,
+      qualifier: node.qualifier,
+      factors: node.factors,
+      unknownNutrients: node.unknownNutrients,
+      before: node.before,
+      after: node.after,
+      masses: node.masses,
+      inputGrams: node.inputGrams,
+      inputEdges: node.inputEdges,
+    };
+  }
+
   const snapshot: GraphSnapshot = {
     blocks,
     total: consumed,
@@ -85,6 +102,7 @@ export function saveGraphDraft(draft: GraphDraft): SaveGraphResult {
     calculationVersion: "2",
     graph: draft.graph,
     layout: draft.layout,
+    perNode,
   };
 
   // components table blocks need inputs; build them from the graph

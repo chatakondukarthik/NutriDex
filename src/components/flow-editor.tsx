@@ -75,7 +75,18 @@ function FlowEditorInner({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [estimating, setEstimating] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [selectionIds, setSelectionIds] = useState<string[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [pasteOffset, setPasteOffset] = useState(0);
+  const historyRef = useRef<{ past: { nodes: Node[]; edges: Edge[] }[]; future: { nodes: Node[]; edges: Edge[] }[] }>({ past: [], future: [] });
+  const noticeTimer = useRef<number | null>(null);
   const reactFlow = useReactFlow();
+
+  function flashNotice(text: string) {
+    setNotice(text);
+    if (noticeTimer.current) window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(null), 1800);
+  }
 
   const factorTable = useMemo(() => tableFromRows(factorRows), [factorRows]);
 
@@ -91,6 +102,11 @@ function FlowEditorInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [edges, setEdges] = useState<Edge[]>(() => buildInitialEdges(initialGraph));
+  const nodesRef = useRef(nodes);
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
+  const selectionRef = useRef<string[]>([]);
 
   const resolve = useCallback(
     (foodId: string) => foods.find((f) => f.id === foodId)?.nutrients ?? (() => { throw new Error("unknown food"); })(),
@@ -111,63 +127,75 @@ function FlowEditorInner({
 
   function addFood(food: Food) {
     const id = crypto.randomUUID();
-    setNodes((current) => {
-      const next = [
-        ...current,
-        {
-          id,
-          type: "food" as const,
-          position: { x: 80 + Math.random() * 120, y: 80 + Math.random() * 160 },
-          data: { label: food.name, grams: 100, foodId: food.id, unknownCount: Object.values(food.nutrients).filter((v) => v.amount == null).length },
-        },
-      ];
-      // Auto-connect: selected process, or the only process on the canvas
-      const target =
-        current.find((n) => n.id === selectedId && n.type === "process") ??
-        (current.filter((n) => n.type === "process").length === 1
-          ? current.find((n) => n.type === "process")
-          : undefined);
-      if (target) {
-        setEdges((edges) => [...edges, { id: crypto.randomUUID(), source: id, target: target.id }]);
-      }
-      return next;
-    });
+    const foodNode: Node = {
+      id,
+      type: "food",
+      position: { x: 80 + Math.random() * 120, y: 80 + Math.random() * 160 },
+      data: {
+        label: food.name,
+        grams: 100,
+        foodId: food.id,
+        unknownCount: Object.values(food.nutrients).filter((v) => v.amount == null).length,
+      },
+    };
+    const current = nodesRef.current;
+    const next = [...current, foodNode];
+    nodesRef.current = next;
+    setNodes(next);
+    // Auto-connect: selected process, or the only process node on the canvas
+    const target =
+      current.find((n) => n.id === selectedId && n.type === "process") ??
+      (current.filter((n) => n.type === "process").length === 1
+        ? current.find((n) => n.type === "process")
+        : undefined);
+    if (target) {
+      setEdges((edges) => [...edges, { id: crypto.randomUUID(), source: id, target: target.id }]);
+    }
     setSelectedId(id);
     setTimeout(() => reactFlow.fitView({ padding: 0.2 }), 60);
   }
 
   function addProcess() {
     const id = crypto.randomUUID();
-    setNodes((current) => {
-      const foodNodes = current.filter((n) => n.type === "food");
-      const next = [
-        ...current,
-        {
-          id,
-          type: "process" as const,
-          position: { x: 340 + Math.random() * 80, y: 100 + Math.random() * 220 },
-          data: {
-            name: "New step",
-            operation: "assemble",
-            qualifier: null,
-            outputs: [{ label: "Output", tag: "consumed", split: {} }],
-            measuredOutputs: [null],
-            factorEstimates: {},
-            factorOverrides: {},
-          },
-        },
-      ];
-      if (foodNodes.length) {
-        setEdges((edges) => [
-          ...edges,
-          ...foodNodes.map((f) => ({ id: crypto.randomUUID(), source: f.id, target: id })),
-        ]);
-      }
-      return next;
-    });
+    const processNode: Node = {
+      id,
+      type: "process",
+      position: { x: 340 + Math.random() * 80, y: 100 + Math.random() * 220 },
+      data: {
+        name: "New step",
+        operation: "assemble",
+        qualifier: null,
+        outputs: [{ label: "Output", tag: "consumed", split: {} }],
+        measuredOutputs: [null],
+        factorEstimates: {},
+        factorOverrides: {},
+      },
+    };
+    const current = nodesRef.current;
+    const foodNodes = current.filter((n) => n.type === "food");
+    const next = [...current, processNode];
+    nodesRef.current = next;
+    setNodes(next);
+    if (foodNodes.length) {
+      setEdges((edges) => [
+        ...edges,
+        ...foodNodes.map((f) => ({ id: crypto.randomUUID(), source: f.id, target: id })),
+      ]);
+    }
     setSelectedId(id);
     setTimeout(() => reactFlow.fitView({ padding: 0.2 }), 60);
   }
+
+  const handleSelectionChange = useCallback(
+    ({ nodes: selectedNodes }: { nodes: Node[] }) => {
+      const ids = selectedNodes.map((n) => n.id);
+      selectionRef.current = ids;
+      setSelectionIds((prev) =>
+        prev.length === ids.length && prev.every((id, i) => id === ids[i]) ? prev : ids,
+      );
+    },
+    [],
+  );
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => setNodes((current) => applyNodeChanges(changes, current)),
@@ -208,6 +236,171 @@ function FlowEditorInner({
     setEdges((current) => current.filter((e) => e.source !== id && e.target !== id));
     if (selectedId === id) setSelectedId(null);
   }
+
+  // ---- history (undo/redo) ----------------------------------------------
+  const lastSnapshotRef = useRef<string>("");
+  useEffect(() => {
+    const snapshot = JSON.stringify({ nodes, edges });
+    if (snapshot === lastSnapshotRef.current) return;
+    const timer = window.setTimeout(() => {
+      lastSnapshotRef.current = snapshot;
+      const past = historyRef.current.past;
+      const last = past[past.length - 1];
+      if (last && JSON.stringify(last.nodes) === JSON.stringify(nodes) && JSON.stringify(last.edges) === JSON.stringify(edges)) return;
+      past.push({ nodes: structuredClone(nodes), edges: structuredClone(edges) });
+      if (past.length > 60) past.shift();
+      historyRef.current.future = [];
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [nodes, edges]);
+
+  function undo() {
+    const { past, future } = historyRef.current;
+    if (past.length === 0) return;
+    const current = past[past.length - 1];
+    const previous = past[past.length - 2];
+    if (!previous) {
+      flashNotice("Nothing to undo.");
+      return;
+    }
+    past.pop();
+    future.push(current);
+    setNodes(previous.nodes);
+    setEdges(previous.edges);
+    setSelectedId(null);
+    setSelectionIds([]);
+  }
+
+  function redo() {
+    const { past, future } = historyRef.current;
+    if (future.length === 0) return;
+    const next = future.pop()!;
+    past.push(next);
+    setNodes(next.nodes);
+    setEdges(next.edges);
+    setSelectedId(null);
+    setSelectionIds([]);
+  }
+
+  // ---- copy / paste -------------------------------------------------------
+  function selectedNodeIds(): string[] {
+    return selectionRef.current.length ? selectionRef.current : selectedId ? [selectedId] : [];
+  }
+
+  function copySelection() {
+    const ids = new Set(selectedNodeIds());
+    if (ids.size === 0) {
+      flashNotice("Select a block first.");
+      return;
+    }
+    const picked = nodesRef.current.filter((n) => ids.has(n.id));
+    const pickedIds = new Set(picked.map((n) => n.id));
+    const crossEdges = edges.filter((e) => pickedIds.has(e.source) && pickedIds.has(e.target));
+    const payload = { app: "nutriplan-flow", version: 1, nodes: structuredClone(picked), edges: structuredClone(crossEdges) };
+    try {
+      navigator.clipboard?.writeText(JSON.stringify(payload)).catch(() => {});
+    } catch {
+      /* clipboard unavailable; keep internal copy */
+    }
+    internalClipboardRef.current = payload;
+    flashNotice(`Copied ${picked.length} block${picked.length === 1 ? "" : "s"}.`);
+  }
+
+  const internalClipboardRef = useRef<{ app: string; nodes: Node[]; edges: Edge[] } | null>(null);
+
+  function pasteClipboard() {
+    const clip = internalClipboardRef.current;
+    if (!clip || clip.app !== "nutriplan-flow") {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.readText) {
+        navigator.clipboard.readText().then((text) => {
+          try {
+            const parsed = JSON.parse(text);
+            if (parsed?.app === "nutriplan-flow") doPaste(parsed);
+            else flashNotice("Nothing to paste.");
+          } catch {
+            flashNotice("Nothing to paste.");
+          }
+        }).catch(() => flashNotice("Nothing to paste."));
+      } else {
+        flashNotice("Nothing to paste.");
+      }
+      return;
+    }
+    doPaste(clip);
+  }
+
+  function doPaste(clip: { nodes: Node[]; edges: Edge[] }) {
+    const idMap = new Map<string, string>();
+    for (const node of clip.nodes) idMap.set(node.id, crypto.randomUUID());
+    const offset = 40 * (pasteOffset + 1);
+    setPasteOffset((n) => n + 1);
+    const pastedNodes: Node[] = clip.nodes.map((node) => ({
+      ...structuredClone(node),
+      id: idMap.get(node.id)!,
+      position: { x: node.position.x + offset, y: node.position.y + offset },
+      selected: true,
+    }));
+    const pastedEdges: Edge[] = clip.edges.map((edge) => ({
+      ...structuredClone(edge),
+      id: crypto.randomUUID(),
+      source: idMap.get(edge.source)!,
+      target: idMap.get(edge.target)!,
+    }));
+    setNodes((current) => [...current.map((n) => ({ ...n, selected: false })), ...pastedNodes]);
+    setEdges((current) => [...current, ...pastedEdges]);
+    const pastedIds = pastedNodes.map((n) => n.id);
+    selectionRef.current = pastedIds;
+    setSelectionIds(pastedIds);
+    setSelectedId(null);
+    flashNotice(`Pasted ${pastedNodes.length} block${pastedNodes.length === 1 ? "" : "s"}.`);
+  }
+
+  // ---- keyboard shortcuts ------------------------------------------------
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null;
+      const editable = !!target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable);
+      if (editable) return;
+
+      const mod = e.metaKey || e.ctrlKey;
+      const key = e.key.toLowerCase();
+
+      if (mod && key === "z" && !e.shiftKey) { e.preventDefault(); undo(); return; }
+      if ((mod && key === "z" && e.shiftKey) || (mod && key === "y")) { e.preventDefault(); redo(); return; }
+      if (mod && key === "c") { copySelection(); return; }
+      if (mod && key === "v") { e.preventDefault(); pasteClipboard(); return; }
+      if (key === "escape") {
+        selectionRef.current = [];
+        setSelectedId(null);
+        setSelectionIds([]);
+        setNodes((current) => current.map((n) => ({ ...n, selected: false })));
+        setEdges((current) => current.map((edge) => ({ ...edge, selected: false })));
+        return;
+      }
+      if (key === "delete" || key === "backspace") {
+        const ids = selectedNodeIds();
+        if (ids.length === 0) return;
+        e.preventDefault();
+        selectionRef.current = [];
+        setNodes((current) => current.filter((n) => !ids.includes(n.id)));
+        setEdges((current) => current.filter((edge) => !ids.includes(edge.source) && !ids.includes(edge.target)));
+        setSelectionIds([]);
+        setSelectedId(null);
+        return;
+      }
+      if (mod && key === "a") {
+        e.preventDefault();
+        const all = nodesRef.current.map((n) => n.id);
+        selectionRef.current = all;
+        setSelectionIds(all);
+        setNodes((current) => current.map((n) => ({ ...n, selected: true })));
+        return;
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectionIds, selectedId, nodes, edges]);
 
   async function askAi() {
     if (!selectedNode || selectedNode.type !== "process") return;
@@ -260,7 +453,7 @@ function FlowEditorInner({
   const queryResults = query.trim() ? searchFoods(foods, query).slice(0, 6) : [];
 
   return (
-    <div className="flex h-[calc(100vh-57px)] flex-col">
+    <div className="relative flex h-[calc(100vh-57px)] flex-col">
       {/* top bar */}
       <div className="flex flex-wrap items-center gap-2 border-b border-line bg-surface px-4 py-2">
         <input
@@ -355,8 +548,19 @@ function FlowEditorInner({
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
-            onNodeClick={(_, node) => setSelectedId(node.id)}
-            onPaneClick={() => setSelectedId(null)}
+            onNodeClick={(event, node) => {
+              if (!(event.metaKey || event.ctrlKey || event.shiftKey)) {
+                setSelectedId(node.id);
+              }
+            }}
+            onSelectionChange={handleSelectionChange}
+            onPaneClick={() => {
+              setSelectedId(null);
+              setSelectionIds([]);
+            }}
+            deleteKeyCode={null}
+            selectionKeyCode="Shift"
+            multiSelectionKeyCode={["Meta", "Control"]}
             fitView
             proOptions={{ hideAttribution: false }}
             className="bg-canvas"
@@ -392,6 +596,34 @@ function FlowEditorInner({
           )}
         </aside>
       </div>
+
+      {/* bottom hint bar */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line bg-surface px-4 py-1.5 text-[10px] text-muted">
+        <span className="tabular font-medium text-ink/60">{selectionIds.length} selected</span>
+        {selectionIds.length > 0 && (
+          <button type="button" onClick={copySelection} className="hover:text-ink">
+            Copy (Ctrl+C)
+          </button>
+        )}
+        {internalClipboardRef.current && (
+          <button type="button" onClick={pasteClipboard} className="hover:text-ink">
+            Paste (Ctrl+V)
+          </button>
+        )}
+        <span>Delete: remove</span>
+        <span>Ctrl+Z: undo</span>
+        <span>Ctrl+Shift+Z: redo</span>
+        <span>Ctrl+C / Ctrl+V: copy / paste</span>
+        <span>Ctrl+A: select all</span>
+        <span>Shift-drag: box select</span>
+        <span>Shift/Ctrl-click: multi-select</span>
+      </div>
+
+      {notice && (
+        <div className="pointer-events-none absolute bottom-12 left-1/2 z-10 -translate-x-1/2 rounded-full border border-line bg-surface px-4 py-1.5 text-xs text-ink shadow-card">
+          {notice}
+        </div>
+      )}
     </div>
   );
 }

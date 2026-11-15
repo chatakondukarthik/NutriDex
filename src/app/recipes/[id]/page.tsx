@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { DuplicateRecipeButton } from "@/components/duplicate-recipe-button";
+import { StepNutrition } from "@/components/step-nutrition";
 import { DeleteButton } from "@/components/delete-button";
 import { deleteRecipeAction } from "@/app/actions";
 import { notFound } from "next/navigation";
@@ -210,6 +211,8 @@ export default async function RecipePage({
           );
         })}
       </section>
+
+      <StepNutrition snapshot={snapshot as never} />
 
       {version.instructions && (
         <section className="mt-4 rounded-2xl border border-line bg-surface p-5 shadow-card">

@@ -250,6 +250,8 @@ export function computeGraph(
       }
 
       if (factor == null || source == null) continue;
+      // A factor of exactly 1 changes nothing; treating it as a change would be noise.
+      if (factor === 1) continue;
       factors.push({ nutrient: code, factor, source });
       if (totals[code] != null) totals[code] = totals[code]! * factor;
       if (source === "estimated" && status[code] === "known") status[code] = "estimated";
