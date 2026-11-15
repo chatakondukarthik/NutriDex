@@ -1,4 +1,5 @@
 import { FlowEditor } from "@/components/flow-editor";
+import { aiStatus } from "@/lib/ai/client";
 import { listFoods } from "@/lib/db/foods";
 import { graphFromBlocks, factorRows } from "@/lib/nutrition/graph-server";
 import { getPreset } from "@/lib/data/preset-recipes";

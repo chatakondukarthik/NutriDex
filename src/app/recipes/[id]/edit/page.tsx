@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { FlowEditor } from "@/components/flow-editor";
+import { aiStatus } from "@/lib/ai/client";
 import { listFoods, getFood } from "@/lib/db/foods";
 import { getRecipe, getVersion } from "@/lib/db/recipes";
 import { graphFromBlocks, factorRows } from "@/lib/nutrition/graph-server";

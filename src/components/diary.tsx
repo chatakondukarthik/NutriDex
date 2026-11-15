@@ -9,6 +9,8 @@ import { dayRollup } from "@/lib/day";
 import { searchFoods } from "@/lib/nutrition/food-search";
 import { fmt, fmtDay } from "@/lib/format";
 import { toGrams, type Unit } from "@/lib/nutrition/units";
+import { weekStart } from "@/lib/plan";
+import Link from "next/link";
 import type { Rollup } from "@/lib/nutrition/engine";
 import {
   NUTRIENTS,
@@ -18,11 +20,21 @@ import {
 } from "@/lib/nutrition/types";
 import type { Target } from "@/lib/targets";
 
+export interface PlannedItem {
+  id: string;
+  slot: string;
+  name: string;
+  qty: string;
+  kcal: number | null;
+}
+
 interface DiaryProps {
   foods: Food[];
   entries: Entry[];
   targets: Target[];
   day: string;
+  planned: PlannedItem[];
+  plannedKcal: number;
 }
 
 function parseUnitKey(key: string): { unit: Unit; portionLabel?: string } {
@@ -32,7 +44,7 @@ function parseUnitKey(key: string): { unit: Unit; portionLabel?: string } {
   return { unit: key as Unit };
 }
 
-export function Diary({ foods, entries, targets, day }: DiaryProps) {
+export function Diary({ foods, entries, targets, day, planned, plannedKcal }: DiaryProps) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -159,6 +171,37 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
             nutrient
           </p>
         </div>
+
+        {planned.length > 0 && (
+          <section className="mb-4 rounded-2xl border border-line bg-surface p-4 shadow-card">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-sm font-semibold">Planned for this day</h2>
+              <Link
+                href={`/plan?week=${weekStart(day)}`}
+                className="text-[11px] font-medium text-accent hover:underline"
+              >
+                Open in plan →
+              </Link>
+            </div>
+            <ul className="mt-2 divide-y divide-line">
+              {planned.map((item) => (
+                <li key={item.id} className="flex items-baseline gap-3 py-1.5 text-sm">
+                  <span className="w-20 shrink-0 text-[10px] uppercase tracking-wide text-ink/35">
+                    {item.slot}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{item.name}</span>
+                  <span className="tabular shrink-0 text-[11px] text-ink/45">{item.qty}</span>
+                  <span className="tabular w-14 shrink-0 text-right text-[11px] text-ink/55">
+                    {item.kcal != null ? `${Math.round(item.kcal)} kcal` : "—"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1 text-[11px] text-muted">
+              {Math.round(plannedKcal)} kcal planned. Edit it on the plan page; the plan is the source.
+            </p>
+          </section>
+        )}
 
         <div className="grid gap-5 lg:grid-cols-[1fr_420px] lg:items-start">
         {/* ---- Food search ---------------------------------------------- */}

@@ -325,6 +325,7 @@ export async function saveProfileAction(
   saveProfile(parsed.profile);
   revalidatePath("/");
   revalidatePath("/plan");
+  revalidatePath("/");
   revalidatePath("/profile");
 
   return { ok: true, message: "Saved. Targets now use these numbers." };
@@ -575,6 +576,7 @@ export async function copyPlanDayAction(
   }
 
   revalidatePath("/plan");
+  revalidatePath("/");
   return { ok: true, count };
 }
 
@@ -621,6 +623,7 @@ export async function copyPlanWeekAction(
   }
 
   revalidatePath("/plan");
+  revalidatePath("/");
   return { ok: true, count };
 }
 

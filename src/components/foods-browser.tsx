@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { Food } from "@/lib/nutrition/types";
 import { searchFoods } from "@/lib/nutrition/food-search";
+import { FoodExportMenu } from "@/components/food-export";
 
 const CATEGORIES = ["All", "Dairy", "Grains", "Vegetables", "Fruits", "Legumes", "Oils", "Nuts", "Meat", "Seafood", "Spices", "Beverages", "Custom"];
 
@@ -46,6 +47,7 @@ export function FoodsBrowser({ foods }: { foods: Food[] }) {
           <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />
           My foods only
         </label>
+        <FoodExportMenu foods={results} label="Copy / Export" />
       </div>
 
       {results.length === 0 ? (

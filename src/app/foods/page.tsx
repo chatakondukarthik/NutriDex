@@ -16,12 +16,14 @@ export default function FoodsPage() {
             Search the library as you type. {captured.length} of your own foods, plus {all.length - captured.length} built-in.
           </p>
         </div>
-        <Link href="/foods/new" className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-fg">
-          New food
-        </Link>
-        <Link href="/foods/import" className="rounded-md border border-line px-3 py-1.5 text-xs font-medium">
-          Import CSV
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href="/foods/import" className="rounded-md border border-line px-3 py-1.5 text-xs font-medium hover:bg-ink/5">
+            Import CSV
+          </Link>
+          <Link href="/foods/new" className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-fg">
+            New food
+          </Link>
+        </div>
       </div>
       <FoodsBrowser foods={all} />
     </main>

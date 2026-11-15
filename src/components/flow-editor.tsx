@@ -38,6 +38,7 @@ const OPERATION_OPTIONS = [
 export interface FlowEditorProps {
   foods: Food[];
   factorRows: FactorRow[];
+  ai?: { enabled: boolean; hasKey: boolean };
   recipeId: string | null;
   initialGraph?: Graph | null;
   initialLayout?: Record<string, { x: number; y: number }>;
@@ -48,9 +49,10 @@ export interface FlowEditorProps {
 }
 
 export function FlowEditor(props: FlowEditorProps) {
+  const aiAvailable = !!props.ai?.enabled && !!props.ai?.hasKey;
   return (
     <ReactFlowProvider>
-      <FlowEditorInner {...props} />
+      <FlowEditorInner {...props} aiAvailable={aiAvailable} />
     </ReactFlowProvider>
   );
 }
@@ -65,7 +67,8 @@ function FlowEditorInner({
   initialInstructions = "",
   initialServings = "1",
   initialVersionLabel = "",
-}: FlowEditorProps) {
+  aiAvailable,
+}: FlowEditorProps & { aiAvailable: boolean }) {
   const router = useRouter();
   const [name, setName] = useState(initialName);
   const [versionLabel, setVersionLabel] = useState(initialVersionLabel);
@@ -733,6 +736,7 @@ function FlowEditorInner({
               onRemove={removeNode}
               onAskAi={askAi}
               estimating={estimating}
+              aiAvailable={aiAvailable}
             />
           )}
           {preview.error && (
@@ -882,7 +886,7 @@ function FoodInspector({
 }
 
 function ProcessInspector({
-  node, computed, onPatch, onRemove, onAskAi, estimating,
+  node, computed, onPatch, onRemove, onAskAi, estimating, aiAvailable,
 }: {
   node: Node;
   computed: ReturnType<typeof computeGraph>["perNode"] extends Map<string, infer V> ? V | null | undefined : never;
@@ -890,6 +894,7 @@ function ProcessInspector({
   onRemove: (id: string) => void;
   onAskAi: () => void;
   estimating: boolean;
+  aiAvailable: boolean;
 }) {
   const data = node.data as unknown as {
     name: string;
@@ -991,14 +996,16 @@ function ProcessInspector({
         ) : (
           <p className="mt-1 text-[11px] text-muted">No change expected for this operation.</p>
         )}
-        <button
-          type="button"
-          onClick={onAskAi}
-          disabled={estimating}
-          className="mt-2 w-full rounded-md border border-line px-2 py-1.5 text-[11px] font-medium disabled:opacity-50"
-        >
-          {estimating ? "Asking…" : "Ask AI what changes"}
-        </button>
+        {aiAvailable && (
+          <button
+            type="button"
+            onClick={onAskAi}
+            disabled={estimating}
+            className="mt-2 w-full rounded-md border border-line px-2 py-1.5 text-[11px] font-medium disabled:opacity-50"
+          >
+            {estimating ? "Asking…" : "Ask AI what changes"}
+          </button>
+        )}
       </div>
 
       <button type="button" onClick={() => onRemove(node.id)} className="mt-4 text-xs text-danger-ink underline">
