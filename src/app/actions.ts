@@ -718,3 +718,25 @@ export async function importInndbAction(
     return { ok: false, message: error instanceof Error ? error.message : "Import failed." };
   }
 }
+
+export async function estimateProcessEffectAction(input: {
+  operation: string;
+  ingredients: string[];
+  beforeSummary: string;
+  outputMassG: number | null;
+}): Promise<{ ok: boolean; effect?: any; message?: string }> {
+  const { isAiEnabled } = await import("@/lib/ai/client");
+  if (!isAiEnabled()) return { ok: false, message: "AI is turned off in Settings." };
+  try {
+    const { estimateProcessEffect } = await import("@/lib/ai/process-effect");
+    const effect = await estimateProcessEffect({
+      operation: input.operation as any,
+      ingredients: input.ingredients,
+      beforeSummary: input.beforeSummary,
+      outputMassG: input.outputMassG,
+    });
+    return { ok: true, effect };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Estimation failed." };
+  }
+}

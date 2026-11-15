@@ -7,6 +7,7 @@
  * disclosed as "no reference data — assumed unchanged".
  */
 
+import type { ProcessOperation } from "./recipe-graph";
 import { NUTRIENT_CODES, type NutrientCode } from "@/lib/nutrition/types";
 
 export type RetentionEntry = {
