@@ -269,7 +269,13 @@ food is indistinguishable from a captured one.
 
 ### Q-011 — What does "over target" mean for the overflow colours?
 
-**Status:** Open · **Blocks:** S8 status colour
+**Status:** Closed · **Resolved:** 2026-11-15
+
+Thresholds, uniform across all 18 nutrients: 100–110 % of target stays the
+status colour; 110–125 % turns yellow ("over target"); above 125 % turns red
+("well over target"). The bar width still caps at 100 % so a red bar reads
+as "full and then some", not as a longer bar. Colour is never the only
+channel (D-039): the note under the bar says the words.
 
 Two candidates: a percentage of the target (110% is yellow, 125% is red) or a
 fixed margin. The answer differs for a `daily-anchor`, a `weekly-minimum` and a

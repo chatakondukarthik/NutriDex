@@ -274,8 +274,8 @@ everything else tracked.
 
 **Done when:**
 
-- [ ] Every bar and total has a defined state below, at and over its target.
-- [ ] Colour is one of three channels; every state also has a word and an icon
+- [x] Every bar and total has a defined state below, at and over its target.
+- [x] Colour is one of three channels; every state also has a word and an icon
       (D-039).
 - [ ] The day and week views agree, and the weekly-limit nutrients (fat, sugar,
       sodium) are judged over the week as well as the day.

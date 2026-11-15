@@ -52,7 +52,30 @@ export function NutrientBar(props: NutrientBarProps) {
   const partial =
     !unknown && view.coverage.total > 0 && view.coverage.known < view.coverage.total;
 
-  const note = statusNote(view.status, partial, unknown);
+  // Overflow escalation: going over a target is fine for weekly-minimums,
+  // but for everything else (and for all nutrients once you are clearly
+  // past it) the bar escalates yellow -> red. See docs/research Q-011.
+  const ratio =
+    view.reference != null && view.actual != null && view.reference > 0
+      ? view.actual / view.reference
+      : 0;
+  const overflow: "none" | "warn" | "danger" =
+    unknown || view.reference == null
+      ? "none"
+      : ratio >= 1.25
+        ? "danger"
+        : ratio >= 1.1
+          ? "warn"
+          : "none";
+
+  const fillClass =
+    overflow === "danger"
+      ? "bg-danger"
+      : overflow === "warn"
+        ? "bg-warn"
+        : FILL[view.status];
+
+  const note = statusNote(view.status, partial, unknown, overflow);
 
   return (
     <div>
@@ -90,7 +113,7 @@ export function NutrientBar(props: NutrientBarProps) {
       >
         {!unknown && (
           <div
-            className={`bar-fill h-full rounded-full ${FILL[view.status]}`}
+            className={`bar-fill h-full rounded-full ${fillClass}`}
             style={{ width: `${pct}%` }}
           />
         )}
@@ -99,7 +122,11 @@ export function NutrientBar(props: NutrientBarProps) {
       {note && (
         <div
           className={`mt-0.5 text-[10px] ${
-            view.status === "low" || view.status === "high" ? "text-warn-ink" : "text-ink/30"
+            view.status === "low" || view.status === "high" || overflow !== "none"
+              ? overflow === "danger"
+                ? "text-danger-ink"
+                : "text-warn-ink"
+              : "text-ink/30"
           }`}
         >
           {note}
@@ -144,12 +171,15 @@ function statusNote(
   status: AssessmentStatus,
   partial: boolean,
   unknown: boolean,
+  overflow: "none" | "warn" | "danger",
 ): string | null {
   if (unknown) return "no ingredient data";
 
   const parts: string[] = [];
   if (status === "low") parts.push("below target");
   if (status === "high") parts.push("over the limit");
+  if (overflow === "warn") parts.push("over target");
+  if (overflow === "danger") parts.push("well over target");
   // `neutral` is deliberately silent: the guidance group already says this
   // nutrient is judged over the week, and repeating it on every row buries
   // the rows that do have something to say.
