@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { previewRecipeFromPromptAction, createRecipeFromPlanAction } from "@/app/actions";
 import type { RecipePlan } from "@/lib/ai-generate-recipe";
+import type { PlanFoodResolution } from "@/lib/ai/food-resolve";
 
 interface RecipeGeneratorProps {
   aiEnabled: boolean;
@@ -31,6 +32,7 @@ export function RecipeGenerator({
   const router = useRouter();
   const [prompt, setPrompt] = useState("");
   const [plan, setPlan] = useState<RecipePlan | null>(null);
+  const [resolutions, setResolutions] = useState<PlanFoodResolution[] | null>(null);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -59,6 +61,7 @@ export function RecipeGenerator({
         return;
       }
       setPlan(result.plan);
+      setResolutions(result.resolutions ?? null);
     });
   }
 
@@ -180,6 +183,39 @@ export function RecipeGenerator({
                     </p>
                   )}
                 </div>
+                {resolutions && resolutions.length > 0 && (
+                  <div className="mt-3">
+                    <h3 className="text-[10px] font-semibold uppercase tracking-wider text-ink/35">
+                      Where the ingredients come from
+                    </h3>
+                    <ul className="mt-1.5 max-h-44 divide-y divide-line overflow-y-auto rounded-lg border border-line bg-bg">
+                      {resolutions.map((resolution) => (
+                        <li key={resolution.name} className="flex items-baseline justify-between gap-2 px-2.5 py-1.5 text-[11px]">
+                          <span className="min-w-0 truncate">{resolution.name}</span>
+                          {resolution.status === "reused" && (
+                            <span className="shrink-0 text-[10px] font-medium text-accent" title={resolution.matchedName ?? undefined}>
+                              reusing {resolution.matchedName}
+                            </span>
+                          )}
+                          {resolution.status === "usda-import" && (
+                            <span className="shrink-0 text-[10px] font-medium text-ink/55" title={`FoodData Central #${resolution.fdcId}`}>
+                              USDA import · {resolution.matchedName}
+                            </span>
+                          )}
+                          {resolution.status === "provisional" && (
+                            <span className="shrink-0 text-[10px] font-medium text-warn-ink">
+                              provisional · all nutrients unknown
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-1 text-[10px] text-ink/40">
+                      Reused foods keep their real values. USDA imports are real values from FoodData Central.
+                      Provisional foods stay unknown until you fill them in — the AI never invents them.
+                    </p>
+                  </div>
+                )}
                 {mode === "edit" && (
                   <p
                     className={`mt-3 rounded-md border px-3 py-2 text-[10px] leading-relaxed ${
@@ -194,7 +230,7 @@ export function RecipeGenerator({
                   </p>
                 )}
                 <div className="mt-3 flex items-center justify-between gap-2">
-                  <button type="button" onClick={() => setPlan(null)} className="text-[11px] font-medium text-muted hover:text-ink">
+                  <button type="button" onClick={() => { setPlan(null); setResolutions(null); }} className="text-[11px] font-medium text-muted hover:text-ink">
                     ← Back to prompt
                   </button>
                   <button

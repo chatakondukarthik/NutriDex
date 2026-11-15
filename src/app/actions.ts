@@ -810,10 +810,11 @@ export async function convertAllRecipesToV2Action(): Promise<{ ok: boolean; conv
 }
 
 import { planRecipeFromPrompt, materializeRecipe, type RecipePlan } from "@/lib/ai-generate-recipe";
+import { resolvePlanFoods, type PlanFoodResolution } from "@/lib/ai/food-resolve";
 
 export async function previewRecipeFromPromptAction(
   input: { prompt: string; recipeId?: string | null },
-): Promise<{ ok: boolean; plan?: RecipePlan; message?: string }> {
+): Promise<{ ok: boolean; plan?: RecipePlan; resolutions?: PlanFoodResolution[]; message?: string }> {
   try {
     let existing;
     if (input.recipeId) {
@@ -832,7 +833,9 @@ export async function previewRecipeFromPromptAction(
       }
     }
     const plan = await planRecipeFromPrompt(input.prompt, existing);
-    return { ok: true, plan };
+    const { listFoods } = await import("@/lib/db/foods");
+    const { resolutions } = await resolvePlanFoods(plan, listFoods(), { persist: false });
+    return { ok: true, plan, resolutions };
   } catch (error) {
     return {
       ok: false,
@@ -850,7 +853,7 @@ export async function createRecipeFromPlanAction(
 ): Promise<{ ok: boolean; recipeId?: string; message?: string }> {
   try {
     const base = input as RecipePlan;
-    const { recipeId } = materializeRecipe(base, input.recipeId ?? undefined, {
+    const { recipeId } = await materializeRecipe(base, input.recipeId ?? undefined, {
       mode: input.mode,
       replaceVersionId: input.replaceVersionId ?? null,
     });

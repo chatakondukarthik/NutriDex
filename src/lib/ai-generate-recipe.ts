@@ -14,8 +14,8 @@ import { complete } from "@/lib/ai/client";
 import { getAiConfig } from "@/lib/ai/client";
 import { hasKey } from "@/lib/ai/secrets";
 import { isAiEnabled } from "@/lib/ai/client";
-import { listFoods, saveCapturedFood, getFood } from "@/lib/db/foods";
-import { prepareCapturedFood } from "@/lib/captured-food";
+import { listFoods } from "@/lib/db/foods";
+import { resolvePlanFoods } from "@/lib/ai/food-resolve";
 import { saveGraphDraft } from "@/lib/recipes-v2";
 import type { Graph } from "@/lib/nutrition/graph";
 
@@ -126,40 +126,12 @@ export async function planRecipeFromPrompt(
   return parsed;
 }
 
-/** Create any unknown foods as provisional records and return a name→id map. */
-function ensureFoods(plan: RecipePlan): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const food of listFoods()) map.set(food.name.trim().toLowerCase(), food.id);
-
-  const unknownNames = new Set<string>();
-  for (const step of plan.steps) {
-    for (const input of step.inputs) {
-      const key = input.foodName.trim().toLowerCase();
-      if (!map.has(key)) unknownNames.add(input.foodName.trim());
-    }
-  }
-
-  for (const name of unknownNames) {
-    const prepared = prepareCapturedFood({
-      name,
-      kind: "provisional",
-      state: "raw",
-      source: "ai-generated",
-      nutrients: {},
-    });
-    if (!prepared.ok) continue;
-    const saved = saveCapturedFood(prepared.food, { allowDuplicate: false });
-    if (saved.ok) map.set(name.trim().toLowerCase(), saved.food.id);
-  }
-  return map;
-}
-
-export function materializeRecipe(
+export async function materializeRecipe(
   plan: RecipePlan,
   recipeId?: string,
   opts?: { mode?: "new-version" | "replace-current"; replaceVersionId?: string | null },
-): { recipeId: string } {
-  const foodIndex = ensureFoods(plan);
+): Promise<{ recipeId: string }> {
+  const { map: foodIndex } = await resolvePlanFoods(plan, listFoods(), { persist: true });
   const idBase = `gen-${Date.now().toString(36)}`;
   const nodes: Graph["nodes"] = [];
   const edges: Graph["edges"] = [];
