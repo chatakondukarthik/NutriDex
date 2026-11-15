@@ -3,14 +3,17 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Food } from "@/lib/nutrition/types";
-import {
-  matchLocalFood,
-  planUniqueFoodNames,
-  resolvePlanFoods,
-  scoreName,
-  type UsdaStubs,
-} from "@/lib/ai/food-resolve";
 import type { RecipePlan } from "@/lib/ai-generate-recipe";
+import type { UsdaStubs } from "@/lib/ai/food-resolve";
+
+// The resolver module pulls in the database at import time, so the database
+// path MUST be pointed at a throwaway file before any of these are loaded.
+let matchLocalFood: typeof import("@/lib/ai/food-resolve")["matchLocalFood"];
+let planUniqueFoodNames: typeof import("@/lib/ai/food-resolve")["planUniqueFoodNames"];
+let resolvePlanFoods: typeof import("@/lib/ai/food-resolve")["resolvePlanFoods"];
+let scoreName: typeof import("@/lib/ai/food-resolve")["scoreName"];
+
+let dir: string;
 
 const food = (id: string, name: string, aliases: string[] = []): Food =>
   ({ id, name, aliases }) as unknown as Food;
@@ -34,6 +37,19 @@ function plan(inputs: string[]): RecipePlan {
     ],
   };
 }
+
+beforeAll(async () => {
+  dir = mkdtempSync(path.join(tmpdir(), "nutriplan-resolve-import-"));
+  vi.stubEnv("NUTRIPLAN_DB_PATH", path.join(dir, "import.sqlite"));
+  ({ matchLocalFood, planUniqueFoodNames, resolvePlanFoods, scoreName } = await import(
+    "@/lib/ai/food-resolve"
+  ));
+});
+
+afterAll(() => {
+  vi.unstubAllEnvs();
+  rmSync(dir, { recursive: true, force: true });
+});
 
 function usdaStub(hits: Array<{ fdcId: number; name: string }> | "throw"): UsdaStubs {
   return {
@@ -124,7 +140,9 @@ describe("resolvePlanFoods (persist: false — preview)", () => {
   });
 
   it("reports a USDA import for a miss with a confident USDA hit", async () => {
-    const result = await resolvePlanFoods(plan(["chicken breast"]), foods, {
+    // no chicken in the local fixtures for this one
+    const withoutChicken = [PANEER, ONION, MRICE];
+    const result = await resolvePlanFoods(plan(["chicken breast"]), withoutChicken, {
       persist: false,
       usda: usdaStub([{ fdcId: 171077, name: "Chicken, broilers or fryers, breast, meat only, raw" }]),
     });
@@ -151,8 +169,26 @@ describe("resolvePlanFoods (persist: false — preview)", () => {
     expect(down.resolutions[0].status).toBe("provisional");
   });
 
-  it("does not write anything in preview mode", async () => {
+  it("reuses a local food when only one token matches — reuse beats provisional", async () => {
     const result = await resolvePlanFoods(plan(["chicken breast"]), foods, {
+      persist: false,
+      usda: usdaStub([{ fdcId: 171077, name: "Chicken breast raw" }]),
+    });
+    expect(result.resolutions[0].status).toBe("reused");
+    expect(result.resolutions[0].matchedName).toContain("Chicken");
+  });
+
+  it("handles singular/plural forms on both sides of the match", () => {
+    expect(matchLocalFood("chicken fillets", [THIGH])?.food.id).toBe("f-thigh");
+    expect(matchLocalFood("boneless chicken thighs", [THIGH])?.food.id).toBe("f-thigh");
+    expect(matchLocalFood("basmati rice", [MRICE])?.food.id).toBe("f-rice");
+    expect(matchLocalFood("garlic cloves", [food("f-garlic", "Garlic")])?.food.id).toBe("f-garlic");
+    expect(matchLocalFood("tomatoes", [food("f-tomato", "Tomato")])?.food.id).toBe("f-tomato");
+  });
+
+  it("does not write anything in preview mode", async () => {
+    const withoutChicken = [PANEER, ONION, MRICE];
+    const result = await resolvePlanFoods(plan(["chicken breast"]), withoutChicken, {
       persist: false,
       usda: usdaStub([{ fdcId: 171077, name: "Chicken breast raw" }]),
     });
@@ -161,19 +197,11 @@ describe("resolvePlanFoods (persist: false — preview)", () => {
 });
 
 describe("resolvePlanFoods (persist: true — confirm)", () => {
-  let dir: string;
   let listFoods: typeof import("@/lib/db/foods")["listFoods"];
   let getFood: typeof import("@/lib/db/foods")["getFood"];
 
   beforeAll(async () => {
-    dir = mkdtempSync(path.join(tmpdir(), "nutriplan-resolve-"));
-    vi.stubEnv("NUTRIPLAN_DB_PATH", path.join(dir, "test.sqlite"));
     ({ listFoods, getFood } = await import("@/lib/db/foods"));
-  });
-
-  afterAll(() => {
-    vi.unstubAllEnvs();
-    rmSync(dir, { recursive: true, force: true });
   });
 
   it("creates a USDA-sourced captured food and reuses it on the next resolution", async () => {

@@ -5,14 +5,15 @@ import path from "node:path";
 import type { CompleteFn } from "@/lib/ai/estimate";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-import { db } from "@/lib/db/client";
 
 let dir: string;
+let db: typeof import("@/lib/db/client")["db"];
 let estimate: typeof import("@/lib/ai/estimate");
 
 beforeAll(async () => {
   dir = mkdtempSync(path.join(tmpdir(), "nutriplan-estimate-"));
   vi.stubEnv("NUTRIPLAN_DB_PATH", path.join(dir, "test.sqlite"));
+  ({ db } = await import("@/lib/db/client"));
   estimate = await import("@/lib/ai/estimate");
 });
 
