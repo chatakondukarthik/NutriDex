@@ -68,6 +68,20 @@ Galley ("Components"), ESHA Genesis (loss/target model), FoodCore, `recipe_grid`
 and Cooklang all separate a recipe into process steps with inputs and outputs.
 D-021 is not an invention; it is the common shape.
 
+### 1.6 Prior art for capture and AI providers
+
+Fud AI (MIT, `apoorvdarshan/fud-ai`) is the closest shipping analogue: local-first,
+bring-your-own-key, 16 providers, camera/barcode/voice/text/manual capture, and a
+review screen before anything is logged. See the
+[2026-11-15 note](notes/2026-11-15-fud-ai-and-llm-providers.md).
+
+What it settles: review-before-save is the norm, not an invention; Open Food
+Facts is the pragmatic barcode source; BYOK is a proven key-handling model.
+
+What it does not settle: it estimates meals, not recipes. It has no block model,
+no pinned sub-ingredients, no yield basis, and no provenance that survives an
+edit. There is nothing to copy for the calculation.
+
 ---
 
 ## 2. Open questions
@@ -166,7 +180,7 @@ What to establish:
 
 ### Q-005 — How good is Open Food Facts coverage for Indian packaged food?
 
-**Status:** Open · **Blocks:** barcode scan (Next), not the MVP
+**Status:** Open · **Blocks:** S6.2 barcode scan
 
 ODbL means we can use it for lookup and prefill but must not absorb it into our
 tables without honouring share-alike. Coverage of Indian brands is believed to
@@ -206,6 +220,41 @@ yield factor per food and operation — needs a source. Candidates: USDA yield
 data, and IFCT's cooked-state values used to back out an implied factor.
 
 Until then, tier 3 applies: no adjustment, disclosed.
+
+### Q-009 — What is a defensible golden dataset for the estimation eval?
+
+**Status:** Open · **Blocks:** S7.3 evaluation harness
+
+The eval harness needs real cases with expected answers. Sources: labels we can
+photograph ourselves, a sample of seed foods with known values, and synthetic
+edge cases (per-serving labels, no panel, blurry images, ambiguous sentences).
+
+The hard part is not collecting cases, it is agreeing what "correct" means when
+the model proposes a food rather than a number.
+
+**Done when:** ~30 cases across label, text and barcode, each with an agreed
+expected structured output, and a baseline score recorded.
+
+### Q-010 — How long is capture evidence kept?
+
+**Status:** Open · **Blocks:** S6.1 manual capture
+
+A label image and a raw model response are the audit trail that makes a stored
+number defensible. They are also storage that grows without bound.
+
+**Done when:** a retention rule (keep with the record, or expire after N days) is
+chosen and stated on `/about`.
+
+### Q-011 — What does "over target" mean for the overflow colours?
+
+**Status:** Open · **Blocks:** S8 status colour
+
+Two candidates: a percentage of the target (110% is yellow, 125% is red) or a
+fixed margin. The answer differs for a `daily-anchor`, a `weekly-minimum` and a
+`weekly-limit`, and differs again for energy versus sodium.
+
+**Done when:** each role has a stated threshold, and the thresholds are written
+in words on `/about`.
 
 ---
 

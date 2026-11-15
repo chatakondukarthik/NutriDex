@@ -16,6 +16,10 @@ pipeline; breadth comes later.
 | S3 — Plan | 1 week | The loop closes | Done |
 | S3.5 — Theme and transparency | 2–3 days | The product feels designed, and its numbers can be checked | Done |
 | S4 — Trust and ship | 1 week | Someone can use it unaided | In progress |
+| S5 — Testing | 3–4 days | The bugs we ship are the ones we catch | Done (foundation) |
+| S6 — Ingredient capture | 2–3 weeks | A user can add their own food | Planned |
+| S7 — Bring-your-own LLM | 2 weeks | AI helps, and NutriPlan never holds the keys | Planned |
+| S8 — Status colour | 2–3 days | Over-target reads at a glance, and not by colour alone | Planned |
 
 ---
 
@@ -164,6 +168,109 @@ question.
 
 ---
 
+## S5 — Testing
+
+Unit tests covered the engine; they did not cover the UI, which is why a
+disabled remove button and a picker that never dismissed survived to a user.
+
+**Done when:**
+
+- [x] The suite runs in more than one category, and each category answers a
+      different question.
+- [x] Component tests use jsdom and Testing Library; the picker and row
+      regressions are covered.
+- [x] Server actions are tested as untrusted endpoints against a throwaway
+      database, and a rejected request is asserted to write nothing.
+- [x] Data integrity is tested: PRAGMAs, foreign keys, the plan-entry XOR
+      constraint, transaction rollback, migration idempotency.
+- [x] Accessibility is tested with axe-core on the builder, closed and open.
+- [x] Performance guards exist for rollup and target assessment.
+- [x] Manual cases (responsive, contrast, reduced motion, keyboard, empty
+      states) are recorded with a date.
+- [ ] End-to-end journeys in a real browser.
+
+**Shipped:** two Vitest projects, 212 tests (from 131), the categories and case
+IDs in [`reference/TESTING.md`](../reference/TESTING.md).
+
+**Known limits:** no Playwright yet; contrast is a token audit rather than a
+computed check; no test can judge model output quality (that is S7.3).
+
+---
+
+## S6 — Ingredient capture
+
+The builder and diary can only use 20 seeded foods. Capture is the four entry
+methods of D-011, converged on one pipeline, with ingredient, recipe and
+sub-ingredient as **destinations** (D-033).
+
+Full design: [`spec/INGREDIENT_CAPTURE.md`](../spec/INGREDIENT_CAPTURE.md).
+
+**Done when:**
+
+- [ ] A food can be created manually, used once, and found by search later.
+- [ ] A barcode resolves through Open Food Facts and stores the label's basis.
+- [ ] A label photo produces a confirmable proposal with the image kept as
+      evidence.
+- [ ] A text description produces one candidate per food, and an ambiguous
+      quantity stays `unknown`.
+- [ ] A capture can be placed as an ingredient, promoted to a recipe, made a
+      pinned component, or saved to the library.
+- [ ] No model-supplied value can be stored for a nutrient the record does not
+      know (D-034).
+
+**Slices:** S6.1 manual · S6.2 barcode · S6.3 label · S6.4 text · S6.5
+destinations. S6.3 and S6.4 need S7.1 first.
+
+**Depends on:** foods moving out of the TypeScript fixture and into the
+database (S1.5 importer). Nothing in capture can be built before that.
+
+**Non-goals:** meal photo estimation, voice, recipe import from a URL.
+
+---
+
+## S7 — Bring-your-own LLM
+
+The user brings a key and picks a provider and a model. NutriPlan never holds
+the key and never lets the model's numbers become facts (D-034, D-035).
+
+Full design: [`spec/BYO_LLM.md`](../spec/BYO_LLM.md).
+
+**Done when:**
+
+- [ ] Gemini, OpenAI, Anthropic and any OpenAI-compatible endpoint can be
+      configured, with the model list fetched from the provider.
+- [ ] A key can be added, tested and removed; after removal no call is made.
+- [ ] A build-time test proves no key reaches the client bundle.
+- [ ] Transient failures retry, fall back, and degrade to a non-AI path.
+- [ ] A golden-set evaluation harness exists and has a baseline score.
+
+**Slices:** S7.1 plumbing · S7.2 resilience · S7.3 evaluation · S7.4 vision.
+
+**Prior art:** [`research/notes/2026-11-15-fud-ai-and-llm-providers.md`](../research/notes/2026-11-15-fud-ai-and-llm-providers.md).
+
+---
+
+## S8 — Status colour
+
+The user's request: a tracked nutrient should change colour as it fills —
+yellow when it is going over, red when it is clearly over — for calories and
+everything else tracked.
+
+**Done when:**
+
+- [ ] Every bar and total has a defined state below, at and over its target.
+- [ ] Colour is one of three channels; every state also has a word and an icon
+      (D-039).
+- [ ] The day and week views agree, and the weekly-limit nutrients (fat, sugar,
+      sodium) are judged over the week as well as the day.
+- [ ] Thresholds are stated in words on `/about`, next to the existing rails.
+
+**Open:** what "over" means for a `daily-anchor` versus a `weekly-limit`, and
+whether the thresholds are a percentage of target or a fixed margin. Both need
+a decision before the work starts.
+
+---
+
 ## Definition of done for v1
 
 Not "all features shipped". These five statements:
@@ -185,4 +292,7 @@ Not "all features shipped". These five statements:
 | Block model makes simple recipes feel heavy | Medium | Single block is the default path |
 | Drag-and-drop is fiddly on touch | Medium | Ship tap-to-add first, drag second |
 | Indian packaged-food data does not exist | High | OCR from the label is the primary path, not a lookup |
+| A capture model invents a number that looks right | High | D-034: the engine re-derives everything; review before save |
+| An API key leaks to the client or a backup | Medium | D-035: server-only calls; keys out of SQLite; a build-time test |
+| The test suite passes while the UI is broken | Medium | S5: component and a11y categories, not unit tests alone |
 | Scope grows during a slice | High | The scope matrix; anything new goes to *Next* |

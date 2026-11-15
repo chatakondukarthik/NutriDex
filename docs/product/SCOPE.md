@@ -46,14 +46,15 @@ record.
 
 | Item | Blocked by |
 |---|---|
-| AI estimation with per-nutrient diff (D-016) | The loop shipping and being measured |
-| Label photo / OCR for packaged foods | The estimation contract |
-| Save a block as a reusable component, pinned (D-023) | Component reuse being needed |
+| Ingredient capture — manual food, barcode, label OCR (S6) | Foods moving into the database (S1.5) |
+| Bring-your-own LLM: provider, model, key, eval harness (S7) | Nothing; it unblocks label and text capture |
+| AI estimation with per-nutrient diff (D-016) | S7.1 |
+| Save a block as a reusable component, pinned (D-023) | S6.5 destinations |
 | Recipe variants ("duplicate & customise") | Versioning |
 | Custom target overrides (the profile derives them today) | Q-003 |
 | Actual consumption logging, planned vs actual | S4 |
 | Copy a day or a week | The plan shipping and being used |
-| Barcode scan for packaged goods | Assessing Open Food Facts coverage in India |
+| Status colour: yellow/red overflow (S8) | A threshold decision |
 | Retention factors for sensitive vitamins (D-026) | Nutrient fidelity mattering enough |
 
 ---
@@ -81,3 +82,6 @@ record.
 | Scraping commercial nutrition APIs into our DB | Their terms forbid storage |
 | A second "simple recipe" model | One adaptive model (D-013, D-014) |
 | A general-purpose food database | We consume databases; we do not compete with them |
+| Estimating a plated meal from a photo | Portion size, occlusion and cooking fat are unobservable; a wrong number looks identical to a right one |
+| NutriPlan-hosted AI keys | The user brings their own; we would become the provider and the liability |
+| Storing a model's nutrient numbers as facts | Breaks D-008/D-009; "estimated" would stop meaning anything |

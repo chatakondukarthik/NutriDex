@@ -1,6 +1,6 @@
 # NutriPlan — Data Model
 
-**Status:** S1–S3 implemented; the food importer and AI layers are designed, not built.
+**Status:** S1–S3 implemented; the food importer, capture and AI layers are designed, not built.
 
 ---
 
@@ -230,6 +230,104 @@ target_overrides
 The override is additive, not a replacement for `targetsFor()`: the derived
 value stays the default, and the override carries its own reason. Q-003 is
 open, so the shape of a range-based target is not settled yet either.
+
+### 2.4 Captured foods (S6, designed not built)
+
+`captured_foods`, `captured_food_nutrients` and `captured_food_portions` hold
+foods the user created — manually, from a barcode, or from a label. They sit
+behind the same read API as the seed foods; the UI does not know which kind it
+got.
+
+```
+captured_foods
+  id             TEXT PRIMARY KEY
+  name           TEXT NOT NULL
+  aliases        TEXT NOT NULL DEFAULT '[]'   -- JSON
+  category       TEXT
+  kind           TEXT NOT NULL DEFAULT 'provisional'  -- provisional | branded | composite
+  state          TEXT NOT NULL DEFAULT 'raw'
+  density_g_ml   REAL
+  basis          TEXT                          -- per_100g | per_serving | per_pack (D-020)
+  serving_size_g REAL
+  servings_per_pack REAL
+  source         TEXT                          -- manual | openfoodfacts | label | llm
+  source_code    TEXT
+  image_path     TEXT                          -- evidence, not truth
+  confidence     REAL
+  created_by     TEXT NOT NULL DEFAULT 'local'
+  created_at     TEXT NOT NULL
+  archived_at    TEXT
+
+captured_food_nutrients
+  food_id   TEXT NOT NULL
+  nutrient  TEXT NOT NULL
+  amount    REAL
+  status    TEXT NOT NULL                      -- known | estimated | unknown
+  method    TEXT
+  PRIMARY KEY (food_id, nutrient)
+
+captured_food_portions
+  id      TEXT PRIMARY KEY
+  food_id TEXT NOT NULL
+  label   TEXT NOT NULL
+  grams   REAL NOT NULL
+  source  TEXT
+```
+
+Rules: a captured food is never written back into the seed file; images live
+under `data/evidence/`, not in the database as data URLs; a captured food
+referenced by a recipe version is archived, never deleted.
+
+**Dependency:** these tables are only useful once the seed foods live in the
+database too (§2.1). Capture is blocked on the importer.
+
+Full design: [`../spec/INGREDIENT_CAPTURE.md`](../spec/INGREDIENT_CAPTURE.md).
+
+### 2.5 AI providers (S7, designed not built)
+
+```
+ai_providers
+  id         TEXT PRIMARY KEY
+  label      TEXT NOT NULL
+  adapter    TEXT NOT NULL          -- gemini | openai | anthropic | openai-compatible
+  base_url   TEXT
+  created_at TEXT NOT NULL
+
+ai_models
+  id           TEXT PRIMARY KEY
+  provider_id  TEXT NOT NULL REFERENCES ai_providers
+  model_id     TEXT NOT NULL
+  label        TEXT
+  capabilities TEXT NOT NULL        -- JSON: ["text","vision","json"]
+  context_tokens INTEGER
+  refreshed_at TEXT
+
+ai_defaults
+  id               TEXT PRIMARY KEY   -- 'local'
+  provider_id      TEXT
+  model_id         TEXT
+  fallback_provider_id TEXT
+  daily_call_cap   INTEGER
+  updated_at       TEXT NOT NULL
+
+ai_calls                              -- the transparency log, no secrets
+  id               TEXT PRIMARY KEY
+  provider         TEXT NOT NULL
+  model            TEXT NOT NULL
+  capability       TEXT NOT NULL      -- text | vision
+  prompt_tokens    INTEGER
+  completion_tokens INTEGER
+  latency_ms       INTEGER
+  status           TEXT NOT NULL      -- ok | failed | rejected
+  error            TEXT
+  created_at       TEXT NOT NULL
+```
+
+**No key is stored in the database.** Keys live in environment variables or
+`data/secrets.json` (mode `0600`, gitignored). If both are set for the same
+provider that is an error. See D-035.
+
+Full design: [`../spec/BYO_LLM.md`](../spec/BYO_LLM.md).
 
 ---
 
