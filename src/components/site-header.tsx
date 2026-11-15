@@ -11,6 +11,7 @@ const LINKS = [
   { href: "/plan", label: "Plan" },
   { href: "/recipes", label: "Recipes" },
   { href: "/profile", label: "Profile" },
+  { href: "/about", label: "About" },
 ];
 
 export function SiteHeader() {

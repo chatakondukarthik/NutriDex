@@ -428,6 +428,147 @@ export function PlanBoard({
     move(entry, day, slot);
   }
 
+  /**
+   * One day column.
+   *
+   * Defined once and used twice: the seven-column week on wide screens,
+   * and a single day on small ones. One renderer means the two layouts
+   * cannot drift apart. The summary header is optional because the mobile
+   * day picker already shows the same date and total directly above.
+   */
+  function renderDay(day: string, showHeader = true) {
+    const rollup = rollupsByDay.get(day);
+    const kcal = rollup?.totals.ENERC_KCAL ?? null;
+    const dayTarget = targetByCode.get("ENERC_KCAL");
+    const pct =
+      kcal != null && dayTarget ? Math.min(100, (kcal / dayTarget.value) * 100) : 0;
+    const dayEntries = entriesForDay(entries, day);
+    const isToday = day === today;
+
+    return (
+      <div
+        key={day}
+        className={`flex flex-col rounded-xl border bg-surface transition ${
+          selectedDay === day ? "border-accent/40 ring-2 ring-accent/10" : "border-line"
+        }`}
+      >
+        {showHeader && (
+          <button
+            type="button"
+            onClick={() => setSelectedDay(day)}
+            className="rounded-t-xl px-2.5 pb-2 pt-2 text-left transition hover:bg-surface-2"
+          >
+            <div className="flex items-baseline justify-between gap-1">
+              <span
+                className={`text-[11px] font-semibold uppercase tracking-wide ${
+                  isToday ? "text-accent" : "text-ink/50"
+                }`}
+              >
+                {weekdayShort(day)}
+              </span>
+              <span className="tabular text-[11px] text-ink/35">{dayOfMonth(day)}</span>
+            </div>
+
+            <div className="mt-1.5 flex items-baseline gap-1">
+              <span className="tabular text-sm font-semibold">
+                {kcal == null ? "—" : fmt(kcal, 0)}
+              </span>
+              <span className="text-[10px] text-ink/35">kcal</span>
+            </div>
+
+            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-ink/10">
+              {kcal != null && (
+                <div
+                  className="bar-fill h-full rounded-full bg-accent"
+                  style={{ width: `${pct}%` }}
+                />
+              )}
+            </div>
+
+            <div className="mt-1 text-[10px] text-ink/35">
+              {dayEntries.length === 0
+                ? "nothing planned"
+                : `${dayEntries.length} ${dayEntries.length === 1 ? "item" : "items"}`}
+            </div>
+          </button>
+        )}
+
+        <div className={`flex flex-1 flex-col gap-1 p-1.5 ${showHeader ? "pt-0" : ""}`}>
+          {SLOTS.map((slot) => {
+            const slotEntries = dayEntries.filter((entry) => entry.slot === slot);
+            const dropKey = `${day}:${slot}`;
+            const isOver = dragOver === dropKey;
+
+            return (
+              <div
+                key={slot}
+                onDragOver={(event) => onDragOver(event, dropKey)}
+                onDragLeave={() =>
+                  setDragOver((current) => (current === dropKey ? null : current))
+                }
+                onDrop={(event) => onDrop(event, day, slot)}
+                className={`rounded-lg border border-dashed p-1 transition ${
+                  isOver ? "border-accent/60 bg-accent/[0.06]" : "border-transparent"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[9px] font-semibold uppercase tracking-wider text-ink/30">
+                    {SLOT_LABELS[slot]}
+                  </span>
+                  {selection && (
+                    <button
+                      type="button"
+                      onClick={() => place(day, slot, selection)}
+                      aria-label={`Add ${describe(selection)} to ${
+                        SLOT_LABELS[slot]
+                      } on ${weekdayShort(day)}`}
+                      className="grid h-4 w-4 place-items-center rounded text-[11px] leading-none text-accent transition hover:bg-accent/10"
+                    >
+                      +
+                    </button>
+                  )}
+                </div>
+
+                {slotEntries.length === 0 ? (
+                  selection ? (
+                    <button
+                      type="button"
+                      onClick={() => place(day, slot, selection)}
+                      className="mt-0.5 w-full rounded border border-dashed border-line py-1 text-[10px] text-ink/35 transition hover:border-accent/40 hover:text-accent"
+                    >
+                      Place here
+                    </button>
+                  ) : (
+                    <p className="py-1 text-center text-[10px] text-ink/20">—</p>
+                  )
+                ) : (
+                  <ul className="mt-0.5 space-y-1">
+                    {slotEntries.map((entry) => (
+                      <PlanEntryRow
+                        key={entry.id}
+                        entry={entry}
+                        name={entryName(entry, foodById, recipeByVersion)}
+                        kcal={entryKcal.get(entry.id) ?? null}
+                        onQuantity={(value) => setQuantity(entry, value)}
+                        onCopy={() => copyToPalette(entry)}
+                        onRemove={() => remove(entry)}
+                        onDragStart={(event) => startEntryDrag(event, entry)}
+                        onDragEnd={() => {
+                          dragRef.current = null;
+                          setDragOver(null);
+                        }}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   const weekLabel = `${shortDate(week)} – ${shortDate(addDays(week, 6), true)}`;
 
   return (
@@ -639,148 +780,56 @@ export function PlanBoard({
         </section>
 
         {/* ---- Week ------------------------------------------------------ */}
-        <section className="mt-4 overflow-x-auto pb-1">
-          <div className="grid min-w-[1080px] grid-cols-7 gap-2">
-            {days.map((day) => {
-              const rollup = rollupsByDay.get(day);
-              const kcal = rollup?.totals.ENERC_KCAL ?? null;
-              const dayTarget = targetByCode.get("ENERC_KCAL");
-              const pct =
-                kcal != null && dayTarget
-                  ? Math.min(100, (kcal / dayTarget.value) * 100)
-                  : 0;
-              const dayEntries = entriesForDay(entries, day);
-              const isToday = day === today;
+        <section className="mt-4 pb-1">
+          {/* Small screens get one day at a time. Seven columns at phone
+              width is a horizontal scroll with nothing readable in it. */}
+          <div className="lg:hidden">
+            <div className="flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {days.map((day) => {
+                const kcal = rollupsByDay.get(day)?.totals.ENERC_KCAL ?? null;
+                const count = entriesForDay(entries, day).length;
+                const active = selectedDay === day;
+                const isToday = day === today;
 
-              return (
-                <div
-                  key={day}
-                  className={`flex flex-col rounded-xl border bg-surface transition ${
-                    selectedDay === day
-                      ? "border-accent/40 ring-2 ring-accent/10"
-                      : "border-line"
-                  }`}
-                >
+                return (
                   <button
+                    key={day}
                     type="button"
                     onClick={() => setSelectedDay(day)}
-                    className="rounded-t-xl px-2.5 pb-2 pt-2 text-left transition hover:bg-surface-2"
+                    aria-pressed={active}
+                    className={`w-[74px] shrink-0 rounded-xl border px-2 py-1.5 text-left transition ${
+                      active ? "border-accent/40 bg-accent/[0.07]" : "border-line bg-surface"
+                    }`}
                   >
-                    <div className="flex items-baseline justify-between gap-1">
-                      <span
-                        className={`text-[11px] font-semibold uppercase tracking-wide ${
-                          isToday ? "text-accent" : "text-ink/50"
-                        }`}
-                      >
-                        {weekdayShort(day)}
-                      </span>
-                      <span className="tabular text-[11px] text-ink/35">
-                        {dayOfMonth(day)}
-                      </span>
-                    </div>
-
-                    <div className="mt-1.5 flex items-baseline gap-1">
-                      <span className="tabular text-sm font-semibold">
-                        {kcal == null ? "—" : fmt(kcal, 0)}
-                      </span>
-                      <span className="text-[10px] text-ink/35">kcal</span>
-                    </div>
-
-                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-ink/10">
-                      {kcal != null && (
-                        <div
-                          className="bar-fill h-full rounded-full bg-accent"
-                          style={{ width: `${pct}%` }}
-                        />
-                      )}
-                    </div>
-
-                    <div className="mt-1 text-[10px] text-ink/35">
-                      {dayEntries.length === 0
-                        ? "nothing planned"
-                        : `${dayEntries.length} ${
-                            dayEntries.length === 1 ? "item" : "items"
-                          }`}
-                    </div>
+                    <span
+                      className={`block text-[9px] font-semibold uppercase tracking-wider ${
+                        isToday ? "text-accent" : "text-ink/40"
+                      }`}
+                    >
+                      {weekdayShort(day)}
+                    </span>
+                    <span className="tabular block text-sm font-semibold leading-tight">
+                      {dayOfMonth(day)}
+                    </span>
+                    <span className="tabular block text-[10px] text-ink/40">
+                      {kcal == null ? "—" : `${fmt(kcal, 0)} kcal`}
+                    </span>
+                    <span className="block truncate text-[9px] text-ink/30">
+                      {count === 0 ? "empty" : `${count} ${count === 1 ? "item" : "items"}`}
+                    </span>
                   </button>
+                );
+              })}
+            </div>
 
-                  <div className="flex flex-1 flex-col gap-1 p-1.5 pt-0">
-                    {SLOTS.map((slot) => {
-                      const slotEntries = dayEntries.filter((entry) => entry.slot === slot);
-                      const dropKey = `${day}:${slot}`;
-                      const isOver = dragOver === dropKey;
+            <div className="mt-2">{renderDay(selectedDay, false)}</div>
+          </div>
 
-                      return (
-                        <div
-                          key={slot}
-                          onDragOver={(event) => onDragOver(event, dropKey)}
-                          onDragLeave={() =>
-                            setDragOver((current) => (current === dropKey ? null : current))
-                          }
-                          onDrop={(event) => onDrop(event, day, slot)}
-                          className={`rounded-lg border border-dashed p-1 transition ${
-                            isOver
-                              ? "border-accent/60 bg-accent/[0.06]"
-                              : "border-transparent"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="text-[9px] font-semibold uppercase tracking-wider text-ink/30">
-                              {SLOT_LABELS[slot]}
-                            </span>
-                            {selection && (
-                              <button
-                                type="button"
-                                onClick={() => place(day, slot, selection)}
-                                aria-label={`Add ${describe(selection)} to ${
-                                  SLOT_LABELS[slot]
-                                } on ${weekdayShort(day)}`}
-                                className="grid h-4 w-4 place-items-center rounded text-[11px] leading-none text-accent transition hover:bg-accent/10"
-                              >
-                                +
-                              </button>
-                            )}
-                          </div>
-
-                          {slotEntries.length === 0 ? (
-                            selection ? (
-                              <button
-                                type="button"
-                                onClick={() => place(day, slot, selection)}
-                                className="mt-0.5 w-full rounded border border-dashed border-line py-1 text-[10px] text-ink/35 transition hover:border-accent/40 hover:text-accent"
-                              >
-                                Place here
-                              </button>
-                            ) : (
-                              <p className="py-1 text-center text-[10px] text-ink/20">—</p>
-                            )
-                          ) : (
-                            <ul className="mt-0.5 space-y-1">
-                              {slotEntries.map((entry) => (
-                                <PlanEntryRow
-                                  key={entry.id}
-                                  entry={entry}
-                                  name={entryName(entry, foodById, recipeByVersion)}
-                                  kcal={entryKcal.get(entry.id) ?? null}
-                                  onQuantity={(value) => setQuantity(entry, value)}
-                                  onCopy={() => copyToPalette(entry)}
-                                  onRemove={() => remove(entry)}
-                                  onDragStart={(event) => startEntryDrag(event, entry)}
-                                  onDragEnd={() => {
-                                    dragRef.current = null;
-                                    setDragOver(null);
-                                  }}
-                                />
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
+          {/* Wide screens get the whole week at once. */}
+          <div className="hidden lg:block">
+            <div className="grid grid-cols-7 gap-2">
+              {days.map((day) => renderDay(day))}
+            </div>
           </div>
         </section>
 

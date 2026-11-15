@@ -5,9 +5,9 @@ Plan your meals. Know what is in them.
 A nutrition-first meal planner: build a recipe from real ingredients, see what
 it actually contains, put it in a week, and watch the day fill up.
 
-**Status:** S0–S3.5 done. Food entry, recipes, the weekly plan, theming and the
-target explanation work end to end. Trust and ship is next (see
-[`docs/build/PLAN.md`](docs/build/PLAN.md)).
+**Status:** S0–S3.5 done; S4 (trust and ship) in progress. Food entry, recipes,
+the weekly plan, theming and the target explanation work end to end. See
+[`docs/build/PLAN.md`](docs/build/PLAN.md).
 
 ---
 
@@ -57,6 +57,8 @@ runs from a clean checkout.
 - Switch light/dark/system, four accents and motion from `/settings`. The choice
   is a cookie, applied before paint.
 - Skeletons on every route while data loads.
+- Read `/about` for the equation, the rails, the data sources and the health
+  disclaimer, or a 404 page that still gets you back to the diary.
 
 ## What does not work yet
 
