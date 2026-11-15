@@ -56,23 +56,35 @@ export interface FoodProposal {
   rationale?: string;
 }
 
-const SYSTEM = `You extract food and nutrition information into a strict JSON object.
+const SYSTEM = `You are a nutrition data extractor. You read a food description or a nutrition label and return ONE JSON object matching the schema. You never invent numbers.
+
 Rules you must follow:
-- Return ONLY the JSON object, no prose.
-- Use the nutrient codes exactly as given. Amounts are per the declared basis, never invented.
-- If a nutrient is not stated, omit it. Never write 0 for an unknown nutrient.
-- If the basis is "per serving", include servingSizeG when you can read it.
-- Portions are household measures with their gram weight when stated.
-- "estimated" lists nutrient codes you had to guess or compute rather than read.
-- Never include a food id, a database key, or any field outside the schema.`;
+1. Return ONLY the JSON object. No markdown, no prose, no code fences.
+2. Fill every field you can honestly fill. An empty result is a failure.
+   - name: the common food name (e.g. "Paneer", "Whole milk").
+   - category: one of Dairy, Grains, Vegetables, Fruits, Legumes, Oils, Nuts, Meat, Seafood, Spices, Beverages, or Custom.
+   - kind: "branded" for packaged foods, "raw" for single ingredients, "composite" for mixed dishes, "provisional" only if you are guessing.
+   - state: "raw" unless the food is cooked/ready to eat.
+   - basis: "per_100g" for labels that say per 100 g; "per_serving" if the panel is per serving; "per_pack" if per pack.
+   - servingSizeG: the serving weight in grams when the label gives one.
+   - aliases: common alternate names, local names, or synonyms (at least one if you know any).
+   - portions: household measures with their gram weight (e.g. {"label":"1 katori","grams":100}).
+   - nutrients: every nutrient the label or description states, using the exact codes. Amounts per the declared basis.
+   - estimated: list the codes of any value you had to guess or compute instead of reading.
+   - rationale: one short sentence saying where the values came from.
+3. If a nutrient is not stated, OMIT it. Never write 0 for an unknown nutrient. Unknown is a valid answer.
+4. Do not round aggressively. Keep the label's precision.
+5. Never include a food id, a database key, or any field outside the schema.
+6. If the input is unusable, return {"name": ""} and nothing else.`;
 
 export async function extractFoodFromText(text: string): Promise<FoodProposal> {
   const response = await complete({
     capability: "text",
     system: SYSTEM,
-    prompt: `Extract a food record from this description:\n\n${text}\n\nReturn JSON matching the schema.`,
+    prompt: `Description: ${text}\n\nReturn the JSON object now.`,
     jsonSchema: FOOD_PROPOSAL_SCHEMA,
     temperature: 0,
+    maxTokens: 1024,
   });
   return parseProposal(response.text);
 }
@@ -84,10 +96,11 @@ export async function extractFoodFromImage(
   const response = await complete({
     capability: "vision",
     system: SYSTEM,
-    prompt: `Extract a food record from the nutrition label / food photo provided.\n${note ? `User note: ${note}` : ""}\nReturn JSON matching the schema.`,
+    prompt: `Read the nutrition label in the image and extract a food record.\n${note ? `User note: ${note}` : ""}\nReturn the JSON object now.`,
     images,
     jsonSchema: FOOD_PROPOSAL_SCHEMA,
     temperature: 0,
+    maxTokens: 1024,
   });
   return parseProposal(response.text);
 }

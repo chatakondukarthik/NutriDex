@@ -386,6 +386,13 @@ export async function saveAiConfigAction(input: {
   fallbackProvider?: string;
   fallbackModel?: string;
   baseUrl?: string;
+  fallbackBaseUrl?: string;
+  imageProvider?: string;
+  imageModel?: string;
+  imageBaseUrl?: string;
+  imageFallbackProvider?: string;
+  imageFallbackModel?: string;
+  imageFallbackBaseUrl?: string;
   dailyCallCap?: number;
   key?: string;
 }): Promise<AiConfigResult> {
@@ -393,9 +400,16 @@ export async function saveAiConfigAction(input: {
     enabled: input.enabled !== false,
     provider: input.provider as any,
     model: input.model.trim(),
-    fallbackProvider: input.fallbackProvider as any,
-    fallbackModel: input.fallbackModel?.trim() || undefined,
     baseUrl: input.baseUrl?.trim() || undefined,
+    fallbackProvider: (input.fallbackProvider || undefined) as any,
+    fallbackModel: input.fallbackModel?.trim() || undefined,
+    fallbackBaseUrl: input.fallbackBaseUrl?.trim() || undefined,
+    imageProvider: (input.imageProvider || undefined) as any,
+    imageModel: input.imageModel?.trim() || undefined,
+    imageBaseUrl: input.imageBaseUrl?.trim() || undefined,
+    imageFallbackProvider: (input.imageFallbackProvider || undefined) as any,
+    imageFallbackModel: input.imageFallbackModel?.trim() || undefined,
+    imageFallbackBaseUrl: input.imageFallbackBaseUrl?.trim() || undefined,
     dailyCallCap: input.dailyCallCap,
   };
   if (!config.model) return { ok: false, message: "Pick a model." };
@@ -413,10 +427,48 @@ export async function removeAiKeyAction(provider: string): Promise<AiConfigResul
   return { ok: true };
 }
 
+export async function setAiKeyAction(provider: string, key: string): Promise<AiConfigResult> {
+  setKey(provider, key);
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
 export async function testAiConnectionAction(): Promise<AiConfigResult & { latencyMs?: number }> {
   const config = getAiConfig();
   if (!hasKey(config.provider)) return { ok: false, message: "No key configured." };
   const adapter = getAdapter(config.provider);
+  const start = Date.now();
+  try {
+    await adapter.complete(config, {
+      capability: "text",
+      system: "Reply with the single word: ok",
+      prompt: "ping",
+      temperature: 0,
+      maxTokens: 8,
+      timeoutMs: 20_000,
+    });
+    return { ok: true, latencyMs: Date.now() - start };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Connection failed." };
+  }
+}
+
+export async function testProviderAction(input: {
+  provider: string;
+  model: string;
+  baseUrl?: string;
+}): Promise<AiConfigResult & { latencyMs?: number }> {
+  const secrets = await import("@/lib/ai/secrets");
+  const adapters = await import("@/lib/ai/adapters");
+  if (!secrets.hasKey(input.provider)) {
+    return { ok: false, message: "No key configured for that provider." };
+  }
+  const config = {
+    provider: input.provider as any,
+    model: input.model,
+    baseUrl: input.baseUrl,
+  } as any;
+  const adapter = adapters.getAdapter(input.provider);
   const start = Date.now();
   try {
     await adapter.complete(config, {

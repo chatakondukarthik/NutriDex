@@ -245,6 +245,28 @@ number defensible. They are also storage that grows without bound.
 **Done when:** a retention rule (keep with the record, or expire after N days) is
 chosen and stated on `/about`.
 
+### Q-012 — How do we make AI extraction fill every field reliably?
+
+**Status:** Open · **Blocks:** S6.3, S6.4
+
+The first Gemini run returned only a name. Prompt quality, schema descriptions
+and model choice all affect how much gets filled. Need a small golden set and
+a score before we trust it.
+
+**Done when:** the golden set from S7.3 includes label and text cases, and a
+release candidate does not regress below the agreed score.
+
+### Q-013 — Can we search and import from an external food database?
+
+**Status:** Open · **Blocks:** S1.5 importer, food search UX
+
+INDB, USDA and Open Food Facts each have different licences, coverage and
+search APIs. Need a decision on which to query first and how to map their fields
+into our 18-nutrient profile.
+
+**Done when:** one source is chosen, a search endpoint exists, and an imported
+food is indistinguishable from a captured one.
+
 ### Q-011 — What does "over target" mean for the overflow colours?
 
 **Status:** Open · **Blocks:** S8 status colour

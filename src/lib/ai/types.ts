@@ -4,9 +4,16 @@ export interface AiConfig {
   enabled?: boolean;
   provider: ProviderId;
   model: string;
+  baseUrl?: string; // for openai-compatible (primary)
   fallbackProvider?: ProviderId;
   fallbackModel?: string;
-  baseUrl?: string; // for openai-compatible
+  fallbackBaseUrl?: string;
+  imageProvider?: ProviderId;
+  imageModel?: string;
+  imageBaseUrl?: string;
+  imageFallbackProvider?: ProviderId;
+  imageFallbackModel?: string;
+  imageFallbackBaseUrl?: string;
   dailyCallCap?: number;
 }
 

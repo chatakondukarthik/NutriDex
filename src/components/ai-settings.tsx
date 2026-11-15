@@ -4,7 +4,9 @@ import { useState, useTransition } from "react";
 import {
   saveAiConfigAction,
   removeAiKeyAction,
+  setAiKeyAction,
   testAiConnectionAction,
+  testProviderAction,
   listAiModelsAction,
 } from "@/app/actions";
 
@@ -15,13 +17,53 @@ const PROVIDERS = [
   { id: "openai-compatible", label: "OpenAI-compatible (Groq, Together, Ollama, …)" },
 ];
 
-export function AiSettingsPanel({ status }: { status: ReturnType<typeof import("@/lib/ai/client").aiStatus> }) {
+interface Props {
+  status: {
+    enabled: boolean;
+    configured: boolean;
+    imageConfigured: boolean;
+    provider: string;
+    model: string;
+    fallback?: string;
+    dailyCap: number;
+    callsToday: number;
+  };
+  config: {
+    fallbackProvider?: string;
+    fallbackModel?: string;
+    fallbackBaseUrl?: string;
+    imageProvider?: string;
+    imageModel?: string;
+    imageBaseUrl?: string;
+    imageFallbackProvider?: string;
+    imageFallbackModel?: string;
+    imageFallbackBaseUrl?: string;
+    baseUrl?: string;
+  };
+}
+
+export function AiSettingsPanel({ status, config }: Props) {
   const [enabled, setEnabled] = useState(status.enabled);
   const [provider, setProvider] = useState(status.provider);
   const [model, setModel] = useState(status.model);
-  const [baseUrl, setBaseUrl] = useState("");
+  const [baseUrl, setBaseUrl] = useState(config.baseUrl ?? "");
   const [key, setKey] = useState("");
-  const [fallback, setFallback] = useState(status.fallback ?? "");
+
+  const [fallbackProvider, setFallbackProvider] = useState(config.fallbackProvider ?? "");
+  const [fallbackModel, setFallbackModel] = useState(config.fallbackModel ?? "");
+  const [fallbackBaseUrl, setFallbackBaseUrl] = useState(config.fallbackBaseUrl ?? "");
+  const [fallbackKey, setFallbackKey] = useState("");
+
+  const [imageProvider, setImageProvider] = useState(config.imageProvider ?? "");
+  const [imageModel, setImageModel] = useState(config.imageModel ?? "");
+  const [imageBaseUrl, setImageBaseUrl] = useState(config.imageBaseUrl ?? "");
+  const [imageKey, setImageKey] = useState("");
+
+  const [imageFallbackProvider, setImageFallbackProvider] = useState(config.imageFallbackProvider ?? "");
+  const [imageFallbackModel, setImageFallbackModel] = useState(config.imageFallbackModel ?? "");
+  const [imageFallbackBaseUrl, setImageFallbackBaseUrl] = useState(config.imageFallbackBaseUrl ?? "");
+  const [imageFallbackKey, setImageFallbackKey] = useState("");
+
   const [cap, setCap] = useState(String(status.dailyCap));
   const [message, setMessage] = useState<string | null>(null);
   const [models, setModels] = useState<{ id: string; label: string }[] | null>(null);
@@ -36,12 +78,23 @@ export function AiSettingsPanel({ status }: { status: ReturnType<typeof import("
         enabled,
         provider,
         model,
-        fallbackProvider: fallback || undefined,
-        fallbackModel: fallback ? model : undefined,
         baseUrl: isCompatible ? baseUrl : undefined,
+        fallbackProvider: fallbackProvider || undefined,
+        fallbackModel: fallbackModel || undefined,
+        fallbackBaseUrl: fallbackProvider === "openai-compatible" ? fallbackBaseUrl : undefined,
+        imageProvider: imageProvider || undefined,
+        imageModel: imageModel || undefined,
+        imageBaseUrl: imageProvider === "openai-compatible" ? imageBaseUrl : undefined,
+        imageFallbackProvider: imageFallbackProvider || undefined,
+        imageFallbackModel: imageFallbackModel || undefined,
+        imageFallbackBaseUrl: imageFallbackProvider === "openai-compatible" ? imageFallbackBaseUrl : undefined,
         dailyCallCap: Number(cap) || undefined,
         key: key || undefined,
       });
+      // save keys for fallback/image providers if entered
+      if (fallbackKey) await saveKeyOnly(fallbackProvider, fallbackKey, setFallbackKey);
+      if (imageKey) await saveKeyOnly(imageProvider, imageKey, setImageKey);
+      if (imageFallbackKey) await saveKeyOnly(imageFallbackProvider, imageFallbackKey, setImageFallbackKey);
       if (!result.ok) setMessage(result.message ?? "Could not save.");
       else {
         setMessage("Saved.");
@@ -50,7 +103,13 @@ export function AiSettingsPanel({ status }: { status: ReturnType<typeof import("
     });
   }
 
-  function test() {
+  async function saveKeyOnly(providerId: string, keyValue: string, reset: (v: string) => void) {
+    if (!providerId || !keyValue.trim()) return;
+    await setAiKeyAction(providerId, keyValue);
+    reset("");
+  }
+
+  function testPrimary() {
     setMessage(null);
     startTransition(async () => {
       const result = await testAiConnectionAction();
@@ -59,10 +118,19 @@ export function AiSettingsPanel({ status }: { status: ReturnType<typeof import("
     });
   }
 
-  function removeKey() {
+  function testProvider(providerId: string, modelId: string, baseUrlValue?: string) {
     setMessage(null);
     startTransition(async () => {
-      await removeAiKeyAction(provider);
+      const result = await testProviderAction({ provider: providerId, model: modelId, baseUrl: baseUrlValue });
+      if (!result.ok) setMessage(result.message ?? "Connection failed.");
+      else setMessage(`Connected in ${result.latencyMs} ms.`);
+    });
+  }
+
+  function removeKey(providerId: string) {
+    setMessage(null);
+    startTransition(async () => {
+      await removeAiKeyAction(providerId);
       setMessage("Key removed.");
     });
   }
@@ -94,137 +162,125 @@ export function AiSettingsPanel({ status }: { status: ReturnType<typeof import("
         <span className="text-muted">(turn off to use NutriPlan without any model)</span>
       </label>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <label className="flex flex-col gap-1 text-xs">
-          <span className="font-medium">Provider</span>
-          <select
-            value={provider}
-            onChange={(e) => setProvider(e.target.value)}
-            className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm"
-          >
-            {PROVIDERS.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </label>
+      {!enabled && (
+        <p className="mt-3 text-xs text-muted">
+          AI is off. Nothing will call a provider. Turn it back on to configure a key.
+        </p>
+      )}
 
-        <label className="flex flex-col gap-1 text-xs">
-          <span className="font-medium">Model</span>
-          <input
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            placeholder="e.g. gemini-2.0-flash"
-            className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm"
-          />
-        </label>
+      {enabled && (
+        <>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1 text-xs">
+              <span className="font-medium">Provider</span>
+              <select value={provider} onChange={(e) => setProvider(e.target.value)} className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm">
+                {PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs">
+              <span className="font-medium">Model</span>
+              <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="e.g. gemini-2.0-flash" className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm" />
+            </label>
+            {isCompatible && (
+              <label className="flex flex-col gap-1 text-xs sm:col-span-2">
+                <span className="font-medium">Base URL</span>
+                <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.groq.com/openai/v1" className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm" />
+              </label>
+            )}
+            <label className="flex flex-col gap-1 text-xs sm:col-span-2">
+              <span className="font-medium">API key</span>
+              <input type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder={status.configured ? "configured — leave blank to keep" : "paste key"} className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm" />
+            </label>
+            <label className="flex flex-col gap-1 text-xs">
+              <span className="font-medium">Daily call cap</span>
+              <input type="number" value={cap} onChange={(e) => setCap(e.target.value)} className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm" />
+            </label>
+          </div>
 
-        {isCompatible && (
-          <label className="flex flex-col gap-1 text-xs sm:col-span-2">
-            <span className="font-medium">Base URL</span>
-            <input
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="https://api.groq.com/openai/v1"
-              className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm"
-            />
-          </label>
-        )}
+          {/* Fallback provider */}
+          <div className="mt-4 rounded-md border border-line bg-bg p-3">
+            <p className="text-xs font-medium">Fallback provider (optional)</p>
+            <p className="text-[11px] text-muted">Used when the primary fails after retries. Can be a different provider with its own key.</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <select value={fallbackProvider} onChange={(e) => setFallbackProvider(e.target.value)} className="rounded-md border border-line bg-surface px-2 py-1.5 text-sm">
+                <option value="">None</option>
+                {PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+              </select>
+              <input value={fallbackModel} onChange={(e) => setFallbackModel(e.target.value)} placeholder="model id" className="rounded-md border border-line bg-surface px-2 py-1.5 text-sm" />
+              {fallbackProvider === "openai-compatible" && (
+                <input value={fallbackBaseUrl} onChange={(e) => setFallbackBaseUrl(e.target.value)} placeholder="base URL" className="rounded-md border border-line bg-surface px-2 py-1.5 text-sm sm:col-span-2" />
+              )}
+              <input type="password" autoComplete="off" value={fallbackKey} onChange={(e) => setFallbackKey(e.target.value)} placeholder="fallback API key (leave blank to keep)" className="rounded-md border border-line bg-surface px-2 py-1.5 text-sm sm:col-span-2" />
+            </div>
+            {fallbackProvider && (
+              <button type="button" onClick={() => testProvider(fallbackProvider, fallbackModel, fallbackProvider === "openai-compatible" ? fallbackBaseUrl : undefined)} disabled={pending} className="mt-2 rounded-md border border-line px-3 py-1.5 text-xs font-medium disabled:opacity-50">
+                Test fallback
+              </button>
+            )}
+          </div>
 
-        <label className="flex flex-col gap-1 text-xs sm:col-span-2">
-          <span className="font-medium">API key</span>
-          <input
-            type="password"
-            autoComplete="off"
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-            placeholder={status.hasKey ? "•••• (configured — leave blank to keep)" : "paste key"}
-            className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm"
-          />
-        </label>
+          {/* Image provider */}
+          <div className="mt-4 rounded-md border border-line bg-bg p-3">
+            <p className="text-xs font-medium">Image provider (optional override for label scans)</p>
+            <p className="text-[11px] text-muted">Defaults to the primary provider. Set a separate one if your primary lacks vision.</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <select value={imageProvider} onChange={(e) => setImageProvider(e.target.value)} className="rounded-md border border-line bg-surface px-2 py-1.5 text-sm">
+                <option value="">Use primary</option>
+                {PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+              </select>
+              <input value={imageModel} onChange={(e) => setImageModel(e.target.value)} placeholder="model id" className="rounded-md border border-line bg-surface px-2 py-1.5 text-sm" />
+              {imageProvider === "openai-compatible" && (
+                <input value={imageBaseUrl} onChange={(e) => setImageBaseUrl(e.target.value)} placeholder="base URL" className="rounded-md border border-line bg-surface px-2 py-1.5 text-sm sm:col-span-2" />
+              )}
+              <input type="password" autoComplete="off" value={imageKey} onChange={(e) => setImageKey(e.target.value)} placeholder="image API key (leave blank to keep)" className="rounded-md border border-line bg-surface px-2 py-1.5 text-sm sm:col-span-2" />
+            </div>
+            {imageProvider && (
+              <button type="button" onClick={() => testProvider(imageProvider, imageModel, imageProvider === "openai-compatible" ? imageBaseUrl : undefined)} disabled={pending} className="mt-2 rounded-md border border-line px-3 py-1.5 text-xs font-medium disabled:opacity-50">
+                Test image provider
+              </button>
+            )}
 
-        <label className="flex flex-col gap-1 text-xs">
-          <span className="font-medium">Fallback provider (optional)</span>
-          <select
-            value={fallback}
-            onChange={(e) => setFallback(e.target.value)}
-            className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm"
-          >
-            <option value="">None</option>
-            {PROVIDERS.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </label>
+            <p className="mt-3 text-xs font-medium">Image fallback (optional)</p>
+            <div className="mt-1 grid gap-2 sm:grid-cols-2">
+              <select value={imageFallbackProvider} onChange={(e) => setImageFallbackProvider(e.target.value)} className="rounded-md border border-line bg-surface px-2 py-1.5 text-sm">
+                <option value="">None</option>
+                {PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+              </select>
+              <input value={imageFallbackModel} onChange={(e) => setImageFallbackModel(e.target.value)} placeholder="model id" className="rounded-md border border-line bg-surface px-2 py-1.5 text-sm" />
+              {imageFallbackProvider === "openai-compatible" && (
+                <input value={imageFallbackBaseUrl} onChange={(e) => setImageFallbackBaseUrl(e.target.value)} placeholder="base URL" className="rounded-md border border-line bg-surface px-2 py-1.5 text-sm sm:col-span-2" />
+              )}
+              <input type="password" autoComplete="off" value={imageFallbackKey} onChange={(e) => setImageFallbackKey(e.target.value)} placeholder="image fallback API key (leave blank to keep)" className="rounded-md border border-line bg-surface px-2 py-1.5 text-sm sm:col-span-2" />
+            </div>
+            {imageFallbackProvider && (
+              <button type="button" onClick={() => testProvider(imageFallbackProvider, imageFallbackModel, imageFallbackProvider === "openai-compatible" ? imageFallbackBaseUrl : undefined)} disabled={pending} className="mt-2 rounded-md border border-line px-3 py-1.5 text-xs font-medium disabled:opacity-50">
+                Test image fallback
+              </button>
+            )}
+          </div>
 
-        <label className="flex flex-col gap-1 text-xs">
-          <span className="font-medium">Daily call cap</span>
-          <input
-            type="number"
-            value={cap}
-            onChange={(e) => setCap(e.target.value)}
-            className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm"
-          />
-        </label>
-      </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" onClick={save} disabled={pending} className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-fg disabled:opacity-50">Save</button>
+            <button type="button" onClick={testPrimary} disabled={pending} className="rounded-md border border-line px-3 py-1.5 text-xs font-medium disabled:opacity-50">Test primary</button>
+            <button type="button" onClick={refreshModels} disabled={pending} className="rounded-md border border-line px-3 py-1.5 text-xs font-medium disabled:opacity-50">List models</button>
+            <button type="button" onClick={() => removeKey(provider)} disabled={pending} className="rounded-md border border-line px-3 py-1.5 text-xs font-medium text-warn disabled:opacity-50">Remove primary key</button>
+          </div>
 
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={save}
-          disabled={pending}
-          className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-fg disabled:opacity-50"
-        >
-          Save
-        </button>
-        <button
-          type="button"
-          onClick={test}
-          disabled={!enabled || pending}
-          className="rounded-md border border-line px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-        >
-          Test connection
-        </button>
-        <button
-          type="button"
-          onClick={refreshModels}
-          disabled={pending}
-          className="rounded-md border border-line px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-        >
-          List models
-        </button>
-        <button
-          type="button"
-          onClick={removeKey}
-          disabled={pending}
-          className="rounded-md border border-line px-3 py-1.5 text-xs font-medium text-warn disabled:opacity-50"
-        >
-          Remove key
-        </button>
-      </div>
+          {message && <p className="mt-2 text-xs text-muted">{message}</p>}
 
-      {message && <p className="mt-2 text-xs text-muted">{message}</p>}
-
-      {models && models.length > 0 && (
-        <div className="mt-3 max-h-40 overflow-auto rounded-md border border-line bg-bg p-2 text-xs">
-          {models.slice(0, 60).map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => setModel(m.id)}
-              className="block w-full truncate rounded px-1 py-0.5 text-left hover:bg-surface"
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
+          {models && models.length > 0 && (
+            <div className="mt-3 max-h-40 overflow-auto rounded-md border border-line bg-bg p-2 text-xs">
+              {models.slice(0, 60).map((m) => (
+                <button key={m.id} type="button" onClick={() => setModel(m.id)} className="block w-full truncate rounded px-1 py-0.5 text-left hover:bg-surface">{m.label}</button>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       <p className="mt-3 text-[11px] text-muted">
-        Status: {status.hasKey ? "key configured" : "no key"} · {status.callsToday}/{status.dailyCap} calls today.
+        Status: {status.configured ? "key configured" : "no key"} · {status.callsToday}/{status.dailyCap} calls today.
+        {status.imageConfigured ? " · image override set" : ""}
       </p>
     </section>
   );

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ThemeSettingsPanel } from "@/components/theme-settings";
 import { AiSettingsPanel } from "@/components/ai-settings";
 import { aiStatus } from "@/lib/ai/client";
+import { readAiConfig } from "@/lib/ai/config";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,7 @@ export default function SettingsPage() {
 
       <ThemeSettingsPanel />
       <div className="mt-6">
-        <AiSettingsPanel status={aiStatus()} />
+        <AiSettingsPanel status={aiStatus()} config={readAiConfig() ?? {}} />
       </div>
     </main>
   );

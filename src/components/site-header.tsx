@@ -13,6 +13,7 @@ const LINKS = [
   { href: "/foods", label: "Foods" },
   { href: "/profile", label: "Profile" },
   { href: "/about", label: "About" },
+  { href: "/glossary", label: "Glossary" },
 ];
 
 export function SiteHeader() {

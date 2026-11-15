@@ -250,6 +250,22 @@ Full design: [`spec/BYO_LLM.md`](../spec/BYO_LLM.md).
 
 ---
 
+## S9 — Food search and glossary
+
+Make the food library searchable as you type (already in /foods) and give
+casual users a plain-language glossary of the 18 tracked nutrients.
+
+**Done when:**
+
+- [x] /foods filters as you type across seed + captured foods.
+- [x] /glossary explains every tracked nutrient in plain language.
+- [ ] Search across an external food database (INDB / USDA / Open Food Facts)
+      and import a food into the library (blocked on S1.5 importer and Q-005).
+
+**Non-goals:** competing with food databases.
+
+---
+
 ## S8 — Status colour
 
 The user's request: a tracked nutrient should change colour as it fills —

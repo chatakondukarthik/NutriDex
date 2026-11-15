@@ -3,11 +3,12 @@ import { db } from "@/lib/db/client";
 import { readAiConfig, defaultAiConfig } from "./config";
 import { getKey, hasKey } from "./secrets";
 import { getAdapter } from "./adapters";
-import type { AiConfig, ModelRequest, ModelResponse } from "./types";
+import type { AiConfig, ModelRequest, ModelResponse, ProviderId } from "./types";
 
 export interface AiStatus {
   enabled: boolean;
   configured: boolean;
+  imageConfigured: boolean;
   provider: string;
   model: string;
   hasKey: boolean;
@@ -26,6 +27,33 @@ export function isAiEnabled(): boolean {
   return getAiConfig().enabled !== false;
 }
 
+export interface ResolvedProvider {
+  provider: ProviderId;
+  model: string;
+  baseUrl?: string;
+}
+
+export function primaryFor(config: AiConfig, capability: "text" | "vision"): ResolvedProvider {
+  if (capability === "vision" && config.imageProvider && config.imageModel) {
+    return { provider: config.imageProvider, model: config.imageModel, baseUrl: config.imageBaseUrl };
+  }
+  return { provider: config.provider, model: config.model, baseUrl: config.baseUrl };
+}
+
+export function fallbackFor(config: AiConfig, capability: "text" | "vision"): ResolvedProvider | null {
+  if (capability === "vision" && config.imageFallbackProvider && config.imageFallbackModel) {
+    return {
+      provider: config.imageFallbackProvider,
+      model: config.imageFallbackModel,
+      baseUrl: config.imageFallbackBaseUrl,
+    };
+  }
+  if (config.fallbackProvider && config.fallbackModel) {
+    return { provider: config.fallbackProvider, model: config.fallbackModel, baseUrl: config.fallbackBaseUrl };
+  }
+  return null;
+}
+
 export function isProviderConfigured(provider: string): boolean {
   return hasKey(provider);
 }
@@ -33,11 +61,19 @@ export function isProviderConfigured(provider: string): boolean {
 export async function complete(request: ModelRequest): Promise<ModelResponse> {
   const config = getAiConfig();
   if (config.enabled === false) throw new Error("AI is turned off in Settings.");
-  const primary = config;
-  const fallback: AiConfig | null =
-    config.fallbackProvider && config.fallbackModel
-      ? { ...config, provider: config.fallbackProvider, model: config.fallbackModel }
-      : null;
+
+  const primaryResolved = primaryFor(config, request.capability);
+  const fallbackResolved = fallbackFor(config, request.capability);
+
+  const primary: AiConfig = {
+    ...config,
+    provider: primaryResolved.provider,
+    model: primaryResolved.model,
+    baseUrl: primaryResolved.baseUrl,
+  };
+  const fallback: AiConfig | null = fallbackResolved
+    ? { ...config, provider: fallbackResolved.provider, model: fallbackResolved.model, baseUrl: fallbackResolved.baseUrl }
+    : null;
 
   // daily cap
   const cap = config.dailyCallCap ?? 200;
@@ -117,6 +153,7 @@ export function aiStatus(): AiStatus {
   return {
     enabled: config.enabled !== false,
     configured: hasKey(config.provider),
+    imageConfigured: !!(config.imageProvider && hasKey(config.imageProvider)),
     provider: config.provider,
     model: config.model,
     hasKey: hasKey(config.provider),
