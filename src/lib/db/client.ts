@@ -101,6 +101,11 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS component_inputs_component_idx
     ON component_inputs (component_id, position);
 
+  CREATE TABLE IF NOT EXISTS app_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS profile (
     id               TEXT PRIMARY KEY,
     sex              TEXT NOT NULL,
@@ -254,6 +259,7 @@ function migrate(database: DatabaseSync): void {
   addColumn(database, "recipe_versions", "label", "TEXT");
   addColumn(database, "profile", "target_energy_kcal", "REAL");
   addColumn(database, "recipes", "archived_at", "TEXT");
+  addColumn(database, "captured_food_nutrients", "note", "TEXT");
   rebuildEntriesTable(database);
 }
 

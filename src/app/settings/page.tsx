@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { ThemeSettingsPanel } from "@/components/theme-settings";
 import { AiSettingsPanel } from "@/components/ai-settings";
+import { AiInstructionsPanel } from "@/components/ai-instructions-panel";
+import { getMasterPrompt } from "@/lib/db/settings";
 import { aiStatus } from "@/lib/ai/client";
 import { readAiConfig } from "@/lib/ai/config";
 
@@ -23,6 +25,9 @@ export default function SettingsPage() {
       <ThemeSettingsPanel />
       <div className="mt-6">
         <AiSettingsPanel status={aiStatus()} config={readAiConfig() ?? {}} />
+      </div>
+      <div className="mt-6">
+        <AiInstructionsPanel initial={getMasterPrompt()} />
       </div>
     </main>
   );

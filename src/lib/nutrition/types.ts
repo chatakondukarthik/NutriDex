@@ -82,6 +82,10 @@ export interface NutrientValue {
   status: NutrientStatus;
   source: string;
   sourceFoodCode?: string;
+  /** Provenance marker, e.g. "ai:google:gemini-2.5-flash". Null for user/editor input. */
+  method?: string | null;
+  /** Short human-readable reason attached to an AI-estimated value. */
+  note?: string | null;
 }
 
 export type NutrientStatus = "known" | "estimated" | "unknown";

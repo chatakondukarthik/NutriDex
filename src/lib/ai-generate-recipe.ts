@@ -111,9 +111,13 @@ export async function planRecipeFromPrompt(
     ? `\nExisting recipe (modify this, do not start over):\nName: ${existing.name}\nServings: ${existing.servings}\nInstructions: ${existing.instructions}\nGraph (nodes and edges):\n${JSON.stringify(existing.graph)}\nApply the user's request to this recipe.`
     : "";
 
+  const { getMasterPrompt } = await import("@/lib/db/settings");
+  const masterPrompt = getMasterPrompt().trim();
+  const system = masterPrompt ? `${SYSTEM}\nPersona/guidance for this user:\n${masterPrompt}` : SYSTEM;
+
   const response = await complete({
     capability: "text",
-    system: SYSTEM,
+    system,
     prompt: `${prompt}${existingSection}`,
     jsonSchema: PLAN_SCHEMA as unknown as Record<string, unknown>,
     temperature: 0,

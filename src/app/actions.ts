@@ -934,3 +934,87 @@ export async function makeCurrentRecipeVersionAction(input: {
   revalidatePath("/");
   return { ok: true };
 }
+
+import { fillEstimatedCapturedFood } from "@/lib/db/foods";
+import { listFoods } from "@/lib/db/foods";
+import { getMasterPrompt, setMasterPrompt, resetMasterPrompt } from "@/lib/db/settings";
+import { DEFAULT_MASTER_PROMPT } from "@/lib/ai/master-prompt";
+import { estimateNutrients } from "@/lib/ai/estimate-food";
+
+export async function estimateFoodNutrientsAction(
+  foodId: string,
+): Promise<{ ok: boolean; filled?: number; missing?: number; total?: number; message?: string }> {
+  const { isAiEnabled, getAiConfig } = await import("@/lib/ai/client");
+  if (!isAiEnabled()) {
+    return { ok: false, message: "AI is turned off in Settings." };
+  }
+  const { hasKey } = await import("@/lib/ai/secrets");
+  const config = getAiConfig();
+  if (!hasKey(config.provider)) {
+    return { ok: false, message: "No AI key configured. Add one in Settings." };
+  }
+
+  const food = getFood(foodId);
+  if (!food) return { ok: false, message: "That food no longer exists." };
+  if (!food.source) {
+    return { ok: false, message: "Seed fixtures are not editable — capture your own copy first." };
+  }
+
+  // Refresh captured state from the DB so concurrent edits don't re-estimate.
+  const fresh = listFoods().find((candidate) => candidate.id === foodId);
+  const target = fresh ?? food;
+
+  try {
+    const estimate = await estimateNutrients(target, { masterPrompt: getMasterPrompt() });
+    if (estimate.fills.length === 0) {
+      return {
+        ok: true,
+        filled: 0,
+        missing: 0,
+        total: 0,
+        message: "Every nutrient is filled in, or the model had nothing confident to add.",
+      };
+    }
+    const result = fillEstimatedCapturedFood(foodId, estimate.fills.map((fill) => ({
+      code: fill.code,
+      amount: fill.amount,
+      confidence: fill.confidence,
+      reason: fill.reason,
+      model: estimate.model,
+    })));
+    revalidatePath(`/foods/${foodId}`);
+    revalidatePath("/foods");
+    return {
+      ok: true,
+      filled: result.filled,
+      total: estimate.fills.length,
+      message:
+        estimate.fills.length === result.filled
+          ? `Filled ${result.filled} unknown nutrient${result.filled === 1 ? "" : "s"} with AI estimates.`
+          : `Filled ${result.filled} of ${estimate.fills.length} — the rest were already filled.`,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "The estimate failed.",
+    };
+  }
+}
+
+export async function saveMasterPromptAction(
+  value: string,
+): Promise<{ ok: boolean; message?: string }> {
+  const trimmed = value.trim();
+  if (trimmed.length > 2000) {
+    return { ok: false, message: "Keep it under 2,000 characters." };
+  }
+  setMasterPrompt(trimmed ? trimmed : DEFAULT_MASTER_PROMPT);
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+export async function resetMasterPromptAction(): Promise<{ ok: boolean }> {
+  resetMasterPrompt();
+  revalidatePath("/settings");
+  return { ok: true };
+}

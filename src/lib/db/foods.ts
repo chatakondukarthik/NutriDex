@@ -37,6 +37,8 @@ interface NutrientRow {
   nutrient: string;
   amount: number | null;
   status: string;
+  method: string | null;
+  note: string | null;
 }
 
 interface PortionRow {
@@ -47,7 +49,7 @@ interface PortionRow {
 
 function nutrientsFor(foodId: string): NutrientRow[] {
   return db
-    .prepare(`SELECT nutrient, amount, status FROM captured_food_nutrients WHERE food_id = ?`)
+    .prepare(`SELECT nutrient, amount, status, method, note FROM captured_food_nutrients WHERE food_id = ?`)
     .all(foodId) as unknown as NutrientRow[];
 }
 
@@ -80,6 +82,8 @@ function rowToFood(row: CapturedRow): Food {
       nutrient: entry.nutrient as PreparedCapturedFood["nutrients"][number]["nutrient"],
       amount: entry.amount,
       status: entry.status as PreparedCapturedFood["nutrients"][number]["status"],
+      method: entry.method,
+      note: entry.note,
     })),
     portions: portionsFor(row.id).map((portion) => ({
       label: portion.label,
@@ -181,11 +185,11 @@ export function saveCapturedFood(
     );
 
     const insertNutrient = db.prepare(
-      `INSERT INTO captured_food_nutrients (food_id, nutrient, amount, status, method)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO captured_food_nutrients (food_id, nutrient, amount, status, method, note)
+       VALUES (?, ?, ?, ?, ?, ?)`,
     );
     for (const nutrient of prepared.nutrients) {
-      insertNutrient.run(id, nutrient.nutrient, nutrient.amount, nutrient.status, null);
+      insertNutrient.run(id, nutrient.nutrient, nutrient.amount, nutrient.status, nutrient.method ?? null, nutrient.note ?? null);
     }
 
     const insertPortion = db.prepare(
@@ -247,11 +251,11 @@ export function updateCapturedFood(
 
     db.prepare(`DELETE FROM captured_food_nutrients WHERE food_id = ?`).run(id);
     const insertNutrient = db.prepare(
-      `INSERT INTO captured_food_nutrients (food_id, nutrient, amount, status, method)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO captured_food_nutrients (food_id, nutrient, amount, status, method, note)
+       VALUES (?, ?, ?, ?, ?, ?)`,
     );
     for (const nutrient of prepared.nutrients) {
-      insertNutrient.run(id, nutrient.nutrient, nutrient.amount, nutrient.status, null);
+      insertNutrient.run(id, nutrient.nutrient, nutrient.amount, nutrient.status, nutrient.method ?? null, nutrient.note ?? null);
     }
 
     db.prepare(`DELETE FROM captured_food_portions WHERE food_id = ?`).run(id);
@@ -332,4 +336,35 @@ export function deleteCapturedFood(id: string): DeleteCapturedFoodResult {
     db.prepare(`DELETE FROM captured_foods WHERE id = ?`).run(id);
   });
   return { ok: true, outcome: "deleted" };
+}
+
+/**
+ * Fill nutrients that are currently unknown (amount NULL) on a captured food
+ * with AI-estimated values. Known values are never overwritten, and every
+ * fill is tagged estimated + ai:<model> with the model's own reason.
+ */
+export function fillEstimatedCapturedFood(
+  foodId: string,
+  fills: Array<{
+    code: string;
+    amount: number;
+    confidence: "low" | "medium" | "high";
+    reason: string;
+    model: string;
+  }>,
+): { filled: number } {
+  let filled = 0;
+  transaction(() => {
+    const stmt = db.prepare(
+      `UPDATE captured_food_nutrients
+         SET amount = ?, status = 'estimated', method = ?, note = ?
+       WHERE food_id = ? AND nutrient = ? AND amount IS NULL`,
+    );
+    for (const fill of fills) {
+      const note = fill.reason ? `[${fill.confidence}] ${fill.reason}` : `[${fill.confidence}]`;
+      const result = stmt.run(fill.amount, `ai:${fill.model}`, note, foodId, fill.code);
+      filled += Number(result.changes ?? 0);
+    }
+  });
+  return { filled };
 }
