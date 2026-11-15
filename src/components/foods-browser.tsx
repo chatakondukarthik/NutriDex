@@ -55,7 +55,7 @@ export function FoodsBrowser({ foods }: { foods: Food[] }) {
           No foods match. Try a different spelling or filter, or add a new food.
         </p>
       ) : (
-        <ul className="mt-4 grid gap-2 sm:grid-cols-2">
+        <ul className="mt-4 grid max-h-[70vh] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
           {results.map((food) => (
             <li key={food.id} className="rounded-lg border border-line bg-surface p-3 text-sm">
               <div className="flex items-start justify-between gap-2">

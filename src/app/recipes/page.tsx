@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { PRESETS } from "@/lib/data/preset-recipes";
-import { listRecipes, countLegacyRecipes } from "@/lib/db/recipes";
+import { listRecipes, listRecipeIngredientIds, countLegacyRecipes } from "@/lib/db/recipes";
+import { listFoods } from "@/lib/db/foods";
 import { ConvertRecipesButton } from "@/components/convert-recipes-button";
 import { RecipesBrowser } from "@/components/recipes-browser";
 
@@ -8,6 +9,27 @@ export const dynamic = "force-dynamic";
 
 export default function RecipesPage() {
   const recipes = listRecipes();
+  const ingredientIds = listRecipeIngredientIds();
+  const foods = listFoods();
+
+  const foodById = new Map(foods.map((f) => [f.id, f]));
+  const enriched = recipes.map((recipe) => {
+    const ids = ingredientIds.get(recipe.id) ?? [];
+    const resolved = ids
+      .map((id) => foodById.get(id))
+      .filter((food) => food != null)
+      .map((food) => ({ id: food.id, name: food.name }));
+    const terms = ids.flatMap((id) => {
+      const food = foodById.get(id);
+      return food ? [food.name, ...(food.aliases ?? [])] : [];
+    });
+    return {
+      ...recipe,
+      ingredientIds: ids,
+      ingredients: resolved.map((food) => ({ id: food.id, name: food.name })),
+      haystack: `${recipe.name} ${terms.join(" ")}`.toLowerCase(),
+    };
+  });
 
   return (
     <main className="mx-auto max-w-6xl px-5 py-6">
@@ -38,7 +60,7 @@ export default function RecipesPage() {
           </p>
         </section>
       ) : (
-        <RecipesBrowser recipes={recipes} />
+        <RecipesBrowser recipes={enriched} />
       )}
 
       <section className="mt-8">

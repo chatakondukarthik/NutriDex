@@ -419,6 +419,31 @@ export function listRecipeOptions(): PlanRecipeOption[] {
   });
 }
 
+/**
+ * Ingredient food ids per recipe, from its current version's blocks.
+ *
+ * Used by the recipes browser to filter by "recipes that use paneer".
+ * One query, one row per recipe; callers join against listFoods() for names.
+ */
+export function listRecipeIngredientIds(): Map<string, string[]> {
+  const rows = db
+    .prepare(
+      `SELECT r.id AS recipe_id, GROUP_CONCAT(DISTINCT ci.food_id) AS ids
+       FROM recipes r
+       JOIN recipe_versions v ON v.id = r.current_version_id
+       JOIN components c ON c.recipe_version_id = v.id
+       JOIN component_inputs ci ON ci.component_id = c.id
+       GROUP BY r.id`,
+    )
+    .all() as unknown as Array<{ recipe_id: string; ids: string | null }>;
+
+  const map = new Map<string, string[]>();
+  for (const row of rows) {
+    map.set(row.recipe_id, row.ids ? row.ids.split(",").filter(Boolean) : []);
+  }
+  return map;
+}
+
 /** References from plans or diary entries to any version of a recipe. */
 export function countRecipeReferences(recipeId: string): number {
   const rows = db

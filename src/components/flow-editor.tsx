@@ -16,6 +16,7 @@ import {
   type NodeChange,
   type EdgeChange,
   type Connection,
+  SelectionMode,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { saveGraphAction, estimateNodeDeltasAction, searchUsdaAction, importUsdaAction, saveCapturedFoodAction } from "@/app/actions";
@@ -29,6 +30,10 @@ import { NUTRIENT_CODES, NUTRIENTS } from "@/lib/nutrition/types";
 import type { Food } from "@/lib/nutrition/types";
 import { nodeTypes } from "@/components/flow-nodes";
 import { FlowMinimap } from "@/components/flow-minimap";
+import { PasteFragmentDialog } from "@/components/paste-fragment-dialog";
+import { useLeaveGuard, LeaveGuardDialog } from "@/components/leave-guard";
+import { serializeFragment, parseRecipeFragment } from "@/lib/recipe-fragment";
+import { HandIcon, BoxSelectIcon } from "@/components/icons";
 
 const OPERATION_OPTIONS = [
   "assemble", "mix", "boil", "pressure-cook", "steam", "sauté", "fry", "deep-fry",
@@ -91,6 +96,9 @@ function FlowEditorInner({
   const [library, setLibrary] = useState(foods);
   const [notice, setNotice] = useState<string | null>(null);
   const [pasteOffset, setPasteOffset] = useState(0);
+  const [canvasMode, setCanvasMode] = useState<"pan" | "select">("pan");
+  const [pasteDialogOpen, setPasteDialogOpen] = useState(false);
+  const [internalFragment, setInternalFragment] = useState<string | null>(null);
   const historyRef = useRef<{ past: { nodes: Node[]; edges: Edge[] }[]; future: { nodes: Node[]; edges: Edge[] }[] }>({ past: [], future: [] });
   const noticeTimer = useRef<number | null>(null);
   const reactFlow = useReactFlow();
@@ -127,6 +135,31 @@ function FlowEditorInner({
   );
 
   const graph = useMemo<Graph>(() => buildGraph(nodes, edges), [nodes, edges]);
+
+  // Baseline for the leave guard: what the workspace looked like on open.
+  const [baseline] = useState(() =>
+    JSON.stringify({
+      meta: [initialName, initialVersionLabel, initialInstructions, initialServings],
+      graph: buildGraph(
+        buildInitialNodes(initialGraph, initialLayout, foods),
+        buildInitialEdges(initialGraph),
+      ),
+      positions: buildInitialNodes(initialGraph, initialLayout, foods).map((n) => [
+        Math.round(n.position.x),
+        Math.round(n.position.y),
+      ]),
+    }),
+  );
+  const dirty = useMemo(
+    () =>
+      baseline !==
+      JSON.stringify({
+        meta: [name, versionLabel, instructions, servings],
+        graph,
+        positions: nodes.map((n) => [Math.round(n.position.x), Math.round(n.position.y)]),
+      }),
+    [baseline, name, versionLabel, instructions, servings, graph, nodes],
+  );
   const preview = useMemo(() => {
     try {
       return { result: computeGraph(graph, resolve, { factorTable }), error: null as string | null };
@@ -395,59 +428,89 @@ function FlowEditorInner({
       flashNotice("Select a block first.");
       return;
     }
-    const picked = nodesRef.current.filter((n) => ids.has(n.id));
-    const pickedIds = new Set(picked.map((n) => n.id));
-    const crossEdges = edges.filter((e) => pickedIds.has(e.source) && pickedIds.has(e.target));
-    const payload = { app: "nutriplan-flow", version: 1, nodes: structuredClone(picked), edges: structuredClone(crossEdges) };
+    const json = serializeFragment(nodesRef.current, edges, ids);
+    if (!json) {
+      flashNotice("Select a block first.");
+      return;
+    }
     try {
-      navigator.clipboard?.writeText(JSON.stringify(payload)).catch(() => {});
+      navigator.clipboard?.writeText(json).catch(() => {});
     } catch {
       /* clipboard unavailable; keep internal copy */
     }
-    internalClipboardRef.current = payload;
-    flashNotice(`Copied ${picked.length} block${picked.length === 1 ? "" : "s"}.`);
+    setInternalFragment(json);
+    const count = (JSON.parse(json) as { nodes: unknown[] }).nodes.length;
+    flashNotice(`Copied ${count} block${count === 1 ? "" : "s"} as JSON.`);
   }
-
-  const internalClipboardRef = useRef<{ app: string; nodes: Node[]; edges: Edge[] } | null>(null);
 
   function pasteClipboard() {
-    const clip = internalClipboardRef.current;
-    if (!clip || clip.app !== "nutriplan-flow") {
-      if (typeof navigator !== "undefined" && navigator.clipboard?.readText) {
-        navigator.clipboard.readText().then((text) => {
-          try {
-            const parsed = JSON.parse(text);
-            if (parsed?.app === "nutriplan-flow") doPaste(parsed);
-            else flashNotice("Nothing to paste.");
-          } catch {
-            flashNotice("Nothing to paste.");
-          }
-        }).catch(() => flashNotice("Nothing to paste."));
-      } else {
-        flashNotice("Nothing to paste.");
-      }
+    if (internalFragment) {
+      applyFragment(internalFragment);
       return;
     }
-    doPaste(clip);
+    if (typeof navigator !== "undefined" && navigator.clipboard?.readText) {
+      navigator.clipboard
+        .readText()
+        .then((text) => applyFragment(text))
+        .catch(() => flashNotice("Nothing to paste."));
+    } else {
+      flashNotice("Nothing to paste.");
+    }
   }
 
-  function doPaste(clip: { nodes: Node[]; edges: Edge[] }) {
+  /** Parse, validate and insert a fragment JSON string. */
+  function applyFragment(raw: string): boolean {
+    const parsed = parseRecipeFragment(raw);
+    if (!parsed.ok) {
+      flashNotice(parsed.error);
+      return false;
+    }
+    const fragment = parsed.fragment;
     const idMap = new Map<string, string>();
-    for (const node of clip.nodes) idMap.set(node.id, crypto.randomUUID());
+    for (const node of fragment.nodes) idMap.set(node.id, crypto.randomUUID());
+
     const offset = 40 * (pasteOffset + 1);
     setPasteOffset((n) => n + 1);
-    const pastedNodes: Node[] = clip.nodes.map((node) => ({
-      ...structuredClone(node),
-      id: idMap.get(node.id)!,
-      position: { x: node.position.x + offset, y: node.position.y + offset },
-      selected: true,
-    }));
-    const pastedEdges: Edge[] = clip.edges.map((edge) => ({
-      ...structuredClone(edge),
+
+    const pastedNodes: Node[] = fragment.nodes.map((node) => {
+      const data = node.data as Record<string, unknown>;
+      if (node.type === "food") {
+        const foodId = String(data.foodId);
+        const food = library.find((f) => f.id === foodId);
+        const label = (typeof data.label === "string" && data.label) || food?.name || foodId;
+        const grams = typeof data.grams === "number" ? data.grams : Number(data.grams) || 0;
+        const unknownCount = food ? Object.values(food.nutrients).filter((v) => v.amount == null).length : 0;
+        return {
+          id: idMap.get(node.id)!,
+          type: "food",
+          position: { x: node.position.x + offset, y: node.position.y + offset },
+          selected: true,
+          data: { foodId, grams, label, unknownCount },
+        };
+      }
+      return {
+        id: idMap.get(node.id)!,
+        type: "process",
+        position: { x: node.position.x + offset, y: node.position.y + offset },
+        selected: true,
+        data: {
+          name: typeof data.name === "string" ? data.name : "Step",
+          operation: typeof data.operation === "string" ? data.operation : "custom",
+          qualifier: (data.qualifier as string | null) ?? null,
+          outputs: (data.outputs as never[]) ?? [],
+          measuredOutputs: (data.measuredOutputs as (number | null)[]) ?? [],
+          factorEstimates: (data.factorEstimates as Record<string, number>) ?? {},
+          factorOverrides: (data.factorOverrides as Record<string, number>) ?? {},
+        },
+      } as Node;
+    });
+
+    const pastedEdges: Edge[] = fragment.edges.map((edge) => ({
       id: crypto.randomUUID(),
-      source: idMap.get(edge.source)!,
-      target: idMap.get(edge.target)!,
+      source: idMap.get(edge.from)!,
+      target: idMap.get(edge.to)!,
     }));
+
     setNodes((current) => [...current.map((n) => ({ ...n, selected: false })), ...pastedNodes]);
     setEdges((current) => [...current, ...pastedEdges]);
     const pastedIds = pastedNodes.map((n) => n.id);
@@ -455,6 +518,7 @@ function FlowEditorInner({
     setSelectionIds(pastedIds);
     setSelectedId(null);
     flashNotice(`Pasted ${pastedNodes.length} block${pastedNodes.length === 1 ? "" : "s"}.`);
+    return true;
   }
 
   // ---- keyboard shortcuts ------------------------------------------------
@@ -527,31 +591,43 @@ function FlowEditorInner({
     }
   }
 
-  function onSave() {
+  /** Save the current workspace. Resolve with the outcome. */
+  function save(): Promise<{ ok: boolean; recipeId?: string }> {
     setError(null);
-    if (!name.trim()) { setError("Give the recipe a name."); return; }
+    if (!name.trim()) { setError("Give the recipe a name."); return Promise.resolve({ ok: false }); }
     const servingsNum = Number(servings);
-    if (!Number.isFinite(servingsNum) || servingsNum <= 0) { setError("Servings must be positive."); return; }
-    if (preview.error) { setError(preview.error); return; }
+    if (!Number.isFinite(servingsNum) || servingsNum <= 0) { setError("Servings must be positive."); return Promise.resolve({ ok: false }); }
+    if (preview.error) { setError(preview.error); return Promise.resolve({ ok: false }); }
 
     const layout: Record<string, { x: number; y: number }> = {};
     for (const node of nodes) layout[node.id] = { x: node.position.x, y: node.position.y };
 
-    startTransition(async () => {
-      const result = await saveGraphAction({
-        recipeId,
-        name,
-        versionLabel: versionLabel || null,
-        instructions,
-        servings: servingsNum,
-        layout,
-        graph,
+    return new Promise((resolve) => {
+      startTransition(async () => {
+        const result = await saveGraphAction({
+          recipeId,
+          name,
+          versionLabel: versionLabel || null,
+          instructions,
+          servings: servingsNum,
+          layout,
+          graph,
+        });
+        if (!result.ok) { setError(result.message ?? "Save failed."); resolve({ ok: false }); return; }
+        resolve({ ok: true, recipeId: result.recipeId });
       });
-      if (!result.ok) { setError(result.message ?? "Save failed."); return; }
+    });
+  }
+
+  function onSave() {
+    save().then((result) => {
+      if (!result.ok) return;
       router.push(`/recipes/${result.recipeId}`);
       router.refresh();
     });
   }
+
+  const leaveGuard = useLeaveGuard({ dirty, save: () => save().then((r) => r.ok) });
 
   const paletteCategories = useMemo(() => {
     const set = new Set(library.map((f) => f.category));
@@ -716,7 +792,37 @@ function FlowEditorInner({
         </aside>
 
         {/* canvas */}
-        <div className="min-w-0 flex-1">
+        <div className="relative min-w-0 flex-1">
+          <div
+            role="group"
+            aria-label="Canvas mode"
+            className="absolute left-3 top-3 z-10 flex items-center gap-0.5 rounded-lg border border-line bg-surface/90 p-0.5 shadow-card backdrop-blur-sm"
+          >
+            <button
+              type="button"
+              onClick={() => setCanvasMode("pan")}
+              aria-pressed={canvasMode === "pan"}
+              title="Move the canvas (drag to pan)"
+              aria-label="Move the canvas"
+              className={`grid h-8 w-8 place-items-center rounded-md transition ${
+                canvasMode === "pan" ? "bg-accent/15 text-accent" : "text-muted hover:text-ink"
+              }`}
+            >
+              <HandIcon width={15} height={15} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setCanvasMode("select")}
+              aria-pressed={canvasMode === "select"}
+              title="Select blocks (drag a box, like files on a desktop)"
+              aria-label="Select blocks with a box"
+              className={`grid h-8 w-8 place-items-center rounded-md transition ${
+                canvasMode === "select" ? "bg-accent/15 text-accent" : "text-muted hover:text-ink"
+              }`}
+            >
+              <BoxSelectIcon width={15} height={15} />
+            </button>
+          </div>
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -743,6 +849,9 @@ function FlowEditorInner({
               setSelectionIds([]);
             }}
             deleteKeyCode={null}
+            panOnDrag={canvasMode === "pan"}
+            selectionOnDrag={canvasMode === "select"}
+            selectionMode={SelectionMode.Partial}
             selectionKeyCode="Shift"
             multiSelectionKeyCode={["Meta", "Control"]}
             fitView
@@ -804,17 +913,20 @@ function FlowEditorInner({
             Copy (Ctrl+C)
           </button>
         )}
-        {internalClipboardRef.current && (
+        {internalFragment && (
           <button type="button" onClick={pasteClipboard} className="hover:text-ink">
             Paste (Ctrl+V)
           </button>
         )}
+        <button type="button" onClick={() => setPasteDialogOpen(true)} className="hover:text-ink">
+          Paste JSON…
+        </button>
         <span>Delete: remove</span>
         <span>Ctrl+Z: undo</span>
         <span>Ctrl+Shift+Z: redo</span>
         <span>Ctrl+C / Ctrl+V: copy / paste</span>
         <span>Ctrl+A: select all</span>
-        <span>Shift-drag: box select</span>
+        <span>{canvasMode === "select" ? "Drag: box select" : "Drag: move canvas"}</span>
         <span>Shift/Ctrl-click: multi-select</span>
       </div>
 
@@ -823,6 +935,21 @@ function FlowEditorInner({
           {notice}
         </div>
       )}
+
+      <PasteFragmentDialog
+        open={pasteDialogOpen}
+        onClose={() => setPasteDialogOpen(false)}
+        onInsert={applyFragment}
+      />
+      <LeaveGuardDialog
+        open={leaveGuard.open}
+        busy={leaveGuard.busy}
+        leaveError={leaveGuard.leaveError}
+        heading={leaveGuard.heading}
+        onStay={leaveGuard.stay}
+        onDiscard={leaveGuard.discard}
+        onSaveAndLeave={leaveGuard.saveAndLeave}
+      />
     </div>
   );
 }

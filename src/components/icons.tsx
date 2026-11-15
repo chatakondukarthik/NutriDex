@@ -114,3 +114,21 @@ export function SparkleIcon(props: IconProps) {
     </Icon>
   );
 }
+export function HandIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M8 11V6.5a1.5 1.5 0 0 1 3 0V11M11 10.5v-6a1.5 1.5 0 0 1 3 0V10M14 11V7.5a1.5 1.5 0 0 1 3 0v6" />
+      <path d="M8 12.5 6.7 10.9a1.6 1.6 0 0 0-2.5 1.4l2.3 5.2A4 4 0 0 0 10 21h2a6 6 0 0 0 6-6v-2.5" />
+    </Icon>
+  );
+}
+
+export function BoxSelectIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="4" y="4" width="16" height="16" rx="2" strokeDasharray="4 3" />
+      <circle cx="8.5" cy="8.5" r="1" fill="currentColor" stroke="none" />
+      <circle cx="15.5" cy="15.5" r="1" fill="currentColor" stroke="none" />
+    </Icon>
+  );
+}
