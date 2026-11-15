@@ -105,17 +105,24 @@ export async function extractFoodFromImage(
   return parseProposal(response.text);
 }
 
-function parseProposal(raw: string): FoodProposal {
+export function parseProposal(raw: string): FoodProposal {
   let parsed: unknown;
   const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
   const candidates = [cleaned];
   const match = cleaned.match(/\{[\s\S]*\}/);
   if (match) candidates.push(match[0]);
-  // repair truncated output by closing open braces/brackets
+  // repair truncated output by closing open braces/brackets in order
+  const stack: string[] = [];
+  for (const ch of cleaned) {
+    if (ch === "{" || ch === "[") stack.push(ch);
+    else if (ch === "}" && stack.length && stack[stack.length - 1] === "{") stack.pop();
+    else if (ch === "]" && stack.length && stack[stack.length - 1] === "[") stack.pop();
+  }
   let repaired = cleaned;
-  const opens = (repaired.match(/[{[]/g) ?? []).length;
-  const closes = (repaired.match(/[}\]]/g) ?? []).length;
-  if (opens > closes) repaired = repaired + "}".repeat(opens - closes);
+  while (stack.length) {
+    const open = stack.pop()!;
+    repaired += open === "{" ? "}" : "]";
+  }
   candidates.push(repaired);
 
   for (const candidate of candidates) {
