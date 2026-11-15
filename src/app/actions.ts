@@ -4,18 +4,21 @@ import { revalidatePath } from "next/cache";
 import { addEntry, removeEntry, today } from "@/lib/db/entries";
 import {
   addPlanEntry,
+  listPlanEntries,
   getOrCreatePlan,
   movePlanEntry,
   removePlanEntry,
   updatePlanEntryQuantity,
 } from "@/lib/db/plan";
 import { saveProfile } from "@/lib/db/profile";
-import { getVersion } from "@/lib/db/recipes";
+import { getRecipe, getVersion } from "@/lib/db/recipes";
 import { getFood } from "@/lib/db/foods";
 import { toGrams, MAX_GRAMS, type Unit } from "@/lib/nutrition/units";
 import { SLOTS, weekDays, weekStart, type PlanEntry, type Slot } from "@/lib/plan";
 import { parseProfile } from "@/lib/profile";
 import { saveRecipeDraft, type RecipeDraft } from "@/lib/recipes";
+import { builderFromVersion } from "@/lib/recipe-draft";
+import { builderToDraft } from "@/lib/recipe-draft";
 import type { CapturedFoodInput } from "@/lib/captured-food";
 
 export interface AddResult {
@@ -516,6 +519,62 @@ export async function extractFoodAction(input: {
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : "Extraction failed." };
   }
+}
+
+export async function duplicateRecipeAction(recipeId: string): Promise<{ ok: boolean; recipeId?: string; message?: string }> {
+  const recipe = getRecipe(recipeId);
+  if (!recipe) return { ok: false, message: "That recipe no longer exists." };
+  const version = getVersion(recipe.summary.currentVersionId!);
+  if (!version) return { ok: false, message: "That recipe has no version to copy." };
+  const builder = builderFromVersion(version);
+  builder.name = `Copy of ${recipe.summary.name}`;
+  const draft = builderToDraft(builder, null);
+  const result = saveRecipeDraft(draft);
+  if (!result.ok) return { ok: false, message: result.message };
+  revalidatePath("/recipes");
+  return { ok: true, recipeId: result.recipeId };
+}
+
+export async function copyPlanDayAction(
+  sourceDay: string,
+  targetDay: string,
+): Promise<{ ok: boolean; message?: string; count?: number }> {
+  const { weekStart, weekDays } = await import("@/lib/plan");
+  const sourceWeek = weekStart(sourceDay);
+  const targetWeek = weekStart(targetDay);
+  if (!weekDays(sourceWeek).includes(sourceDay)) return { ok: false, message: "Invalid source day." };
+  if (!weekDays(targetWeek).includes(targetDay)) return { ok: false, message: "Invalid target day." };
+
+  const sourcePlan = getOrCreatePlan(sourceWeek);
+  const targetPlan = getOrCreatePlan(targetWeek);
+  const entries = listPlanEntries(sourcePlan.id).filter((e) => e.day === sourceDay);
+
+  let count = 0;
+  for (const entry of entries) {
+    if (entry.foodId) {
+      addPlanEntry({
+        planId: targetPlan.id,
+        day: targetDay,
+        slot: entry.slot,
+        foodId: entry.foodId,
+        grams: entry.grams ?? 0,
+        amount: entry.amount ?? undefined,
+        unit: entry.unit ?? undefined,
+      });
+    } else if (entry.recipeVersionId) {
+      addPlanEntry({
+        planId: targetPlan.id,
+        day: targetDay,
+        slot: entry.slot,
+        recipeVersionId: entry.recipeVersionId,
+        servings: entry.servings ?? 1,
+      });
+    }
+    count++;
+  }
+
+  revalidatePath("/plan");
+  return { ok: true, count };
 }
 
 export async function promoteFoodToRecipeAction(foodId: string): Promise<{ ok: boolean; recipeId?: string; message?: string }> {

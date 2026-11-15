@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { DuplicateRecipeButton } from "@/components/duplicate-recipe-button";
 import { notFound } from "next/navigation";
 import { MACRO_CODES, MICRO_CODES, NutrientRows } from "@/components/nutrition-summary";
 import { getFood } from "@/lib/db/foods";
@@ -66,6 +67,7 @@ export default async function RecipePage({
           >
             Edit
           </Link>
+          <DuplicateRecipeButton recipeId={id} />
           <Link
             href="/recipes/new"
             className="rounded-lg bg-accent px-4 py-2 text-xs font-medium text-accent-ink transition hover:bg-accent-strong"

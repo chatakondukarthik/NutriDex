@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { useMemo, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   addPlanEntryAction,
+  copyPlanDayAction,
   movePlanEntryAction,
   removePlanEntryAction,
   updatePlanEntryQuantityAction,
@@ -24,6 +26,7 @@ import {
   versionName,
   weekdayShort,
   weekDays,
+  weekStart,
   type PlanEntry,
   type PlanRecipeOption,
   type Slot,
@@ -85,6 +88,7 @@ export function PlanBoard({
   profileIsDefault,
 }: PlanBoardProps) {
   const [entries, setEntries] = useState<PlanEntry[]>(initialEntries);
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<"food" | "recipe">("recipe");
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -94,6 +98,7 @@ export function PlanBoard({
     weekDays(week).includes(today) ? today : week,
   );
   const [error, setError] = useState<string | null>(null);
+  const [copyTarget, setCopyTarget] = useState<string>("");
   const [pending, startTransition] = useTransition();
 
   const dragRef = useRef<DragPayload | null>(null);
@@ -844,6 +849,40 @@ export function PlanBoard({
                 {selectedEntries.length}{" "}
                 {selectedEntries.length === 1 ? "item" : "items"}
               </span>
+              <div className="flex items-center gap-1">
+                <select
+                  value={copyTarget}
+                  onChange={(e) => setCopyTarget(e.target.value)}
+                  className="rounded-md border border-line bg-bg px-1.5 py-1 text-[11px]"
+                >
+                  <option value="">Copy day to…</option>
+                  {days
+                    .filter((d) => d !== selectedDay)
+                    .map((d) => (
+                      <option key={d} value={d}>
+                        {weekdayShort(d)} {dayOfMonth(d)}
+                      </option>
+                    ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={!copyTarget || pending}
+                  onClick={() =>
+                    startTransition(async () => {
+                      const result = await copyPlanDayAction(selectedDay, copyTarget);
+                      if (!result.ok) setError(result.message ?? "Could not copy.");
+                      else {
+                        setError(null);
+                        setCopyTarget("");
+                        router.refresh();
+                      }
+                    })
+                  }
+                  className="rounded-md border border-line px-2 py-1 text-[11px] font-medium disabled:opacity-50"
+                >
+                  Copy
+                </button>
+              </div>
             </div>
 
             {selectedEntries.length === 0 ? (
