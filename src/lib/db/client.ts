@@ -1,6 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
+import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
+import { SEED_FACTORS } from "@/lib/nutrition/retention-seed";
 
 /**
  * Local persistence.
@@ -140,6 +142,30 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS plan_entries_plan_idx
     ON plan_entries (plan_id, day, slot, position);
 
+  -- Per-nutrient retention factors for cooking operations (S10, D-041).
+  -- Seed values are USDA Table of Nutrient Retention Factors (Release 6,
+  -- public domain), unverified fixtures pending review — the same status as
+  -- the seed foods. Factor = fraction of the nutrient retained (0..2).
+  CREATE TABLE IF NOT EXISTS retention_factors (
+    id         TEXT PRIMARY KEY,
+    operation  TEXT NOT NULL,
+    qualifier  TEXT,                     -- e.g. 'drained' | 'undrained'
+    nutrient   TEXT NOT NULL,
+    factor     REAL NOT NULL,
+    source     TEXT NOT NULL DEFAULT 'usda-r6',
+    notes      TEXT
+  );
+  CREATE INDEX IF NOT EXISTS retention_factors_lookup_idx
+    ON retention_factors (operation, nutrient);
+
+  -- Cache of LLM nutrient-delta estimates, keyed by the operation + input mix.
+  CREATE TABLE IF NOT EXISTS estimate_cache (
+    cache_key  TEXT PRIMARY KEY,
+    operation  TEXT NOT NULL,
+    payload    TEXT NOT NULL,            -- JSON: per-nutrient factors + reasons
+    created_at TEXT NOT NULL
+  );
+
   -- Foods the user captured (S6). Seed foods stay in src/lib/data/foods.ts
   -- until the importer lands; these tables hold everything the user added.
   -- A captured food is referenced by the same columns as a seed food, so a
@@ -205,6 +231,7 @@ function createDb(): DatabaseSync {
   const database = new DatabaseSync(dbPath);
   database.exec(SCHEMA);
   migrate(database);
+  seedRetentionFactors(database);
 
   return database;
 }
@@ -222,6 +249,33 @@ function migrate(database: DatabaseSync): void {
   addColumn(database, "profile", "pace", "TEXT NOT NULL DEFAULT 'steady'");
   addColumn(database, "profile", "target_weight_kg", "REAL");
   addColumn(database, "recipe_versions", "label", "TEXT");
+}
+
+/**
+ * Seed the retention-factor table once. Runs on every boot; inserts are
+ * guarded by a lookup so it is idempotent.
+ */
+function seedRetentionFactors(database: DatabaseSync): void {
+  const count = database
+    .prepare("SELECT COUNT(*) AS n FROM retention_factors")
+    .get() as unknown as { n: number };
+  if (count.n > 0) return;
+
+  const insert = database.prepare(
+    `INSERT INTO retention_factors (id, operation, qualifier, nutrient, factor, source, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const seed of SEED_FACTORS) {
+    insert.run(
+      randomUUID(),
+      seed.operation,
+      seed.qualifier,
+      seed.nutrient,
+      seed.factor,
+      seed.source,
+      null,
+    );
+  }
 }
 
 function addColumn(
