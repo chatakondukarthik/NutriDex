@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
 import { describe, expect, it, vi } from "vitest";
 import { RecipeBuilder } from "@/components/recipe-builder";
-import { FOODS } from "@/lib/data/foods";
+import { SEED_FOODS } from "@/lib/data/foods";
 import { emptyBuilder } from "@/lib/recipe-draft";
 
 vi.mock("next/navigation", () => ({
@@ -41,7 +41,7 @@ async function violationsOf(container: HTMLElement) {
 
 function renderBuilder() {
   const user = userEvent.setup();
-  const view = render(<RecipeBuilder foods={FOODS} initial={emptyBuilder()} recipeId={null} />);
+  const view = render(<RecipeBuilder foods={SEED_FOODS} initial={emptyBuilder()} recipeId={null} />);
   return { user, container: view.container };
 }
 

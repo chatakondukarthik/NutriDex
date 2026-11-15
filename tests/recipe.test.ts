@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { makeProfile } from "@/lib/nutrition/engine";
 import { computeRecipe, yieldNote } from "@/lib/nutrition/recipe";
-import { getFood } from "@/lib/data/foods";
+import { getSeedFood as getFood } from "@/lib/data/foods";
 
 const paneer = makeProfile({ ENERC_KCAL: 265, PROCNT: 18.3, FAT: 20.8, CHOCDF: 1.2 }, "test");
 const oil = makeProfile({ ENERC_KCAL: 884, PROCNT: 0, FAT: 100, CHOCDF: 0 }, "test");

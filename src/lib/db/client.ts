@@ -136,6 +136,63 @@ const SCHEMA = `
 
   CREATE INDEX IF NOT EXISTS plan_entries_plan_idx
     ON plan_entries (plan_id, day, slot, position);
+
+  -- Foods the user captured (S6). Seed foods stay in src/lib/data/foods.ts
+  -- until the importer lands; these tables hold everything the user added.
+  -- A captured food is referenced by the same columns as a seed food, so a
+  -- recipe or plan cannot tell the difference.
+  CREATE TABLE IF NOT EXISTS captured_foods (
+    id                TEXT PRIMARY KEY,
+    name              TEXT NOT NULL,
+    aliases           TEXT NOT NULL DEFAULT '[]',
+    category          TEXT,
+    kind              TEXT NOT NULL DEFAULT 'provisional',
+    state             TEXT NOT NULL DEFAULT 'raw',
+    density_g_ml      REAL,
+    basis             TEXT,
+    serving_size_g    REAL,
+    servings_per_pack REAL,
+    source            TEXT NOT NULL DEFAULT 'manual',
+    source_code       TEXT,
+    image_path        TEXT,
+    confidence        REAL,
+    created_by        TEXT NOT NULL DEFAULT 'local',
+    created_at        TEXT NOT NULL,
+    archived_at       TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS captured_foods_name_idx
+    ON captured_foods (name);
+
+  CREATE TABLE IF NOT EXISTS ai_calls (
+    id                TEXT PRIMARY KEY,
+    provider          TEXT NOT NULL,
+    model             TEXT NOT NULL,
+    capability        TEXT NOT NULL,
+    prompt_tokens     INTEGER,
+    completion_tokens INTEGER,
+    latency_ms        INTEGER,
+    status            TEXT NOT NULL,
+    error             TEXT,
+    created_at        TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS captured_food_nutrients (
+    food_id   TEXT NOT NULL REFERENCES captured_foods (id),
+    nutrient  TEXT NOT NULL,
+    amount    REAL,
+    status    TEXT NOT NULL DEFAULT 'unknown',
+    method    TEXT,
+    PRIMARY KEY (food_id, nutrient)
+  );
+
+  CREATE TABLE IF NOT EXISTS captured_food_portions (
+    id      TEXT PRIMARY KEY,
+    food_id TEXT NOT NULL REFERENCES captured_foods (id),
+    label   TEXT NOT NULL,
+    grams   REAL NOT NULL,
+    source  TEXT
+  );
 `;
 
 function createDb(): DatabaseSync {

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { RecipeBuilder } from "@/components/recipe-builder";
-import { FOODS } from "@/lib/data/foods";
+import { listFoods } from "@/lib/db/foods";
 import { getRecipe, getVersion } from "@/lib/db/recipes";
 import { builderFromVersion } from "@/lib/recipe-draft";
 
@@ -20,6 +20,6 @@ export default async function EditRecipePage({
   if (!version) notFound();
 
   return (
-    <RecipeBuilder foods={FOODS} initial={builderFromVersion(version)} recipeId={id} />
+    <RecipeBuilder foods={listFoods()} initial={builderFromVersion(version)} recipeId={id} />
   );
 }

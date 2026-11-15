@@ -11,11 +11,12 @@ import {
 } from "@/lib/db/plan";
 import { saveProfile } from "@/lib/db/profile";
 import { getVersion } from "@/lib/db/recipes";
-import { getFood } from "@/lib/data/foods";
+import { getFood } from "@/lib/db/foods";
 import { toGrams, MAX_GRAMS, type Unit } from "@/lib/nutrition/units";
 import { SLOTS, weekDays, weekStart, type PlanEntry, type Slot } from "@/lib/plan";
 import { parseProfile } from "@/lib/profile";
 import { saveRecipeDraft, type RecipeDraft } from "@/lib/recipes";
+import type { CapturedFoodInput } from "@/lib/captured-food";
 
 export interface AddResult {
   ok: boolean;
@@ -323,4 +324,167 @@ export async function saveProfileAction(
   revalidatePath("/profile");
 
   return { ok: true, message: "Saved. Targets now use these numbers." };
+}
+
+// ---------- Captured foods ----------
+
+import { prepareCapturedFood } from "@/lib/captured-food";
+import { saveCapturedFood, updateCapturedFood, archiveCapturedFood } from "@/lib/db/foods";
+import { extractFoodFromText, extractFoodFromImage, proposalToInput } from "@/lib/ai/extract";
+import type { ImagePart } from "@/lib/ai/types";
+import { getAiConfig, aiStatus } from "@/lib/ai/client";
+import { readAiConfig, writeAiConfig } from "@/lib/ai/config";
+import { getKey, setKey, hasKey } from "@/lib/ai/secrets";
+import { getAdapter } from "@/lib/ai/adapters";
+
+export interface SaveFoodResult {
+  ok: boolean;
+  message?: string;
+  foodId?: string;
+  duplicateOf?: string;
+}
+
+export async function saveCapturedFoodAction(input: CapturedFoodInput): Promise<SaveFoodResult> {
+  const prepared = prepareCapturedFood(input);
+  if (!prepared.ok) return { ok: false, message: prepared.message };
+  const result = saveCapturedFood(prepared.food);
+  if (!result.ok) return { ok: false, message: result.message, duplicateOf: result.duplicateOf };
+  revalidatePath("/");
+  revalidatePath("/foods");
+  return { ok: true, foodId: result.food.id };
+}
+
+export async function updateCapturedFoodAction(
+  id: string,
+  input: CapturedFoodInput,
+): Promise<SaveFoodResult> {
+  const prepared = prepareCapturedFood(input);
+  if (!prepared.ok) return { ok: false, message: prepared.message };
+  const result = updateCapturedFood(id, prepared.food);
+  if (!result.ok) return { ok: false, message: result.message, duplicateOf: result.duplicateOf };
+  revalidatePath("/");
+  revalidatePath("/foods");
+  return { ok: true, foodId: result.food.id };
+}
+
+export async function archiveCapturedFoodAction(id: string): Promise<SaveFoodResult> {
+  const result = archiveCapturedFood(id);
+  if (!result.ok) return { ok: false, message: result.message };
+  revalidatePath("/foods");
+  return { ok: true };
+}
+
+export interface AiConfigResult {
+  ok: boolean;
+  message?: string;
+}
+
+export async function saveAiConfigAction(input: {
+  provider: string;
+  model: string;
+  fallbackProvider?: string;
+  fallbackModel?: string;
+  baseUrl?: string;
+  dailyCallCap?: number;
+  key?: string;
+}): Promise<AiConfigResult> {
+  const config = {
+    provider: input.provider as any,
+    model: input.model.trim(),
+    fallbackProvider: input.fallbackProvider as any,
+    fallbackModel: input.fallbackModel?.trim() || undefined,
+    baseUrl: input.baseUrl?.trim() || undefined,
+    dailyCallCap: input.dailyCallCap,
+  };
+  if (!config.model) return { ok: false, message: "Pick a model." };
+  if (input.key && input.key.trim()) {
+    setKey(input.provider, input.key);
+  }
+  writeAiConfig(config as any);
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+export async function removeAiKeyAction(provider: string): Promise<AiConfigResult> {
+  setKey(provider, null);
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+export async function testAiConnectionAction(): Promise<AiConfigResult & { latencyMs?: number }> {
+  const config = getAiConfig();
+  if (!hasKey(config.provider)) return { ok: false, message: "No key configured." };
+  const adapter = getAdapter(config.provider);
+  const start = Date.now();
+  try {
+    await adapter.complete(config, {
+      capability: "text",
+      system: "Reply with the single word: ok",
+      prompt: "ping",
+      temperature: 0,
+      maxTokens: 8,
+      timeoutMs: 20_000,
+    });
+    return { ok: true, latencyMs: Date.now() - start };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Connection failed." };
+  }
+}
+
+export async function listAiModelsAction(): Promise<{ ok: boolean; models?: { id: string; label: string }[]; message?: string }> {
+  const config = getAiConfig();
+  if (!hasKey(config.provider)) return { ok: false, message: "No key configured." };
+  const adapter = getAdapter(config.provider);
+  try {
+    const models = await adapter.listModels({ ...config, baseUrl: config.baseUrl });
+    return { ok: true, models: models.map((m) => ({ id: m.id, label: m.label })) };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Could not list models." };
+  }
+}
+
+export async function extractFoodAction(input: {
+  mode: "text" | "image";
+  text?: string;
+  images?: ImagePart[];
+  note?: string;
+}): Promise<{ ok: boolean; proposal?: any; message?: string }> {
+  try {
+    const proposal =
+      input.mode === "image"
+        ? await extractFoodFromImage(input.images ?? [], input.note)
+        : await extractFoodFromText(input.text ?? "");
+    return { ok: true, proposal };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Extraction failed." };
+  }
+}
+
+export async function promoteFoodToRecipeAction(foodId: string): Promise<{ ok: boolean; recipeId?: string; message?: string }> {
+  const food = getFood(foodId);
+  if (!food) return { ok: false, message: "That food does not exist." };
+  const draft: RecipeDraft = {
+    name: food.name,
+    instructions: "",
+    servings: 1,
+    blocks: [
+      {
+        name: "Main",
+        operation: null,
+        outputGrams: 100,
+        inputs: [
+          {
+            foodId: food.id,
+            amount: 100,
+            unit: "g",
+            preparation: "",
+            note: "",
+          },
+        ],
+      },
+    ],
+  };
+  const result = saveRecipeDraft(draft);
+  if (!result.ok) return { ok: false, message: result.message };
+  return { ok: true, recipeId: result.recipeId };
 }

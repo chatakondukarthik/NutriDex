@@ -101,11 +101,29 @@ export interface Food {
   /** Hindi / regional / common alternate names, for search. */
   aliases: string[];
   category: string;
-  kind: "raw" | "branded" | "composite";
+  /**
+   * `provisional` is a food the user created (manually, from a label, or from
+   * a description). It has no composition database behind it, and its
+   * provenance says so.
+   */
+  kind: "raw" | "branded" | "composite" | "provisional";
   /** Whether the per-100 g values describe the raw or cooked item. */
   state: "raw" | "cooked";
   /** g per ml. Only needed for volume units. */
   densityGPerMl?: number;
   portions: Portion[];
   nutrients: NutrientProfile;
+
+  /** Absent for seed fixtures; present on anything the user captured. */
+  source?: string;
+  /** Barcode or external id the record came from. */
+  sourceCode?: string;
+  /** The basis the captured values were declared on (D-020). */
+  basis?: "per_100g" | "per_serving" | "per_pack";
+  servingSizeG?: number;
+  servingsPerPack?: number;
+  /** Path under data/evidence/, kept as evidence rather than as truth. */
+  imagePath?: string;
+  /** Evidence quality, 0..1. Never the model's self-reported confidence. */
+  confidence?: number;
 }

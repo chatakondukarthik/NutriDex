@@ -14,12 +14,17 @@ import type { Food } from "@/lib/nutrition/types";
  *
  * Nutrients deliberately left out are `unknown`, not zero. That is the
  * coverage feature working as designed, not an oversight.
+ *
+ * This file is now only the **seed** half of the food list. Foods the user
+ * captures live in the database (`src/lib/db/foods.ts`); `listFoods()` merges
+ * the two. The importer (S1.5) will eventually move these rows into the same
+ * tables and this file disappears.
  */
 
 const USDA = "USDA FDC SR Legacy (seed)";
 const IFCT = "IFCT 2017 (seed, unverified)";
 
-export const FOODS: Food[] = [
+export const SEED_FOODS: Food[] = [
   {
     id: "paneer",
     name: "Paneer",
@@ -548,39 +553,9 @@ export const FOODS: Food[] = [
   },
 ];
 
-const BY_ID = new Map(FOODS.map((food) => [food.id, food]));
+const BY_ID = new Map(SEED_FOODS.map((food) => [food.id, food]));
 
-export function getFood(id: string): Food | undefined {
+/** Look up a seed food. Server code should use `getFood` from `db/foods`. */
+export function getSeedFood(id: string): Food | undefined {
   return BY_ID.get(id);
-}
-
-export function requireFood(id: string): Food {
-  const food = BY_ID.get(id);
-  if (!food) throw new Error(`Unknown food: ${id}`);
-  return food;
-}
-
-/**
- * Deliberately simple search: case-insensitive prefix and substring
- * matching over the name and aliases. Good enough for twenty foods, and
- * a known limitation for later — see docs/research/RESEARCH.md.
- */
-export function searchFoods(query: string): Food[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return FOODS;
-
-  const scored = FOODS.map((food) => {
-    const name = food.name.toLowerCase();
-    const aliases = food.aliases.map((a) => a.toLowerCase());
-
-    if (name === q) return { food, score: 0 };
-    if (name.startsWith(q)) return { food, score: 1 };
-    if (aliases.some((a) => a === q)) return { food, score: 2 };
-    if (aliases.some((a) => a.startsWith(q))) return { food, score: 3 };
-    if (name.includes(q)) return { food, score: 4 };
-    if (aliases.some((a) => a.includes(q))) return { food, score: 5 };
-    return null;
-  }).filter((entry): entry is { food: Food; score: number } => entry !== null);
-
-  return scored.sort((a, b) => a.score - b.score).map((entry) => entry.food);
 }

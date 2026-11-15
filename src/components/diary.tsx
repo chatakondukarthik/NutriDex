@@ -5,7 +5,7 @@ import { addFoodAction, removeEntryAction } from "@/app/actions";
 import { NutrientBar } from "@/components/nutrient-bar";
 import type { Entry } from "@/lib/db/entries";
 import { dayRollup } from "@/lib/day";
-import { searchFoods } from "@/lib/data/foods";
+import { searchFoods } from "@/lib/nutrition/food-search";
 import { fmt, fmtDay } from "@/lib/format";
 import { toGrams, type Unit } from "@/lib/nutrition/units";
 import type { Rollup } from "@/lib/nutrition/engine";
@@ -39,9 +39,9 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const results = useMemo(() => searchFoods(query), [query]);
+  const results = useMemo(() => searchFoods(foods, query), [query]);
   const selectedFood = foods.find((f) => f.id === selectedId) ?? null;
-  const result = useMemo(() => dayRollup(entries), [entries]);
+  const result = useMemo(() => dayRollup(entries, (id) => foods.find((f) => f.id === id)!), [entries, foods]);
 
   const targetByCode = useMemo(
     () => new Map(targets.map((t) => [t.code, t])),

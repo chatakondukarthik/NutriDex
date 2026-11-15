@@ -1,5 +1,5 @@
 import { RecipeBuilder } from "@/components/recipe-builder";
-import { FOODS } from "@/lib/data/foods";
+import { listFoods } from "@/lib/db/foods";
 import { getPreset } from "@/lib/data/preset-recipes";
 import { builderFromDraft, emptyBuilder } from "@/lib/recipe-draft";
 
@@ -24,7 +24,7 @@ export default async function NewRecipePage({
           </p>
         </div>
       )}
-      <RecipeBuilder foods={FOODS} initial={initial} recipeId={null} />
+      <RecipeBuilder foods={listFoods()} initial={initial} recipeId={null} />
     </>
   );
 }

@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RecipeBuilder } from "@/components/recipe-builder";
-import { FOODS } from "@/lib/data/foods";
+import { SEED_FOODS } from "@/lib/data/foods";
 import { emptyBuilder } from "@/lib/recipe-draft";
 
 const push = vi.fn();
@@ -18,7 +18,7 @@ vi.mock("@/app/actions", () => ({
 
 function setup() {
   const user = userEvent.setup();
-  render(<RecipeBuilder foods={FOODS} initial={emptyBuilder()} recipeId={null} />);
+  render(<RecipeBuilder foods={SEED_FOODS} initial={emptyBuilder()} recipeId={null} />);
   return user;
 }
 

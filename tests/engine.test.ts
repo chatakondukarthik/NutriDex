@@ -10,7 +10,8 @@ import {
   scaleProfile,
 } from "@/lib/nutrition/engine";
 import { NUTRIENT_CODES } from "@/lib/nutrition/types";
-import { FOODS, getFood, searchFoods } from "@/lib/data/foods";
+import { SEED_FOODS, getSeedFood as getFood } from "@/lib/data/foods";
+import { searchFoods } from "@/lib/nutrition/food-search";
 import { toGrams, MAX_GRAMS } from "@/lib/nutrition/units";
 
 describe("profiles", () => {
@@ -140,7 +141,7 @@ describe("Atwater sanity check", () => {
     // conventions, so a single generic formula cannot reproduce every
     // stated value. What it does catch is a record resolved to the wrong
     // food, which shows up as a 2x drift.
-    for (const food of FOODS) {
+    for (const food of SEED_FOODS) {
       const stated = food.nutrients.ENERC_KCAL.amount;
       if (stated == null || stated < 50) continue;
 
@@ -214,15 +215,15 @@ describe("completeness", () => {
 
 describe("search", () => {
   it("finds a food by its Indian name", () => {
-    expect(searchFoods("palak")[0]?.id).toBe("spinach");
-    expect(searchFoods("doodh")[0]?.id).toBe("milk");
+    expect(searchFoods(SEED_FOODS, "palak")[0]?.id).toBe("spinach");
+    expect(searchFoods(SEED_FOODS, "doodh")[0]?.id).toBe("milk");
   });
 
   it("ranks an exact name above a substring", () => {
-    expect(searchFoods("rice")[0]?.id).toBe("rice");
+    expect(searchFoods(SEED_FOODS, "rice")[0]?.id).toBe("rice");
   });
 
   it("returns everything for an empty query", () => {
-    expect(searchFoods("").length).toBe(FOODS.length);
+    expect(searchFoods(SEED_FOODS, "").length).toBe(SEED_FOODS.length);
   });
 });

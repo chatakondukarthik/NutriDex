@@ -1,4 +1,4 @@
-import { getFood } from "@/lib/data/foods";
+import { getFood } from "@/lib/db/foods";
 import { computeRecipe, type RecipeBlockInput } from "@/lib/nutrition/recipe";
 import { toGrams, type Unit } from "@/lib/nutrition/units";
 import type { VersionInput } from "@/lib/db/recipes";

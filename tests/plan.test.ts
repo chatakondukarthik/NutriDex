@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FOODS } from "@/lib/data/foods";
+import { SEED_FOODS } from "@/lib/data/foods";
 import { makeProfile, perServing, rollup } from "@/lib/nutrition/engine";
 import type { Food } from "@/lib/nutrition/types";
 import {
@@ -23,8 +23,8 @@ import {
  * rather than recomputed from today's food data.
  */
 
-const paneer = FOODS.find((food) => food.id === "paneer")!;
-const foodById = new Map<string, Food>(FOODS.map((food) => [food.id, food]));
+const paneer = SEED_FOODS.find((food) => food.id === "paneer")!;
+const foodById = new Map<string, Food>(SEED_FOODS.map((food) => [food.id, food]));
 
 const recipeProfile = makeProfile({ ENERC_KCAL: 300, PROCNT: 20 }, "test");
 const recipe: PlanRecipeOption = {

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 import { saveRecipeAction } from "@/app/actions";
-import { searchFoods } from "@/lib/data/foods";
+import { searchFoods } from "@/lib/nutrition/food-search";
 import { fmt, fmtMass } from "@/lib/format";
 import { yieldNote } from "@/lib/nutrition/recipe";
 import type { Food } from "@/lib/nutrition/types";
@@ -517,7 +517,7 @@ function FoodPicker({
 
   const selected = foods.find((food) => food.id === value);
   const results = useMemo(() => {
-    const list = query.trim() ? searchFoods(query) : foods;
+    const list = query.trim() ? searchFoods(foods, query) : foods;
     return list.slice(0, 8);
   }, [query, foods]);
 

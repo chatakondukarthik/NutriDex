@@ -207,7 +207,7 @@ Full design: [`spec/INGREDIENT_CAPTURE.md`](../spec/INGREDIENT_CAPTURE.md).
 
 **Done when:**
 
-- [ ] A food can be created manually, used once, and found by search later.
+- [x] A food can be created manually, used once, and found by search later.
 - [ ] A barcode resolves through Open Food Facts and stores the label's basis.
 - [ ] A label photo produces a confirmable proposal with the image kept as
       evidence.
@@ -237,9 +237,9 @@ Full design: [`spec/BYO_LLM.md`](../spec/BYO_LLM.md).
 
 **Done when:**
 
-- [ ] Gemini, OpenAI, Anthropic and any OpenAI-compatible endpoint can be
+- [x] Gemini, OpenAI, Anthropic and any OpenAI-compatible endpoint can be
       configured, with the model list fetched from the provider.
-- [ ] A key can be added, tested and removed; after removal no call is made.
+- [x] A key can be added, tested and removed; after removal no call is made.
 - [ ] A build-time test proves no key reaches the client bundle.
 - [ ] Transient failures retry, fall back, and degrade to a non-AI path.
 - [ ] A golden-set evaluation harness exists and has a baseline score.

@@ -1,7 +1,7 @@
 # NutriPlan — Testing
 
 **Type:** Reference (updated in the same commit as the code it describes)
-**Last verified:** 2026-11-15 — 14 files, 212 tests passing, `tsc --noEmit` clean.
+**Last verified:** 2026-11-15 — 16 files, 223 tests passing, `tsc --noEmit` clean.
 
 This is the tracker for how NutriPlan is tested: what is automated, what is
 manual, what each category is for, and what is still missing. It is a map, not
@@ -73,6 +73,7 @@ Status values: `Pass` (asserted in CI), `Gap` (known, not asserted), `Plan`
 | U-012 | Plan calendar | Monday start, month/year rollover, seven consecutive days, slot set, ordering | Pass (6) |
 | U-013 | Plan rollup | Food scaled by grams; pinned recipe from snapshot; gone target returns null; empty day unknown; food+recipe combined | Pass (7) |
 | U-014 | Recipe validation | Name, servings, empty blocks, unknown food, bad unit, bad amount, named portions, block naming, non-positive output, snapshot, overflow | Pass (19) |
+| U-015 | Captured food validation | Empty name, omitted nutrients unknown, estimated marking, energy ceiling, portion weight, portion count, alias dedup | Pass (7) |
 
 ### C — Component (recipe builder)
 
@@ -104,6 +105,7 @@ Status values: `Pass` (asserted in CI), `Gap` (known, not asserted), `Plan`
 | I-006 | A rejected plan add creates no empty plan row | Pass |
 | I-007 | Move within the week; refuse a move outside it | Pass |
 | I-008 | Quantity update rejects non-positive and oversized | Pass |
+| I-009 | Captured food round trip, archival blocking, duplicate name | Pass (4) |
 
 ### A — Accessibility
 

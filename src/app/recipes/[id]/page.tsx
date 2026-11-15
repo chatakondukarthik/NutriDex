@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MACRO_CODES, MICRO_CODES, NutrientRows } from "@/components/nutrition-summary";
-import { getFood } from "@/lib/data/foods";
+import { getFood } from "@/lib/db/foods";
 import { getRecipe, getVersion } from "@/lib/db/recipes";
 import { fmt, fmtMass, fmtQuantity } from "@/lib/format";
 import { yieldNote } from "@/lib/nutrition/recipe";

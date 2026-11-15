@@ -1,5 +1,5 @@
 import { PlanBoard } from "@/components/plan-board";
-import { FOODS } from "@/lib/data/foods";
+import { listFoods } from "@/lib/db/foods";
 import { today } from "@/lib/db/entries";
 import { getPlan, listPlanEntries } from "@/lib/db/plan";
 import { getProfile } from "@/lib/db/profile";
@@ -35,7 +35,7 @@ export default async function PlanPage({ searchParams }: PlanPageProps) {
     <PlanBoard
       week={week}
       today={today()}
-      foods={FOODS}
+      foods={listFoods()}
       recipes={listRecipeOptions()}
       entries={entries}
       targets={targetsFor(profile)}

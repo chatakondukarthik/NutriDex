@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FOODS } from "@/lib/data/foods";
+import { SEED_FOODS } from "@/lib/data/foods";
 import {
   builderFromDraft,
   builderFromVersion,
@@ -84,7 +84,7 @@ describe("builder to draft", () => {
 
 describe("preview", () => {
   it("computes the same totals the server will store", () => {
-    const preview = previewRecipe(state(), FOODS);
+    const preview = previewRecipe(state(), SEED_FOODS);
     const prepared = prepareVersion(builderToDraft(state()));
 
     expect(preview.result).not.toBeNull();
@@ -102,14 +102,14 @@ describe("preview", () => {
     const partial = state();
     partial.blocks[0].inputs[0].amount = "";
 
-    const preview = previewRecipe(partial, FOODS);
+    const preview = previewRecipe(partial, SEED_FOODS);
     expect(preview.incomplete).toBe(1);
     // The remaining two ingredients still produce a total.
     expect(preview.result).not.toBeNull();
   });
 
   it("returns nothing when there is nothing valid to compute, and says why", () => {
-    const preview = previewRecipe(emptyBuilder(), FOODS);
+    const preview = previewRecipe(emptyBuilder(), SEED_FOODS);
     expect(preview.result).toBeNull();
     expect(preview.problem).toBe("ingredients");
   });
@@ -117,7 +117,7 @@ describe("preview", () => {
   it("returns nothing when servings are invalid, and says why", () => {
     const invalid = state();
     invalid.servings = "0";
-    const preview = previewRecipe(invalid, FOODS);
+    const preview = previewRecipe(invalid, SEED_FOODS);
     expect(preview.result).toBeNull();
     expect(preview.problem).toBe("servings");
   });
@@ -125,7 +125,7 @@ describe("preview", () => {
   it("treats a blank servings field as a missing number, not zero", () => {
     const blank = state();
     blank.servings = "";
-    expect(previewRecipe(blank, FOODS).problem).toBe("servings");
+    expect(previewRecipe(blank, SEED_FOODS).problem).toBe("servings");
   });
 });
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { makeProfile, rollup, scaleProfile, type Rollup } from "@/lib/nutrition/engine";
 import { assessDay, assessWeek, targetsFor } from "@/lib/targets";
-import { FOODS } from "@/lib/data/foods";
+import { SEED_FOODS } from "@/lib/data/foods";
 import { DEFAULT_PROFILE } from "@/lib/profile";
 
 /**
@@ -23,7 +23,7 @@ describe("rollup cost", () => {
     // 200 ingredients is far more than any real meal; it exists to make a
     // quadratic implementation obvious.
     const items = Array.from({ length: 200 }, (_, index) => {
-      const food = FOODS[index % FOODS.length];
+      const food = SEED_FOODS[index % SEED_FOODS.length];
       return { label: food.name, profile: food.nutrients, grams: 100 };
     });
 
@@ -36,7 +36,7 @@ describe("rollup cost", () => {
 
   it("scales linearly enough for a week of days", () => {
     const items = Array.from({ length: 50 }, (_, index) => {
-      const food = FOODS[index % FOODS.length];
+      const food = SEED_FOODS[index % SEED_FOODS.length];
       return { label: food.name, profile: food.nutrients, grams: 100 };
     });
 
