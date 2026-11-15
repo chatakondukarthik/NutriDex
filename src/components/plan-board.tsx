@@ -486,9 +486,15 @@ export function PlanBoard({
             </div>
 
             <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-ink/10">
-              {kcal != null && (
+              {kcal != null && dayTarget && (
                 <div
-                  className="bar-fill h-full rounded-full bg-accent"
+                  className={`bar-fill h-full rounded-full ${
+                    kcal / dayTarget.value >= 1.2
+                      ? "bg-danger"
+                      : kcal / dayTarget.value > 1
+                        ? "bg-warn"
+                        : "bg-accent"
+                  }`}
                   style={{ width: `${pct}%` }}
                 />
               )}
@@ -586,7 +592,17 @@ export function PlanBoard({
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Plan</h1>
-            <p className="mt-1 text-xs text-ink/45">{weekLabel}</p>
+            <div className="mt-1 flex items-center gap-2">
+              <p className="text-xs text-ink/45">{weekLabel}</p>
+              <input
+                type="date"
+                value={week}
+                onChange={(e) => {
+                  if (e.target.value) router.push(`/plan?week=${weekStart(e.target.value)}`);
+                }}
+                className="rounded-md border border-line bg-bg px-2 py-1 text-xs"
+              />
+            </div>
           </div>
 
           <div className="flex items-center gap-1">
@@ -990,7 +1006,13 @@ export function PlanBoard({
                   <div className="mt-3 h-2 overflow-hidden rounded-full bg-ink/10">
                     <div
                       className={`bar-fill h-full rounded-full ${
-                        energy.status === "high" ? "bg-warn" : "bg-accent"
+                        (energy.ratio ?? 0) >= 1.2
+                          ? "bg-danger"
+                          : (energy.ratio ?? 0) > 1
+                            ? "bg-warn"
+                            : energy.status === "high"
+                              ? "bg-warn"
+                              : "bg-accent"
                       }`}
                       style={{
                         width: `${Math.min(100, (energy.ratio ?? 0) * 100)}%`,

@@ -6,8 +6,13 @@ import { targetsFor } from "@/lib/targets";
 
 export const dynamic = "force-dynamic";
 
-export default function HomePage() {
-  const day = today();
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ day?: string }>;
+}) {
+  const { day: requested } = await searchParams;
+  const day = requested && /^\d{4}-\d{2}-\d{2}$/.test(requested) ? requested : today();
   const entries = listEntries(day);
   const targets = targetsFor(getProfile());
 

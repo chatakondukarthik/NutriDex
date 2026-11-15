@@ -702,3 +702,19 @@ export async function importUsdaAction(fdcId: number): Promise<{ ok: boolean; pr
     return { ok: false, message: error instanceof Error ? error.message : "Import failed." };
   }
 }
+
+
+export async function importInndbAction(
+  csvText: string,
+  mappingJson?: string,
+): Promise<{ ok: boolean; imported?: number; skipped?: number; errors?: { row: number; name: string; message: string }[]; message?: string }> {
+  try {
+    const { importInndb, DEFAULT_INNDB_MAPPING } = await import("@/lib/importer/inndb");
+    const mapping = mappingJson ? JSON.parse(mappingJson) : DEFAULT_INNDB_MAPPING;
+    const result = importInndb(csvText, mapping);
+    revalidatePath("/foods");
+    return { ok: true, imported: result.imported, skipped: result.skipped, errors: result.errors };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Import failed." };
+  }
+}

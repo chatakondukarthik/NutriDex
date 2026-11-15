@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { addFoodAction, removeEntryAction } from "@/app/actions";
 import { NutrientBar } from "@/components/nutrient-bar";
 import type { Entry } from "@/lib/db/entries";
@@ -32,6 +33,7 @@ function parseUnitKey(key: string): { unit: Unit; portionLabel?: string } {
 }
 
 export function Diary({ foods, entries, targets, day }: DiaryProps) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [amount, setAmount] = useState("100");
@@ -121,7 +123,17 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
         <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Diary</h1>
-            <p className="mt-1 text-xs text-ink/45">{fmtDay(day)}</p>
+            <div className="mt-1 flex items-center gap-2">
+              <p className="text-xs text-ink/45">{fmtDay(day)}</p>
+              <input
+                type="date"
+                value={day}
+                onChange={(e) => {
+                  if (e.target.value) router.push(`/?day=${e.target.value}`);
+                }}
+                className="rounded-md border border-line bg-bg px-2 py-1 text-xs"
+              />
+            </div>
           </div>
           <p className="text-[11px] text-ink/35">
             {entries.length} {entries.length === 1 ? "entry" : "entries"} · coverage shown per

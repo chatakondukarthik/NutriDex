@@ -19,6 +19,9 @@ export default function FoodsPage() {
         <Link href="/foods/new" className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-fg">
           New food
         </Link>
+        <Link href="/foods/import" className="rounded-md border border-line px-3 py-1.5 text-xs font-medium">
+          Import CSV
+        </Link>
       </div>
       <FoodsBrowser foods={all} />
     </main>
