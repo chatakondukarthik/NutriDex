@@ -47,13 +47,26 @@ function parseUnitKey(key: string): { unit: Unit; portionLabel?: string } {
 export function Diary({ foods, entries, targets, day, planned, plannedKcal }: DiaryProps) {
   const router = useRouter();
   const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("All");
+  const [mineOnly, setMineOnly] = useState(false);
+  const [limit, setLimit] = useState(24);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [amount, setAmount] = useState("100");
   const [unitKey, setUnitKey] = useState("g");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const results = useMemo(() => searchFoods(foods, query), [query]);
+  const categories = useMemo(
+    () => ["All", ...Array.from(new Set(foods.map((f) => f.category))).sort()],
+    [foods],
+  );
+
+  const results = useMemo(() => {
+    let list = searchFoods(foods, query);
+    if (category !== "All") list = list.filter((f) => f.category === category);
+    if (mineOnly) list = list.filter((f) => !!f.source);
+    return list;
+  }, [foods, query, category, mineOnly]);
   const selectedFood = foods.find((f) => f.id === selectedId) ?? null;
   const result = useMemo(
     () =>
@@ -173,6 +186,19 @@ export function Diary({ foods, entries, targets, day, planned, plannedKcal }: Di
         </div>
 
         {planned.length > 0 && (
+          <section className="mb-4 grid gap-3 sm:grid-cols-[1fr_1fr] rounded-2xl border border-line bg-surface p-4 shadow-card">
+            <div>
+              <h2 className="text-sm font-semibold">Planned</h2>
+              <p className="tabular mt-1 text-2xl font-semibold">{Math.round(plannedKcal)} <span className="text-sm font-normal text-ink/40">kcal</span></p>
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold">Logged</h2>
+              <p className="tabular mt-1 text-2xl font-semibold">{fmt(result?.totals.ENERC_KCAL ?? null, 0)} <span className="text-sm font-normal text-ink/40">kcal</span></p>
+            </div>
+          </section>
+        )}
+
+        {planned.length > 0 && (
           <section className="mb-4 rounded-2xl border border-line bg-surface p-4 shadow-card">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h2 className="text-sm font-semibold">Planned for this day</h2>
@@ -217,14 +243,30 @@ export function Diary({ foods, entries, targets, day, planned, plannedKcal }: Di
             placeholder="paneer, palak, dal, doodh…"
             className="mt-3 w-full rounded-xl border border-line bg-surface-2 px-3.5 py-2.5 text-sm outline-none placeholder:text-ink/30 focus:border-accent/50 focus:ring-2 focus:ring-accent/10"
           />
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <select
+              value={category}
+              onChange={(event) => setCategory(event.target.value)}
+              aria-label="Filter by category"
+              className="h-7 rounded-md border border-line bg-bg px-2 text-[11px]"
+            >
+              {categories.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </select>
+            <label className="flex h-7 cursor-pointer items-center gap-1 text-[11px] text-muted">
+              <input type="checkbox" checked={mineOnly} onChange={(event) => setMineOnly(event.target.checked)} />
+              My foods only
+            </label>
+          </div>
 
-          <div className="mt-3 flex items-center justify-between text-[11px] text-ink/40">
+          <div className="mt-2 flex items-center justify-between text-[11px] text-ink/40">
             <span>{results.length} foods</span>
             <span>values per 100 g</span>
           </div>
 
           <ul className="mt-2 divide-y divide-line">
-            {results.map((food) => {
+            {results.slice(0, limit).map((food) => {
               const kcal = food.nutrients.ENERC_KCAL.amount;
               const isOpen = food.id === selectedId;
 
@@ -321,6 +363,15 @@ export function Diary({ foods, entries, targets, day, planned, plannedKcal }: Di
               );
             })}
           </ul>
+          {results.length > limit && (
+            <button
+              type="button"
+              onClick={() => setLimit((value) => value + 24)}
+              className="mt-2 w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-[11px] font-medium text-ink/60 transition hover:bg-ink/5"
+            >
+              Show more ({results.length - limit} more)
+            </button>
+          )}
         </section>
 
         {/* ---- Today ---------------------------------------------------- */}
