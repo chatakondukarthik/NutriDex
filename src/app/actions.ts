@@ -849,6 +849,8 @@ export async function createRecipeFromPlanAction(
     recipeId?: string | null;
     mode?: "new-version" | "replace-current";
     replaceVersionId?: string | null;
+    /** Fill missing ingredient nutrition with AI before saving (default: true). */
+    fillMissingNutrition?: boolean;
   },
 ): Promise<{ ok: boolean; recipeId?: string; message?: string }> {
   try {
@@ -856,6 +858,7 @@ export async function createRecipeFromPlanAction(
     const saved = await materializeRecipe(base, input.recipeId ?? undefined, {
       mode: input.mode,
       replaceVersionId: input.replaceVersionId ?? null,
+      fillMissingNutrition: input.fillMissingNutrition,
     });
     const { recipeId } = saved;
     revalidatePath("/recipes");
@@ -1019,7 +1022,9 @@ export async function resetMasterPromptAction(): Promise<{ ok: boolean }> {
   return { ok: true };
 }
 
-export async function estimateAllFoodsAction(): Promise<{
+export async function estimateFoodsAction(input?: {
+  foodIds?: string[];
+}): Promise<{
   ok: boolean;
   filled?: number;
   skipped?: number;
@@ -1036,7 +1041,7 @@ export async function estimateAllFoodsAction(): Promise<{
 
   const { fillAllWithAi } = await import("@/lib/ai/estimate-food");
   try {
-    const result = await fillAllWithAi({ masterPrompt: getMasterPrompt() });
+    const result = await fillAllWithAi({ masterPrompt: getMasterPrompt(), foodIds: input?.foodIds });
     const failedNames = result.failed.length;
     revalidatePath("/foods");
     revalidatePath("/");

@@ -59,7 +59,7 @@ Rules:
 - Prefer regional/cuisine-specific knowledge where it differs from global tables. Reasons should say where the estimate comes from (e.g. "IFCT-ish typical for moong dal, cooked").
 - Be honest about low confidence; "low" costs nothing.`;
 
-type CompleteFn = typeof complete;
+export type CompleteFn = typeof complete;
 
 export interface EstimateOptions {
   completeFn?: CompleteFn;
@@ -175,6 +175,8 @@ export async function fillAllWithAi(opts: {
   completeFn?: CompleteFn;
   masterPrompt?: string | null;
   maxFoods?: number;
+  /** Restrict to this set of food ids (e.g. the ingredients of one recipe). */
+  foodIds?: string[];
 } = {}): Promise<{
   foodsEstimated: number;
   nutritionEntries: number;
@@ -183,6 +185,7 @@ export async function fillAllWithAi(opts: {
 }> {
   const foods = listFoods().filter((food) => food.source); // captured only
   const pending = foods.filter((food) =>
+    (!opts.foodIds || opts.foodIds.includes(food.id)) &&
     NUTRIENT_CODES.some((code) => food.nutrients[code]?.amount == null),
   );
   const cap = opts.maxFoods ?? 50;

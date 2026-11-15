@@ -133,9 +133,32 @@ export async function planRecipeFromPrompt(
 export async function materializeRecipe(
   plan: RecipePlan,
   recipeId?: string,
-  opts?: { mode?: "new-version" | "replace-current"; replaceVersionId?: string | null },
+  opts?: {
+    mode?: "new-version" | "replace-current";
+    replaceVersionId?: string | null;
+    /** Fill missing ingredient nutrition with AI estimates before saving (default true). */
+    fillMissingNutrition?: boolean;
+    /** Test hook — overrides the LLM used for estimation. */
+    completeFn?: import("@/lib/ai/estimate-food").CompleteFn;
+  },
 ): Promise<{ recipeId: string; resolutions: import("@/lib/ai/food-resolve").PlanFoodResolution[] }> {
   const { map: foodIndex, resolutions } = await resolvePlanFoods(plan, listFoods(), { persist: true });
+
+  // Fill leftover nutrition data with AI estimates BEFORE saving, so the
+  // recipe is born with real numbers rather than empty ones. One LLM call
+  // per food (all missing nutrients bundled); known values are never
+  // touched. Failures are non-fatal — the recipe still saves.
+  if (opts?.fillMissingNutrition !== false) {
+    const targets = [...new Set([...foodIndex.values()].filter(Boolean))] as string[];
+    if (targets.length > 0) {
+      try {
+        const { fillAllWithAi } = await import("@/lib/ai/estimate-food");
+        await fillAllWithAi({ foodIds: targets, completeFn: opts?.completeFn });
+      } catch {
+        // Nutrition stayed as-is; the recipe can be filled later per food.
+      }
+    }
+  }
   const idBase = `gen-${Date.now().toString(36)}`;
   const nodes: Graph["nodes"] = [];
   const edges: Graph["edges"] = [];

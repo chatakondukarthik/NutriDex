@@ -5,10 +5,20 @@ import Link from "next/link";
 import type { Food } from "@/lib/nutrition/types";
 import { searchFoods } from "@/lib/nutrition/food-search";
 import { serializeFragment } from "@/lib/recipe-fragment";
+import { BulkEstimateButton } from "@/components/bulk-estimate-button";
+import { NUTRIENT_CODES } from "@/lib/nutrition/types";
 
 const CATEGORIES = ["All", "Dairy", "Grains", "Vegetables", "Fruits", "Legumes", "Oils", "Nuts", "Meat", "Seafood", "Spices", "Beverages", "Custom"];
 
-export function FoodsBrowser({ foods }: { foods: Food[] }) {
+export function FoodsBrowser({
+  foods,
+  aiEnabled,
+  hasKey,
+}: {
+  foods: Food[];
+  aiEnabled: boolean;
+  hasKey: boolean;
+}) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All");
   const [mineOnly, setMineOnly] = useState(false);
@@ -39,6 +49,19 @@ export function FoodsBrowser({ foods }: { foods: Food[] }) {
     if (noticeTimer.current) window.clearTimeout(noticeTimer.current);
     noticeTimer.current = window.setTimeout(() => setNotice(null), 2600);
   }
+
+  const pendingFoods = useMemo(
+    () =>
+      foods
+        .map((food) => ({
+          id: food.id,
+          name: food.name,
+          captured: !!food.source,
+          missing: NUTRIENT_CODES.filter((code) => food.nutrients[code]?.amount == null).length,
+        }))
+        .filter((food) => food.captured && food.missing > 0),
+    [foods],
+  );
 
   const visibleIds = results.map((food) => food.id);
   const allVisibleSelected =
@@ -131,6 +154,12 @@ export function FoodsBrowser({ foods }: { foods: Food[] }) {
         <span aria-live="polite" className="text-[11px] tabular text-ink/45">
           {selectedCount} selected
         </span>
+        <BulkEstimateButton
+          pendingFoods={pendingFoods}
+          selectedIds={selected}
+          aiEnabled={aiEnabled}
+          hasKey={hasKey}
+        />
         {selectedCount > 0 && (
           <button
             type="button"

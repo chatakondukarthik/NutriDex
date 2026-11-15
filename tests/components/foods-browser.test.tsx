@@ -1,7 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { FoodsBrowser } from "@/components/foods-browser";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn(), replace: vi.fn(), back: vi.fn() }),
+}));
 import { SEED_FOODS } from "@/lib/data/foods";
 import { parseRecipeFragment } from "@/lib/recipe-fragment";
 
@@ -10,14 +14,14 @@ import { parseRecipeFragment } from "@/lib/recipe-fragment";
 
 describe("foods browser: selection", () => {
   it("starts with nothing selected and the copy button disabled", () => {
-    render(<FoodsBrowser foods={SEED_FOODS} />);
+    render(<FoodsBrowser foods={SEED_FOODS} aiEnabled={false} hasKey={true} />);
     expect(screen.getByText("0 selected")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /copy selected/i })).toBeDisabled();
   });
 
   it("selects individual foods by their checkboxes", async () => {
     const user = userEvent.setup();
-    render(<FoodsBrowser foods={SEED_FOODS} />);
+    render(<FoodsBrowser foods={SEED_FOODS} aiEnabled={false} hasKey={true} />);
 
     const name = SEED_FOODS[0].name;
     await user.click(screen.getByRole("checkbox", { name: `Select ${name}` }));
@@ -28,7 +32,7 @@ describe("foods browser: selection", () => {
 
   it("select all shown toggles the visible list only", async () => {
     const user = userEvent.setup();
-    render(<FoodsBrowser foods={SEED_FOODS} />);
+    render(<FoodsBrowser foods={SEED_FOODS} aiEnabled={false} hasKey={true} />);
 
     await user.click(screen.getByRole("checkbox", { name: /select all/i }));
     expect(screen.getByText(`${SEED_FOODS.length} selected`)).toBeInTheDocument();
@@ -39,7 +43,7 @@ describe("foods browser: selection", () => {
 
   it("copies the selection as a recipe fragment with grams of 100", async () => {
     const user = userEvent.setup();
-    render(<FoodsBrowser foods={SEED_FOODS} />);
+    render(<FoodsBrowser foods={SEED_FOODS} aiEnabled={false} hasKey={true} />);
 
     const [first, second] = SEED_FOODS;
     await user.click(screen.getByRole("checkbox", { name: `Select ${first.name}` }));
@@ -60,7 +64,7 @@ describe("foods browser: selection", () => {
 
   it("clear empties the selection", async () => {
     const user = userEvent.setup();
-    render(<FoodsBrowser foods={SEED_FOODS} />);
+    render(<FoodsBrowser foods={SEED_FOODS} aiEnabled={false} hasKey={true} />);
 
     await user.click(screen.getByRole("checkbox", { name: `Select ${SEED_FOODS[0].name}` }));
     await user.click(screen.getByRole("button", { name: /^clear$/i }));

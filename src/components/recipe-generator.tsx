@@ -33,6 +33,10 @@ export function RecipeGenerator({
   const [prompt, setPrompt] = useState("");
   const [plan, setPlan] = useState<RecipePlan | null>(null);
   const [resolutions, setResolutions] = useState<PlanFoodResolution[] | null>(null);
+  // Fill the leftover nutrition of the ingredients with AI estimates at
+  // save time. Known values are never touched; every fill lands as
+  // estimated + ai:model with a reason attached.
+  const [fillMissingNutrition, setFillMissingNutrition] = useState(true);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -66,6 +70,7 @@ export function RecipeGenerator({
   }
 
   const replacing = mode === "edit" && saveMode === "replace-current" && versionId != null;
+  const missingCount = resolutions?.filter((r) => r.status !== "reused").length ?? 0;
   const confirmLabel =
     mode === "create"
       ? "Add recipe"
@@ -82,6 +87,7 @@ export function RecipeGenerator({
         recipeId: mode === "edit" ? recipeId : null,
         mode: mode === "edit" ? saveMode : "new-version",
         replaceVersionId: replacing ? versionId : null,
+        fillMissingNutrition,
       });
       if (!result.ok || !result.recipeId) {
         setError(result.message ?? "Could not create the recipe.");
@@ -215,6 +221,22 @@ export function RecipeGenerator({
                       Provisional foods stay unknown until you fill them in — the AI never invents them.
                     </p>
                   </div>
+                )}
+                {resolutions && resolutions.some((r) => r.status !== "reused") && (
+                  <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-md border border-warn-line bg-warn-soft px-3 py-2 text-[10px] leading-relaxed text-warn-ink">
+                    <input
+                      type="checkbox"
+                      checked={fillMissingNutrition}
+                      onChange={(event) => setFillMissingNutrition(event.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      Fill the {missingCount} ingredient{missingCount === 1 ? "" : "s"} above with
+                      AI estimates. They will land as <strong>estimated</strong> (marked, editable,
+                      never overwriting known values) — every future recipe, plan and diary entry
+                      that uses them reuses these estimates.
+                    </span>
+                  </label>
                 )}
                 {mode === "edit" && (
                   <p

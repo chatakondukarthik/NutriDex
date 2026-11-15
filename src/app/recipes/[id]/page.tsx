@@ -2,6 +2,7 @@ import Link from "next/link";
 import { DuplicateRecipeButton } from "@/components/duplicate-recipe-button";
 import { DeleteVersionButton } from "@/components/delete-version-button";
 import { MakeCurrentButton } from "@/components/make-current-button";
+import { FillRecipeNutritionButton } from "@/components/fill-recipe-nutrition-button";
 import { StepNutrition } from "@/components/step-nutrition";
 import { DeleteButton } from "@/components/delete-button";
 import { deleteRecipeAction } from "@/app/actions";
@@ -36,8 +37,27 @@ export default async function RecipePage({
   const version = versionId ? getVersion(versionId) : undefined;
   if (!version || version.recipeId !== id) notFound();
 
-  const snapshot = version.snapshot;
+  // Captured ingredients with missing nutrients — candidates for AI fill.
   const isCurrent = version.id === recipe.summary.currentVersionId;
+
+  const fillTargets: { id: string; name: string; missing: number }[] = (() => {
+    if (!isCurrent) return [];
+    const seen = new Set<string>();
+    const missingById = new Map<string, { id: string; name: string; missing: number }>();
+    for (const block of version.blocks ?? []) {
+      for (const input of block.inputs) {
+        if (seen.has(input.foodId)) continue;
+        seen.add(input.foodId);
+        const food = getFood(input.foodId);
+        if (!food?.source) continue; // seeds/fixtures are read-only
+        const missing = NUTRIENT_CODES.filter((code) => food.nutrients[code]?.amount == null).length;
+        if (missing > 0) missingById.set(food.id, { id: food.id, name: food.name, missing });
+      }
+    }
+    return [...missingById.values()];
+  })();
+
+  const snapshot = version.snapshot;
   const knownNutrients = NUTRIENT_CODES.filter((code) => snapshot.total.totals[code] != null).length;
 
   return (
@@ -70,6 +90,7 @@ export default async function RecipePage({
         </div>
 
         <div className="flex items-center gap-2">
+          {fillTargets.length > 0 && <FillRecipeNutritionButton foods={fillTargets} />}
           <Link
             href={`/recipes/${id}/edit`}
             className="rounded-lg border border-line px-3.5 py-2 text-xs font-medium text-ink/60 transition hover:bg-ink/5"
