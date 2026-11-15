@@ -281,6 +281,39 @@ be running, and never `pkill -f "next"` indiscriminately — that sweeps up the
 user's own dev server.** Only stop servers this session started, and confirm
 ports are free before cleaning. Ask first when in doubt.
 
+## Feature batch 2026-11-15 (evening)
+
+Committed `21e0dd1`:
+
+1. **Recipes search by ingredient** — `src/lib/recipe-filter.ts` (pure, tested):
+   text query matches name or any ingredient name/alias (haystack built per
+   recipe in `/recipes` page from `listRecipeIngredientIds()` — current
+   version, GROUP_CONCAT). `recipes-browser.tsx` gains an ingredient dropdown
+   with usage counts, chips on each card (click = filter), and the text box
+   now searches ingredients too.
+2. **Canvas select mode** — top-left toggle (Hand / box-select icon) in
+   `flow-editor.tsx`; `panOnDrag` vs `selectionOnDrag` +
+   `SelectionMode.Partial`. **Copy** (Ctrl+C / Copy) now writes a portable
+   JSON fragment (`src/lib/recipe-fragment.ts`, app `nutriplan-flow`,
+   version 2, whitelisted node data). **Paste JSON…** opens
+   `paste-fragment-dialog.tsx` with a strict validator (used by both the
+   dialog and Ctrl+V); v1 envelopes still accepted.
+3. **Leave guard** — `src/components/leave-guard.tsx`: `useLeaveGuard`
+   intercepts in-app link clicks (capture phase), Back button (pushState
+   sentinel + popstate) and `beforeunload`; `LeaveGuardDialog` offers
+   Save & leave / Discard changes / Stay (Escape = stay, safe default).
+   Wired into the flow editor (recipes new/edit) with a JSON baseline
+   (name/version/instructions/servings + buildGraph output + rounded
+   positions). NOTE: flow-editor `save()` now returns `{ ok, recipeId }`;
+   the toolbar Save button must not call it bare (navigation happens there).
+4. **Scroll** — `/foods` grid is capped at 70vh with internal scroll; all
+   other long lists (recipes grid, diary foods/recipes tabs, plan palette,
+   logged, planned) already scroll.
+
+Tests: 302 passing across 27 files (new: fragment parser, recipe filter,
+recipes-browser, leave-guard, paste-fragment-dialog). jsdom is still the
+reliable verification path while the browser wedge persists.
+
 ## Rules of engagement recapped
 
 - Never make claims about what hydrated without querying the browser DOM.
