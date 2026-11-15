@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { db, transaction } from "./client";
 import type { RecipeResult } from "@/lib/nutrition/recipe";
 import type { PlanRecipeOption } from "@/lib/plan";
+import { legacyBlocksToGraph } from "@/lib/recipe-graph";
 
 export interface StoredInput {
   id: string;
@@ -82,6 +83,7 @@ export interface VersionInput {
       note: string | null;
     }>;
   }>;
+  processGraph?: import("@/lib/recipe-graph").ProcessGraph | null;
   snapshot: RecipeResult;
 }
 
@@ -197,10 +199,30 @@ function insertVersion(
   const versionNo = (previous?.max ?? 0) + 1;
   const versionId = randomUUID();
 
+  // Derive a process graph from the blocks if one was not supplied.
+  const graph =
+    version.processGraph ??
+    legacyBlocksToGraph(
+      version.blocks.map((b, i) => ({
+        id: `b${i + 1}`,
+        name: b.name,
+        operation: b.operation,
+        outputGrams: b.outputGrams,
+        inputs: b.inputs.map((inp) => ({
+          foodId: inp.foodId,
+          grams: inp.grams,
+          amount: inp.amount,
+          unit: inp.unit,
+          preparation: inp.preparation,
+          note: inp.note,
+        })),
+      })),
+    );
+
   db.prepare(
     `INSERT INTO recipe_versions
-       (id, recipe_id, version_no, instructions, servings, yield_g, snapshot, calculation_version, label, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, recipe_id, version_no, instructions, servings, yield_g, snapshot, calculation_version, label, process_graph, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     versionId,
     recipeId,
@@ -211,6 +233,7 @@ function insertVersion(
     JSON.stringify(version.snapshot),
     version.snapshot.calculationVersion,
     version.label?.trim() || null,
+    JSON.stringify(graph),
     new Date().toISOString(),
   );
 
