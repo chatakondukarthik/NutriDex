@@ -31,6 +31,7 @@ means writing a new record that supersedes it.
 |---|---|
 | [`reference/NUTRITION.md`](reference/NUTRITION.md) | How are nutrient values calculated? |
 | [`reference/DATA-MODEL.md`](reference/DATA-MODEL.md) | What are the entities? |
+| [`reference/USER_SCHEMA.md`](reference/USER_SCHEMA.md) | How to add accounts later without a rewrite |
 | [`reference/STACK.md`](reference/STACK.md) | What runs this, and why? |
 | [`reference/TESTING.md`](reference/TESTING.md) | What is tested, how, and what is still manual? |
 
