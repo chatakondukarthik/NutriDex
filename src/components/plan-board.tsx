@@ -1075,7 +1075,8 @@ export function PlanBoard({
 
         <footer className="mx-auto max-w-7xl pb-8 pt-4">
           <p className="text-[11px] leading-relaxed text-ink/35">
-            {pending ? "Saving… · " : ""}
+            {pending ? "" : "✓ All changes saved"}
+            {pending ? " — saving… · " : " · "}
             A planned recipe is pinned to the version you added. Editing the recipe later creates
             a new version and leaves this week alone. Targets are estimates from your profile and
             reference values, not medical advice.

@@ -180,7 +180,7 @@ export function Diary({ foods, entries, targets, day, planned, plannedKcal }: Di
             </div>
           </div>
           <p className="text-[11px] text-ink/35">
-            {entries.length} {entries.length === 1 ? "entry" : "entries"} · coverage shown per
+            ✓ Saved · {entries.length} {entries.length === 1 ? "entry" : "entries"} · coverage shown per
             nutrient
           </p>
         </div>
