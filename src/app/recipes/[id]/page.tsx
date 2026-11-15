@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { DuplicateRecipeButton } from "@/components/duplicate-recipe-button";
+import { ProcessGraphView } from "@/components/process-graph";
 import { notFound } from "next/navigation";
 import { MACRO_CODES, MICRO_CODES, NutrientRows } from "@/components/nutrition-summary";
 import { getFood } from "@/lib/db/foods";
@@ -201,6 +202,18 @@ export default async function RecipePage({
           );
         })}
       </section>
+
+      {version.processGraph && (
+        <section className="mt-4 rounded-2xl border border-line bg-surface p-5 shadow-card">
+          <h2 className="text-sm font-semibold">Process flow</h2>
+          <p className="mt-1 text-[11px] text-ink/45">
+            Each block shows before and after nutrients. Drag to pan, scroll to zoom.
+          </p>
+          <div className="mt-3">
+            <ProcessGraphView graph={version.processGraph} />
+          </div>
+        </section>
+      )}
 
       {version.instructions && (
         <section className="mt-4 rounded-2xl border border-line bg-surface p-5 shadow-card">

@@ -50,6 +50,7 @@ export interface RecipeVersionDetail {
   calculationVersion: string;
   createdAt: string;
   blocks: StoredBlock[];
+  processGraph?: import("@/lib/recipe-graph").ProcessGraph | null;
 }
 
 export interface VersionRef {
@@ -103,6 +104,7 @@ interface VersionRow {
   snapshot: string;
   calculation_version: string;
   label: string | null;
+  process_graph: string | null;
   created_at: string;
 }
 
@@ -365,6 +367,9 @@ export function getVersion(versionId: string): RecipeVersionDetail | undefined {
       outputGrams: block.output_g,
       inputs: inputsByBlock.get(block.id) ?? [],
     })),
+    processGraph: version.process_graph
+      ? (JSON.parse(version.process_graph) as import("@/lib/recipe-graph").ProcessGraph)
+      : null,
   };
 }
 
