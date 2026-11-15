@@ -29,7 +29,7 @@ export interface PlannedItem {
   kcal: number | null;
 }
 
-interface DiaryProps {
+export interface DiaryProps {
   foods: Food[];
   /**
    * All versions of saved recipes — used to resolve names and kcal for older
@@ -672,7 +672,7 @@ export function Diary({ foods, entries, targets, day, planned, plannedKcal, reci
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm">{label}</div>
                           <div className="text-[11px] text-ink/40">
-                            {fmt(entry.amount, entry.amount % 1 === 0 ? 0 : 2)}{" "}
+                            {fmt(entry.amount, entry.amount % 1 === 0 ? 0 : 1)}{" "}
                             {entry.amount === 1 ? "serving" : "servings"}
                           </div>
                         </div>
