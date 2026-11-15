@@ -268,6 +268,19 @@ correct (tab pill, markup present) and `npm test` + `tsc` are the reliable verif
 loops until the environment is restarted. If hydration works for you locally,
 verify `/` → Recipes tab → pick "Paneer bhurji" → Servings 1.5 → Add.
 
+## Incident 2026-11-15 late: `.next` deleted under a running dev server
+
+`rm -rf .next` was run during a verification cycle while the user's `next dev`
+on port 3000 was live. Next detected the missing `.next/dev` and refused to
+continue ("The directory at .../.next/dev was deleted ... Restarting the
+server to recover...") — both servers died. Recovery: `rm -rf .next` once
+nothing was running, then `npm run dev` on 3000; SSR verified with 200s.
+
+Rule from this incident: **never `rm -rf .next` while any Next server might
+be running, and never `pkill -f "next"` indiscriminately — that sweeps up the
+user's own dev server.** Only stop servers this session started, and confirm
+ports are free before cleaning. Ask first when in doubt.
+
 ## Rules of engagement recapped
 
 - Never make claims about what hydrated without querying the browser DOM.
