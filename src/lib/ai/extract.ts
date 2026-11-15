@@ -84,7 +84,7 @@ export async function extractFoodFromText(text: string): Promise<FoodProposal> {
     prompt: `Description: ${text}\n\nReturn the JSON object now.`,
     jsonSchema: FOOD_PROPOSAL_SCHEMA,
     temperature: 0,
-    maxTokens: 1024,
+    maxTokens: 4096,
   });
   return parseProposal(response.text);
 }
@@ -100,21 +100,33 @@ export async function extractFoodFromImage(
     images,
     jsonSchema: FOOD_PROPOSAL_SCHEMA,
     temperature: 0,
-    maxTokens: 1024,
+    maxTokens: 4096,
   });
   return parseProposal(response.text);
 }
 
 function parseProposal(raw: string): FoodProposal {
   let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    // try to find a JSON object
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error("The model did not return JSON.");
-    parsed = JSON.parse(match[0]);
+  const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  const candidates = [cleaned];
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (match) candidates.push(match[0]);
+  // repair truncated output by closing open braces/brackets
+  let repaired = cleaned;
+  const opens = (repaired.match(/[{[]/g) ?? []).length;
+  const closes = (repaired.match(/[}\]]/g) ?? []).length;
+  if (opens > closes) repaired = repaired + "}".repeat(opens - closes);
+  candidates.push(repaired);
+
+  for (const candidate of candidates) {
+    try {
+      parsed = JSON.parse(candidate);
+      break;
+    } catch {
+      parsed = undefined;
+    }
   }
+  if (!parsed) throw new Error("The model did not return JSON.");
   if (!parsed || typeof parsed !== "object") throw new Error("The model returned an empty answer.");
   const obj = parsed as Record<string, unknown>;
 
