@@ -237,6 +237,37 @@ reshaped:
 - `/foods/new` — long form, method choice UX, destructive-action confirm
 - `/settings` — AI provider form, capability filters, destructive removes
 
+## State after 2026-11-15 late session
+
+### New since the morning compaction
+
+- **Plan board**: day cells scroll at `max-h-[280px]`; 7-day grid reflows on small screens.
+- **/recipes**: search by name + dish/component filter + 600 px scroll (`recipes-browser.tsx`).
+- **Create / Edit with AI**: `RecipeGenerator` is one component for both paths, present on
+  `/recipes/new` and `/recipes/[id]/edit`; renders the button disabled
+  (labelled) when `aiStatus().enabled` is false instead of vanishing.
+  Server actions plumb `recipeId` so the same flow writes a new version.
+- **Diary recipes**: `entries` now stores a food XOR a recipe version (`recipe_version_id`
+  REFERENCES recipe_versions), with a boot-time rebuild; `dayRollup` scales recipes from the
+  pinned snapshot; Diary has a Foods/Recipes tab pill; logged list merges both with correct
+  units; lists are scrollable; `addRecipeEntryAction` + `countRecipeReferences` include
+  diary references so recipes used there archive instead of deleting.
+- **Save indicators**: Plan footer shows "All changes saved"/"saving…"; Diary header shows
+  "✓ Saved".
+- **Planned vs Logged** strip on Diary with planned kcal vs today's logged kcal.
+- **.gitignore covers `data/`** — it held `nutriplan.sqlite*` and `secrets.json` uncommitted.
+- **Tests**: 264 passing across 22 files; added diary recipes component suite and
+  entries-table data-integrity cases.
+
+### Browser wedge (unresolved, environmental)
+
+Both `next start` (clean build) and `next dev` on fresh tabs render SSR HTML but React
+**never hydrates** — content streams in inside `<div hidden>`, `"Loading diary"` fallback
+stays visible on every route, zero console output, zero failed requests. SSR HTML is
+correct (tab pill, markup present) and `npm test` + `tsc` are the reliable verification
+loops until the environment is restarted. If hydration works for you locally,
+verify `/` → Recipes tab → pick "Paneer bhurji" → Servings 1.5 → Add.
+
 ## Rules of engagement recapped
 
 - Never make claims about what hydrated without querying the browser DOM.
