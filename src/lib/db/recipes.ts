@@ -212,12 +212,18 @@ function insertVersion(
     new Date().toISOString(),
   );
 
-  version.blocks.forEach((block, blockIndex) => {
+  writeBlocks(versionId, version.blocks);
+
+  return { versionId, versionNo };
+}
+
+function writeBlocks(recipeVersionId: string, blocks: VersionInput["blocks"]) {
+  blocks.forEach((block, blockIndex) => {
     const blockId = randomUUID();
     db.prepare(
       `INSERT INTO components (id, recipe_version_id, position, name, operation, output_g)
        VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(blockId, versionId, blockIndex, block.name, block.operation, block.outputGrams);
+    ).run(blockId, recipeVersionId, blockIndex, block.name, block.operation, block.outputGrams);
 
     block.inputs.forEach((input, inputIndex) => {
       db.prepare(
@@ -237,8 +243,185 @@ function insertVersion(
       );
     });
   });
+}
 
-  return { versionId, versionNo };
+function deleteBlocks(recipeVersionId: string) {
+  const componentIds = (
+    db
+      .prepare("SELECT id FROM components WHERE recipe_version_id = ?")
+      .all(recipeVersionId) as unknown as Array<{ id: string }>
+  ).map((row) => row.id);
+  if (componentIds.length > 0) {
+    const placeholders = componentIds.map(() => "?").join(",");
+    db.prepare(`DELETE FROM component_inputs WHERE component_id IN (${placeholders})`).run(
+      ...componentIds,
+    );
+  }
+  db.prepare("DELETE FROM components WHERE recipe_version_id = ?").run(recipeVersionId);
+}
+
+/** Which recipe a version belongs to. Null when the version is gone. */
+export function getVersionOwner(versionId: string): string | null {
+  const row = db
+    .prepare("SELECT recipe_id FROM recipe_versions WHERE id = ?")
+    .get(versionId) as unknown as { recipe_id: string } | undefined;
+  return row?.recipe_id ?? null;
+}
+
+/**
+ * Point a recipe at a different version.
+ *
+ * Pinning semantics are untouched: anything already saved against a version
+ * keeps that version. This only changes which version new plans, new diary
+ * entries and the edit screen pick by default.
+ */
+export function promoteVersion(
+  recipeId: string,
+  versionId: string,
+): { ok: true } | { ok: false; message: string } {
+  const version = db
+    .prepare("SELECT recipe_id FROM recipe_versions WHERE id = ?")
+    .get(versionId) as unknown as { recipe_id: string } | undefined;
+  if (!version) return { ok: false, message: "That version no longer exists." };
+  if (version.recipe_id !== recipeId) {
+    return { ok: false, message: "That version does not belong to this recipe." };
+  }
+
+  transaction(() => {
+    db.prepare(
+      "UPDATE recipes SET current_version_id = ?, updated_at = ? WHERE id = ?",
+    ).run(versionId, new Date().toISOString(), recipeId);
+  });
+  return { ok: true };
+}
+
+/** References from plans or diary entries to one specific version. */
+export function countVersionReferences(versionId: string): number {
+  const row = db
+    .prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM plan_entries WHERE recipe_version_id = ?) +
+         (SELECT COUNT(*) FROM entries WHERE recipe_version_id = ?) AS n`,
+    )
+    .get(versionId, versionId) as unknown as { n: number };
+  return row.n;
+}
+
+export type DeleteVersionResult = { ok: true } | { ok: false; message: string };
+
+/**
+ * Delete one version of a recipe.
+ *
+ * - the only remaining version cannot be deleted (delete the recipe instead)
+ * - a version pinned by a plan or a diary entry cannot be deleted
+ * - deleting the current version promotes the next-highest one
+ */
+export function deleteVersion(versionId: string): DeleteVersionResult {
+  const version = db
+    .prepare("SELECT id, recipe_id, version_no FROM recipe_versions WHERE id = ?")
+    .get(versionId) as unknown as
+    | { id: string; recipe_id: string; version_no: number }
+    | undefined;
+  if (!version) return { ok: false, message: "That version no longer exists." };
+
+  const count = db
+    .prepare("SELECT COUNT(*) AS n FROM recipe_versions WHERE recipe_id = ?")
+    .get(version.recipe_id) as unknown as { n: number };
+  if (count.n <= 1) {
+    return {
+      ok: false,
+      message: "This is the only version of the recipe. Delete the recipe instead.",
+    };
+  }
+
+  const references = countVersionReferences(versionId);
+  if (references > 0) {
+    return {
+      ok: false,
+      message: `v${version.version_no} is used by ${references} plan or diary entr${
+        references === 1 ? "y" : "ies"
+      }; it can't be deleted. Delete those entries first.`,
+    };
+  }
+
+  transaction(() => {
+    deleteBlocks(versionId);
+    db.prepare("DELETE FROM recipe_versions WHERE id = ?").run(versionId);
+
+    const recipe = db
+      .prepare("SELECT current_version_id FROM recipes WHERE id = ?")
+      .get(version.recipe_id) as unknown as { current_version_id: string | null } | undefined;
+    if (recipe?.current_version_id === versionId) {
+      const next = db
+        .prepare(
+          "SELECT id FROM recipe_versions WHERE recipe_id = ? ORDER BY version_no DESC LIMIT 1",
+        )
+        .get(version.recipe_id) as unknown as { id: string } | undefined;
+      db.prepare(
+        "UPDATE recipes SET current_version_id = ?, updated_at = ? WHERE id = ?",
+      ).run(next?.id ?? null, new Date().toISOString(), version.recipe_id);
+    } else {
+      db.prepare("UPDATE recipes SET updated_at = ? WHERE id = ?").run(
+        new Date().toISOString(),
+        version.recipe_id,
+      );
+    }
+  });
+
+  return { ok: true };
+}
+
+/**
+ * Replace a version's content in place.
+ *
+ * The row keeps its id, version number and created_at — this is what
+ * "edit the current version" means. Refused outright when the version is
+ * pinned by a plan or a diary entry, because those plans were made against
+ * these exact values.
+ */
+export function replaceVersion(
+  versionId: string,
+  version: VersionInput,
+): { ok: true; recipeId: string; versionId: string; versionNo: number } | { ok: false; message: string } {
+  const current = db
+    .prepare("SELECT recipe_id, version_no FROM recipe_versions WHERE id = ?")
+    .get(versionId) as unknown as { recipe_id: string; version_no: number } | undefined;
+  if (!current) return { ok: false, message: "That version no longer exists." };
+
+  const references = countVersionReferences(versionId);
+  if (references > 0) {
+    return {
+      ok: false,
+      message: `v${current.version_no} is used by ${references} plan or diary entr${
+        references === 1 ? "y" : "ies"
+      }; it can't be replaced in place. It will be saved as a new version instead.`,
+    };
+  }
+
+  transaction(() => {
+    deleteBlocks(versionId);
+    db.prepare(
+      `UPDATE recipe_versions
+         SET instructions = ?, servings = ?, yield_g = ?, snapshot = ?,
+             calculation_version = ?, label = COALESCE(NULLIF(?, ''), label)
+       WHERE id = ?`,
+    ).run(
+      version.instructions,
+      version.servings,
+      version.yieldGrams,
+      JSON.stringify(version.snapshot),
+      version.snapshot.calculationVersion,
+      version.label?.trim() ?? null,
+      versionId,
+    );
+    writeBlocks(versionId, version.blocks);
+    db.prepare("UPDATE recipes SET updated_at = ? WHERE id = ?").run(
+      new Date().toISOString(),
+      current.recipe_id,
+    );
+  });
+
+  return { ok: true, recipeId: current.recipe_id, versionId, versionNo: current.version_no };
 }
 
 export function listRecipes(): RecipeSummary[] {

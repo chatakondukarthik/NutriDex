@@ -157,6 +157,7 @@ function ensureFoods(plan: RecipePlan): Map<string, string> {
 export function materializeRecipe(
   plan: RecipePlan,
   recipeId?: string,
+  opts?: { mode?: "new-version" | "replace-current"; replaceVersionId?: string | null },
 ): { recipeId: string } {
   const foodIndex = ensureFoods(plan);
   const idBase = `gen-${Date.now().toString(36)}`;
@@ -223,6 +224,8 @@ export function materializeRecipe(
     versionLabel: "AI",
     layout,
     graph: { nodes, edges },
+    mode: opts?.mode,
+    replaceVersionId: opts?.replaceVersionId ?? null,
   });
 
   if (!saved.ok || !saved.recipeId) {

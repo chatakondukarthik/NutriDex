@@ -31,6 +31,7 @@ import type { Food } from "@/lib/nutrition/types";
 import { nodeTypes } from "@/components/flow-nodes";
 import { FlowMinimap } from "@/components/flow-minimap";
 import { PasteFragmentDialog } from "@/components/paste-fragment-dialog";
+import { RecipeGenerator } from "@/components/recipe-generator";
 import { useLeaveGuard, LeaveGuardDialog } from "@/components/leave-guard";
 import { serializeFragment, parseRecipeFragment } from "@/lib/recipe-fragment";
 import { HandIcon, BoxSelectIcon } from "@/components/icons";
@@ -52,6 +53,17 @@ export interface FlowEditorProps {
   initialInstructions?: string;
   initialServings?: string;
   initialVersionLabel?: string;
+  /** The version being edited. Set only on the edit screen. */
+  versionId?: string | null;
+  versionNo?: number | null;
+  /** When set, "replace this version" is refused and the reason is shown. */
+  replaceBlockedReason?: string | null;
+  /** Create/Edit with AI entry point, rendered in the top bar. */
+  aiAction?: {
+    enabled: boolean;
+    mode: "create" | "edit";
+    existingName?: string | null;
+  } | null;
 }
 
 export function FlowEditor(props: FlowEditorProps) {
@@ -73,8 +85,20 @@ function FlowEditorInner({
   initialInstructions = "",
   initialServings = "1",
   initialVersionLabel = "",
+  versionId = null,
+  versionNo = null,
+  replaceBlockedReason = null,
+  aiAction = null,
   aiAvailable,
 }: FlowEditorProps & { aiAvailable: boolean }) {
+  const [saveMode, setSaveMode] = useState<"new-version" | "replace-current">("new-version");
+  const replaceVersionId = saveMode === "replace-current" ? versionId : null;
+  const saveLabel =
+    versionId == null
+      ? "Save recipe"
+      : saveMode === "replace-current"
+        ? `Replace v${versionNo ?? ""}`
+        : "Save as new version";
   const router = useRouter();
   const [name, setName] = useState(initialName);
   const [versionLabel, setVersionLabel] = useState(initialVersionLabel);
@@ -612,6 +636,8 @@ function FlowEditorInner({
           servings: servingsNum,
           layout,
           graph,
+          mode: versionId ? saveMode : "new-version",
+          replaceVersionId,
         });
         if (!result.ok) { setError(result.message ?? "Save failed."); resolve({ ok: false }); return; }
         resolve({ ok: true, recipeId: result.recipeId });
@@ -652,6 +678,18 @@ function FlowEditorInner({
     <div className="relative flex h-[calc(100vh-57px)] flex-col">
       {/* top bar */}
       <div className="flex flex-wrap items-center gap-2 border-b border-line bg-surface px-4 py-2">
+        {aiAction && (
+          <RecipeGenerator
+            aiEnabled={aiAction.enabled}
+            mode={aiAction.mode}
+            recipeId={recipeId}
+            versionId={versionId}
+            versionNo={versionNo}
+            existingName={aiAction.existingName ?? null}
+            saveMode={saveMode}
+            replaceBlockedReason={replaceBlockedReason}
+          />
+        )}
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -676,6 +714,44 @@ function FlowEditorInner({
             className="w-16 rounded-md border border-line bg-bg px-2 py-2 text-xs"
           />
         </label>
+        {versionId != null && (
+          <div
+            role="group"
+            aria-label="Where to save"
+            className="flex h-9 items-center gap-0.5 rounded-lg bg-ink/[0.06] p-0.5 text-[11px]"
+          >
+            <button
+              type="button"
+              onClick={() => setSaveMode("new-version")}
+              aria-pressed={saveMode === "new-version"}
+              title={`Keep v${versionNo ?? ""} untouched; your changes become the next version`}
+              className={`rounded-md px-2.5 py-1.5 font-medium transition ${
+                saveMode === "new-version"
+                  ? "bg-surface text-ink shadow-sm"
+                  : "text-muted hover:text-ink"
+              }`}
+            >
+              New version
+            </button>
+            <button
+              type="button"
+              onClick={() => setSaveMode("replace-current")}
+              aria-pressed={saveMode === "replace-current"}
+              disabled={!!replaceBlockedReason}
+              title={
+                replaceBlockedReason ??
+                `Rewrite v${versionNo ?? ""} in place. Plans and diary entries pinned to it will see the new values.`
+              }
+              className={`rounded-md px-2.5 py-1.5 font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                saveMode === "replace-current"
+                  ? "bg-surface text-danger-ink shadow-sm"
+                  : "text-muted hover:text-ink"
+              }`}
+            >
+              Replace v{versionNo}
+            </button>
+          </div>
+        )}
         <button
           type="button"
           onClick={autoLayout}
@@ -689,10 +765,16 @@ function FlowEditorInner({
           disabled={pending || !nodes.length}
           className="rounded-md bg-accent px-4 py-2 text-xs font-semibold text-accent-fg disabled:opacity-50"
         >
-          {pending ? "Saving…" : "Save recipe"}
+          {pending ? "Saving…" : saveLabel}
         </button>
       </div>
 
+      {versionId != null && saveMode === "replace-current" && (
+        <div className="border-b border-warn-line bg-warn-soft px-4 py-1.5 text-[11px] text-warn-ink">
+          This replaces v{versionNo} in place — plans or diary entries pinned to v{versionNo}{" "}
+          will see the new values. There is no automatic undo.
+        </div>
+      )}
       {error && (
         <div className="border-b border-danger-line bg-danger-soft px-4 py-1.5 text-xs text-danger-ink">
           {error}

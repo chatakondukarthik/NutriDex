@@ -7,7 +7,7 @@
  * v2 version is fully self-describing.
  */
 
-import { addVersion, createRecipe } from "@/lib/db/recipes";
+import { addVersion, createRecipe, replaceVersion, getVersionOwner } from "@/lib/db/recipes";
 import { computeRecipeGraph } from "@/lib/nutrition/graph-server";
 import { NUTRIENT_CODES, type NutrientCode } from "@/lib/nutrition/types";
 import { combine, perServing, scaleRollup, type Rollup } from "@/lib/nutrition/engine";
@@ -22,6 +22,10 @@ export interface GraphDraft {
   servings: string | number;
   layout?: Record<string, { x: number; y: number }>;
   graph: Graph;
+  /** Default appends a new version. "replace-current" rewrites replaceVersionId in place. */
+  mode?: "new-version" | "replace-current";
+  /** The version row to rewrite when mode is "replace-current". */
+  replaceVersionId?: string | null;
 }
 
 export interface SaveGraphResult {
@@ -130,6 +134,22 @@ export function saveGraphDraft(draft: GraphDraft): SaveGraphResult {
   };
 
   try {
+    if (draft.mode === "replace-current" && draft.replaceVersionId) {
+      if (draft.recipeId) {
+        const owner = getVersionOwner(draft.replaceVersionId);
+        if (owner !== draft.recipeId) {
+          return { ok: false, message: "That version does not belong to this recipe." };
+        }
+      }
+      const replaced = replaceVersion(draft.replaceVersionId, version);
+      if (!replaced.ok) return { ok: false, message: replaced.message };
+      return {
+        ok: true,
+        recipeId: replaced.recipeId,
+        versionId: replaced.versionId,
+        versionNo: replaced.versionNo,
+      };
+    }
     const saved = draft.recipeId
       ? addVersion(draft.recipeId, version, name)
       : createRecipe({ name }, version);

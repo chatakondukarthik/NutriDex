@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { Food } from "@/lib/nutrition/types";
 import { searchFoods } from "@/lib/nutrition/food-search";
-import { FoodExportMenu } from "@/components/food-export";
+import { serializeFragment } from "@/lib/recipe-fragment";
 
 const CATEGORIES = ["All", "Dairy", "Grains", "Vegetables", "Fruits", "Legumes", "Oils", "Nuts", "Meat", "Seafood", "Spices", "Beverages", "Custom"];
 
@@ -12,12 +12,13 @@ export function FoodsBrowser({ foods }: { foods: Food[] }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All");
   const [mineOnly, setMineOnly] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [notice, setNotice] = useState<string | null>(null);
+  const noticeTimer = useRef<number | null>(null);
 
   const results = useMemo(() => {
     let list = searchFoods(foods, query);
     if (category !== "All") list = list.filter((f) => f.category === category);
-    if (mineOnly) list = list.filter((f) => f.source && f.source !== "USDA FDC SR Legacy (seed)" && f.source !== "IFCT 2017 (seed, unverified)");
-    // captured foods carry a source; seed foods do not have source set in the Food type from seeds? They do not set source. Treat no-source as built-in.
     if (mineOnly) list = list.filter((f) => !!f.source);
     return list;
   }, [foods, query, category, mineOnly]);
@@ -27,18 +28,83 @@ export function FoodsBrowser({ foods }: { foods: Food[] }) {
     return ["All", ...Array.from(set).filter((c) => c !== "All").sort()];
   }, [foods]);
 
+  useEffect(() => {
+    return () => {
+      if (noticeTimer.current) window.clearTimeout(noticeTimer.current);
+    };
+  }, []);
+
+  function flashNotice(text: string) {
+    setNotice(text);
+    if (noticeTimer.current) window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(null), 2600);
+  }
+
+  const visibleIds = results.map((food) => food.id);
+  const allVisibleSelected =
+    visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+  const someVisibleSelected = visibleIds.some((id) => selected.has(id));
+  const selectedCount = selected.size;
+
+  function toggleAll() {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        for (const id of visibleIds) next.delete(id);
+      } else {
+        for (const id of visibleIds) next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function toggleOne(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** Copy the selected foods as a recipe fragment; paste it on the canvas. */
+  function copySelected() {
+    const chosen = foods.filter((food) => selected.has(food.id));
+    if (chosen.length === 0) return;
+
+    const nodes = chosen.map((food, index) => ({
+      id: food.id,
+      type: "food" as const,
+      position: { x: (index % 4) * 240, y: Math.floor(index / 4) * 170 },
+      data: { foodId: food.id, grams: 100, label: food.name },
+    }));
+    const json = serializeFragment(nodes, [], new Set(chosen.map((food) => food.id)));
+    if (!json) return;
+
+    try {
+      navigator.clipboard?.writeText(json).catch(() => {});
+    } catch {
+      /* clipboard unavailable in some contexts */
+    }
+    flashNotice(
+      `Copied ${chosen.length} food${chosen.length === 1 ? "" : "s"} as JSON — open a recipe and use “Paste JSON…”.`,
+    );
+  }
+
   return (
-    <div>
+    <div className="relative">
       <div className="flex flex-wrap items-center gap-2">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search foods as you type…"
+          aria-label="Search foods"
           className="flex-1 min-w-[200px] rounded-md border border-line bg-bg px-3 py-2 text-sm"
         />
         <select
           value={category}
           onChange={(e) => setCategory(e.target.value)}
+          aria-label="Filter by category"
           className="rounded-md border border-line bg-bg px-2 py-2 text-sm"
         >
           {categories.map((c) => <option key={c}>{c}</option>)}
@@ -47,7 +113,42 @@ export function FoodsBrowser({ foods }: { foods: Food[] }) {
           <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />
           My foods only
         </label>
-        <FoodExportMenu foods={results} label="Copy / Export" />
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line pb-3">
+        <label className="flex cursor-pointer select-none items-center gap-2 text-xs font-medium text-ink/70">
+          <input
+            type="checkbox"
+            checked={allVisibleSelected}
+            ref={(el) => {
+              if (el) el.indeterminate = !allVisibleSelected && someVisibleSelected;
+            }}
+            onChange={toggleAll}
+            aria-label={`Select all ${visibleIds.length} shown`}
+          />
+          Select all{query || category !== "All" || mineOnly ? ` shown (${visibleIds.length})` : ` (${visibleIds.length})`}
+        </label>
+        <span aria-live="polite" className="text-[11px] tabular text-ink/45">
+          {selectedCount} selected
+        </span>
+        {selectedCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setSelected(new Set())}
+            className="text-[11px] font-medium text-muted transition hover:text-ink"
+          >
+            Clear
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={copySelected}
+          disabled={selectedCount === 0}
+          title={selectedCount === 0 ? "Select at least one food" : "Copy the selection as a recipe fragment (paste it on the canvas)"}
+          className="ml-auto rounded-lg bg-accent px-3.5 py-2 text-xs font-semibold text-accent-fg transition hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Copy selected{selectedCount > 0 ? ` (${selectedCount})` : ""}
+        </button>
       </div>
 
       {results.length === 0 ? (
@@ -57,8 +158,18 @@ export function FoodsBrowser({ foods }: { foods: Food[] }) {
       ) : (
         <ul className="mt-4 grid max-h-[70vh] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
           {results.map((food) => (
-            <li key={food.id} className="rounded-lg border border-line bg-surface p-3 text-sm">
-              <div className="flex items-start justify-between gap-2">
+            <li
+              key={food.id}
+              className="flex items-start gap-2.5 rounded-lg border border-line bg-surface p-3 text-sm"
+            >
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={selected.has(food.id)}
+                onChange={() => toggleOne(food.id)}
+                aria-label={`Select ${food.name}`}
+              />
+              <div className="flex min-w-0 flex-1 items-start justify-between gap-2">
                 <div>
                   <p className="font-medium">{food.name}</p>
                   <p className="text-xs text-muted">
@@ -82,6 +193,15 @@ export function FoodsBrowser({ foods }: { foods: Food[] }) {
         </ul>
       )}
       <p className="mt-3 text-[11px] text-muted">{results.length} of {foods.length} foods.</p>
+
+      {notice && (
+        <p
+          role="status"
+          className="pointer-events-none absolute bottom-2 left-1/2 z-10 -translate-x-1/2 rounded-full border border-line bg-surface px-4 py-1.5 text-[11px] text-ink shadow-card"
+        >
+          {notice}
+        </p>
+      )}
     </div>
   );
 }

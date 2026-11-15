@@ -755,6 +755,8 @@ export async function saveGraphAction(input: {
   servings: number | string;
   layout?: Record<string, { x: number; y: number }>;
   graph: Graph;
+  mode?: "new-version" | "replace-current";
+  replaceVersionId?: string | null;
 }): Promise<{ ok: boolean; recipeId?: string; message?: string }> {
   const result = saveGraphDraft({
     recipeId: input.recipeId ?? null,
@@ -764,6 +766,8 @@ export async function saveGraphAction(input: {
     servings: input.servings,
     layout: input.layout,
     graph: input.graph,
+    mode: input.mode,
+    replaceVersionId: input.replaceVersionId ?? null,
   });
   if (!result.ok) return { ok: false, message: result.message };
   revalidatePath("/recipes");
@@ -838,11 +842,18 @@ export async function previewRecipeFromPromptAction(
 }
 
 export async function createRecipeFromPlanAction(
-  input: RecipePlan & { recipeId?: string | null },
+  input: RecipePlan & {
+    recipeId?: string | null;
+    mode?: "new-version" | "replace-current";
+    replaceVersionId?: string | null;
+  },
 ): Promise<{ ok: boolean; recipeId?: string; message?: string }> {
   try {
     const base = input as RecipePlan;
-    const { recipeId } = materializeRecipe(base, input.recipeId ?? undefined);
+    const { recipeId } = materializeRecipe(base, input.recipeId ?? undefined, {
+      mode: input.mode,
+      replaceVersionId: input.replaceVersionId ?? null,
+    });
     revalidatePath("/recipes");
     if (input.recipeId) revalidatePath(`/recipes/${input.recipeId}`);
     return { ok: true, recipeId };
@@ -883,6 +894,39 @@ export async function addRecipeEntryAction(input: {
     day: today(),
   });
 
+  revalidatePath("/");
+  return { ok: true };
+}
+
+import { deleteVersion, getVersion as getVersionForDelete } from "@/lib/db/recipes";
+
+export async function deleteRecipeVersionAction(input: {
+  recipeId: string;
+  versionId: string;
+}): Promise<{ ok: boolean; message?: string }> {
+  const version = getVersionForDelete(input.versionId);
+  if (!version) return { ok: false, message: "That version no longer exists." };
+  if (version.recipeId !== input.recipeId) {
+    return { ok: false, message: "That version does not belong to this recipe." };
+  }
+  const result = deleteVersion(input.versionId);
+  if (!result.ok) return { ok: false, message: result.message };
+  revalidatePath("/recipes");
+  revalidatePath(`/recipes/${input.recipeId}`);
+  return { ok: true };
+}
+
+import { promoteVersion } from "@/lib/db/recipes";
+
+export async function makeCurrentRecipeVersionAction(input: {
+  recipeId: string;
+  versionId: string;
+}): Promise<{ ok: boolean; message?: string }> {
+  const result = promoteVersion(input.recipeId, input.versionId);
+  if (!result.ok) return { ok: false, message: result.message };
+  revalidatePath("/recipes");
+  revalidatePath(`/recipes/${input.recipeId}`);
+  revalidatePath("/plan");
   revalidatePath("/");
   return { ok: true };
 }

@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { DuplicateRecipeButton } from "@/components/duplicate-recipe-button";
+import { DeleteVersionButton } from "@/components/delete-version-button";
+import { MakeCurrentButton } from "@/components/make-current-button";
 import { StepNutrition } from "@/components/step-nutrition";
 import { DeleteButton } from "@/components/delete-button";
 import { deleteRecipeAction } from "@/app/actions";
@@ -55,7 +57,11 @@ export default async function RecipePage({
           </h1>
           <p className="mt-1 text-[11px] text-ink/45">
             Version {version.versionNo}
-            {!isCurrent && " · not the current version"}
+            {!isCurrent && (
+              <span className="ml-2 rounded-md bg-warn-soft px-1.5 py-0.5 text-[10px] font-medium text-warn-ink">
+                you are viewing, not the current version
+              </span>
+            )}
             {" · "}
             {fmt(version.servings, 0)} {version.servings === 1 ? "serving" : "servings"}
             {" · "}
@@ -86,6 +92,17 @@ export default async function RecipePage({
           </Link>
         </div>
       </div>
+
+      {!isCurrent && (
+        <aside className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-warn-line bg-warn-soft px-4 py-3">
+          <p className="text-[11px] leading-relaxed text-warn-ink">
+            You are looking at <span className="font-semibold">v{version.versionNo}</span>, not the
+            current version. Plans and diary entries always pin the version they were saved
+            against — this just changes where new logs come from.
+          </p>
+          <MakeCurrentButton recipeId={id} versionId={version.id} versionNo={version.versionNo} />
+        </aside>
+      )}
 
       <section className="mt-4 grid gap-4 sm:grid-cols-[1.1fr_1fr]">
         <div className="rounded-2xl border border-line bg-surface p-5 shadow-card">
@@ -261,6 +278,11 @@ export default async function RecipePage({
                       current
                     </span>
                   )}
+                  {entry.id === version.id && !entry.isCurrent && (
+                    <span className="ml-2 rounded-md bg-warn-soft px-1.5 py-0.5 text-[10px] font-medium text-warn-ink">
+                      viewing
+                    </span>
+                  )}
                 </div>
                 <div className="text-[11px] text-ink/40">
                   {new Date(entry.createdAt).toLocaleString("en-IN", {
@@ -283,6 +305,13 @@ export default async function RecipePage({
                 >
                   View
                 </Link>
+                <Link
+                  href={`/recipes/${id}/edit?version=${entry.id}`}
+                  className="text-[11px] text-ink/55 hover:text-ink hover:underline"
+                >
+                  Edit
+                </Link>
+                <DeleteVersionButton recipeId={id} versionId={entry.id} versionNo={entry.versionNo} />
               </div>
             </li>
           ))}

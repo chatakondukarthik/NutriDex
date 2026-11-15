@@ -9,10 +9,25 @@ interface RecipeGeneratorProps {
   aiEnabled: boolean;
   mode?: "create" | "edit";
   recipeId?: string | null;
+  /** The version being edited (edit mode). */
+  versionId?: string | null;
+  versionNo?: number | null;
   existingName?: string | null;
+  /** Where the workspace decided the save should go; mirrors the top-bar chips. */
+  saveMode?: "new-version" | "replace-current";
+  replaceBlockedReason?: string | null;
 }
 
-export function RecipeGenerator({ aiEnabled, mode = "create", recipeId = null, existingName = null }: RecipeGeneratorProps) {
+export function RecipeGenerator({
+  aiEnabled,
+  mode = "create",
+  recipeId = null,
+  versionId = null,
+  versionNo = null,
+  existingName = null,
+  saveMode = "new-version",
+  replaceBlockedReason = null,
+}: RecipeGeneratorProps) {
   const router = useRouter();
   const [prompt, setPrompt] = useState("");
   const [plan, setPlan] = useState<RecipePlan | null>(null);
@@ -47,11 +62,24 @@ export function RecipeGenerator({ aiEnabled, mode = "create", recipeId = null, e
     });
   }
 
+  const replacing = mode === "edit" && saveMode === "replace-current" && versionId != null;
+  const confirmLabel =
+    mode === "create"
+      ? "Add recipe"
+      : replacing
+        ? `Replace v${versionNo ?? ""}`
+        : "Save as new version";
+
   async function create() {
     if (!plan) return;
     setError(null);
     startTransition(async () => {
-      const result = await createRecipeFromPlanAction({ ...plan, recipeId: mode === "edit" ? recipeId : null });
+      const result = await createRecipeFromPlanAction({
+        ...plan,
+        recipeId: mode === "edit" ? recipeId : null,
+        mode: mode === "edit" ? saveMode : "new-version",
+        replaceVersionId: replacing ? versionId : null,
+      });
       if (!result.ok || !result.recipeId) {
         setError(result.message ?? "Could not create the recipe.");
         return;
@@ -120,6 +148,11 @@ export function RecipeGenerator({ aiEnabled, mode = "create", recipeId = null, e
               </>
             ) : (
               <>
+                {mode === "edit" && replaceBlockedReason && (
+                  <p className="mt-3 rounded-md border border-line bg-bg px-3 py-2 text-[10px] text-muted">
+                    Replace is unavailable: {replaceBlockedReason}
+                  </p>
+                )}
                 <div className="mt-3 rounded-xl border border-line bg-bg p-3">
                   <p className="text-sm font-semibold">{plan.name}</p>
                   <p className="mt-0.5 text-[11px] text-muted">
@@ -147,6 +180,19 @@ export function RecipeGenerator({ aiEnabled, mode = "create", recipeId = null, e
                     </p>
                   )}
                 </div>
+                {mode === "edit" && (
+                  <p
+                    className={`mt-3 rounded-md border px-3 py-2 text-[10px] leading-relaxed ${
+                      replacing
+                        ? "border-warn-line bg-warn-soft text-warn-ink"
+                        : "border-line bg-bg text-muted"
+                    }`}
+                  >
+                    {replacing
+                      ? `Will replace v${versionNo ?? ""} in place — plans and diary entries pinned to it will see the new values. Change the top-bar chips to save as a new version instead.`
+                      : `Will be saved as a new version — v${versionNo ?? ""} stays untouched. Change the top-bar chips to replace it in place instead.`}
+                  </p>
+                )}
                 <div className="mt-3 flex items-center justify-between gap-2">
                   <button type="button" onClick={() => setPlan(null)} className="text-[11px] font-medium text-muted hover:text-ink">
                     ← Back to prompt
@@ -157,7 +203,7 @@ export function RecipeGenerator({ aiEnabled, mode = "create", recipeId = null, e
                     disabled={pending}
                     className="rounded-md bg-accent px-4 py-1.5 text-xs font-semibold text-accent-fg disabled:opacity-50"
                   >
-                    {pending ? "Creating…" : "Create recipe"}
+                    {pending ? "Saving…" : confirmLabel}
                   </button>
                 </div>
                 {error && <p className="mt-2 text-[11px] text-danger-ink">{error}</p>}
