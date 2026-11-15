@@ -1,0 +1,161 @@
+/**
+ * Save path for graph (v2) recipes.
+ *
+ * The display contract (RecipeResult) is kept so the detail page, the plan
+ * board and the diary all keep working unchanged. The graph itself and the
+ * canvas layout are stored alongside it inside the same snapshot JSON so a
+ * v2 version is fully self-describing.
+ */
+
+import { addVersion, createRecipe } from "@/lib/db/recipes";
+import { computeRecipeGraph } from "@/lib/nutrition/graph-server";
+import { NUTRIENT_CODES, type NutrientCode } from "@/lib/nutrition/types";
+import { combine, perServing, scaleRollup, type Rollup } from "@/lib/nutrition/engine";
+import type { RecipeResult, BlockResult, YieldBasis } from "@/lib/nutrition/recipe";
+import type { Graph, GraphProcessNode, GraphNode } from "@/lib/nutrition/graph";
+
+export interface GraphDraft {
+  recipeId: string | null;
+  name: string;
+  versionLabel?: string | null;
+  instructions: string;
+  servings: string | number;
+  layout?: Record<string, { x: number; y: number }>;
+  graph: Graph;
+}
+
+export interface SaveGraphResult {
+  ok: boolean;
+  recipeId?: string;
+  versionId?: string;
+  versionNo?: number;
+  message?: string;
+}
+
+export type GraphSnapshot = RecipeResult & {
+  graph: Graph;
+  layout?: Record<string, { x: number; y: number }>;
+};
+
+function scaledProfileClone(result: Rollup, factor: number): Rollup {
+  return scaleRollup(result, factor);
+}
+
+export function saveGraphDraft(draft: GraphDraft): SaveGraphResult {
+  const name = draft.name.trim();
+  if (!name) return { ok: false, message: "Give the recipe a name." };
+
+  const servings = Number(draft.servings);
+  if (!Number.isFinite(servings) || servings <= 0) {
+    return { ok: false, message: "Servings must be a positive number." };
+  }
+
+  let result: ReturnType<typeof computeRecipeGraph>;
+  try {
+    result = computeRecipeGraph(draft.graph);
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "The recipe graph could not be computed.",
+    };
+  }
+
+  const consumed = result.consumed;
+  const inputGrams = result.inputGrams;
+  const yieldBasis: YieldBasis = result.yieldBasis === "measured" ? "measured" : "none";
+
+  // v1-compatible blocks in topological order for the detail page
+  const blocks: BlockResult[] = [...result.perNode.values()].map((node) => ({
+    name: node.name,
+    operation: node.operation,
+    inputGrams: node.inputGrams,
+    outputGrams: node.masses[0] ?? null,
+    result: combine(node.after),
+  }));
+
+  const snapshot: GraphSnapshot = {
+    blocks,
+    total: consumed,
+    perServing: perServing(consumed, servings),
+    per100g: result.consumedGrams > 0 ? scaledProfileClone(consumed, 100 / result.consumedGrams) : null,
+    servings,
+    inputGrams,
+    outputGrams: result.consumedGrams,
+    yieldBasis,
+    calculationVersion: "2",
+    graph: draft.graph,
+    layout: draft.layout,
+  };
+
+  // components table blocks need inputs; build them from the graph
+  const components = buildComponentsFromGraph(draft.graph, result);
+
+  const version = {
+    instructions: draft.instructions,
+    servings,
+    yieldGrams: result.consumedGrams > 0 ? result.consumedGrams : null,
+    snapshot,
+    blocks: components.map((component) => ({
+      name: component.name,
+      operation: component.operation,
+      outputGrams: component.outputGrams,
+      inputs: component.inputs.map((input) => ({
+        foodId: input.foodId,
+        grams: input.grams,
+        amount: input.grams,
+        unit: "g",
+        preparation: "raw",
+        note: null,
+      })),
+    })),
+    label: draft.versionLabel?.trim() || null,
+  };
+
+  try {
+    const saved = draft.recipeId
+      ? addVersion(draft.recipeId, version, name)
+      : createRecipe({ name }, version);
+    return { ok: true, ...saved };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "The recipe could not be saved.",
+    };
+  }
+}
+
+function buildComponentsFromGraph(
+  graph: Graph,
+  result: ReturnType<typeof computeRecipeGraph>,
+) {
+  const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+  const components: Array<{
+    name: string;
+    operation: string | null;
+    outputGrams: number | null;
+    inputs: Array<{ foodId: string; grams: number }>;
+  }> = [];
+
+  for (const [id, node] of result.perNode) {
+    const graphNode = byId.get(id)! as GraphProcessNode;
+    const inputs: Array<{ foodId: string; grams: number }> = [];
+    for (const edge of graph.edges) {
+      if (edge.to !== id) continue;
+      const from = byId.get(edge.from);
+      if (from?.type === "food") {
+        inputs.push({ foodId: from.foodId, grams: from.grams });
+      }
+    }
+    components.push({
+      name: node.name,
+      operation: node.operation,
+      outputGrams: node.masses[0] ?? null,
+      inputs,
+    });
+  }
+  return components;
+}
+
+export function perServingENERC(snapshot: GraphSnapshot): number | null {
+  return snapshot.perServing.totals.ENERC_KCAL;
+}

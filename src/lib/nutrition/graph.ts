@@ -86,6 +86,10 @@ export interface ComputedProcessNode {
   unknownNutrients: NutrientCode[];
   /** mass per output, index-aligned */
   masses: number[];
+  /** total mass of the inputs (food + upstream) */
+  inputGrams: number;
+  /** input node ids with their grams */
+  inputEdges: { from: string; grams: number }[];
 }
 
 export interface GraphResult {
@@ -202,7 +206,8 @@ export function computeGraph(
 
     // ---- process node ----
     const preds = incoming.get(id) ?? [];
-    const inputs = preds.map((predId) => {
+    const inputEntries: { from: string; grams: number; profile: Rollup }[] = [];
+    for (const predId of preds) {
       const pred = byId.get(predId)!;
       const outputs = nodeOutputs.get(predId)!;
       const grams = gramsOut.get(predId)!;
@@ -210,11 +215,16 @@ export function computeGraph(
       const consumedIndex = pred.type === "process"
         ? Math.max(0, pred.outputs.findIndex((o) => o.tag === "consumed"))
         : 0;
-      return { profile: outputs[consumedIndex], grams: grams[consumedIndex] };
-    });
+      inputEntries.push({
+        from: predId,
+        grams: grams[consumedIndex] ?? 0,
+        profile: outputs[consumedIndex],
+      });
+    }
+    const inputs = inputEntries.map((entry) => ({ profile: entry.profile, grams: entry.grams }));
+    const inputGrams = inputs.reduce((sum, entry) => sum + entry.grams, 0);
 
-    const before = combine(inputs.map((i) => i.profile));
-    const inputGrams = inputs.reduce((sum, i) => sum + i.grams, 0);
+    const before = combine(inputs.map((entry) => entry.profile));
 
     // Factors: node overrides first, then the table, then LLM estimates
     const factors: AppliedFactor[] = [];
@@ -289,6 +299,8 @@ export function computeGraph(
       factors,
       unknownNutrients,
       masses,
+      inputGrams,
+      inputEdges: inputEntries.map((entry) => ({ from: entry.from, grams: entry.grams })),
     });
     nodeOutputs.set(id, after);
     gramsOut.set(id, masses);

@@ -740,3 +740,30 @@ export async function deleteCapturedFoodAction(foodId: string): Promise<{ ok: bo
   revalidatePath("/foods");
   return { ok: true, outcome: result.outcome };
 }
+
+import { saveGraphDraft } from "@/lib/recipes-v2";
+import type { Graph } from "@/lib/nutrition/graph";
+
+export async function saveGraphAction(input: {
+  recipeId?: string | null;
+  name: string;
+  versionLabel?: string | null;
+  instructions: string;
+  servings: number | string;
+  layout?: Record<string, { x: number; y: number }>;
+  graph: Graph;
+}): Promise<{ ok: boolean; recipeId?: string; message?: string }> {
+  const result = saveGraphDraft({
+    recipeId: input.recipeId ?? null,
+    name: input.name,
+    versionLabel: input.versionLabel ?? null,
+    instructions: input.instructions,
+    servings: input.servings,
+    layout: input.layout,
+    graph: input.graph,
+  });
+  if (!result.ok) return { ok: false, message: result.message };
+  revalidatePath("/recipes");
+  revalidatePath(`/recipes/${result.recipeId}`);
+  return { ok: true, recipeId: result.recipeId };
+}
