@@ -6,6 +6,7 @@ import {
   saveCapturedFoodAction,
   updateCapturedFoodAction,
   extractFoodAction,
+  lookupBarcodeAction,
   promoteFoodToRecipeAction,
 } from "@/app/actions";
 import type { CapturedFoodInput } from "@/lib/captured-food";
@@ -27,6 +28,7 @@ export function FoodEditor({ initial, mode, ai }: Props) {
   const [aliases, setAliases] = useState((initial?.aliases ?? []).join(", "));
   const [category, setCategory] = useState(initial?.category ?? "Custom");
   const [kind, setKind] = useState(initial?.kind ?? "provisional");
+  const [source, setSource] = useState(initial?.source ?? "manual");
   const [state, setState] = useState(initial?.state ?? "raw");
   const [basis, setBasis] = useState(initial?.basis ?? "per_100g");
   const [servingSizeG, setServingSizeG] = useState(initial?.servingSizeG ? String(initial.servingSizeG) : "");
@@ -47,6 +49,7 @@ export function FoodEditor({ initial, mode, ai }: Props) {
   const [estimated, setEstimated] = useState<Set<string>>(new Set());
   const [aiText, setAiText] = useState("");
   const [aiNote, setAiNote] = useState("");
+  const [barcode, setBarcode] = useState("");
   const [aiImage, setAiImage] = useState<string | null>(null);
   const [aiImageMime, setAiImageMime] = useState<string>("image/jpeg");
   const [rationale, setRationale] = useState<string | null>(null);
@@ -71,7 +74,7 @@ export function FoodEditor({ initial, mode, ai }: Props) {
       basis: basis as CapturedFoodInput["basis"],
       servingSizeG: servingSizeG ? Number(servingSizeG) : undefined,
       servingsPerPack: servingsPerPack ? Number(servingsPerPack) : undefined,
-      source: "manual",
+      source,
       nutrients: nutrientMap,
       estimated: [...estimated] as NutrientCode[],
       portions: portions
@@ -101,6 +104,7 @@ export function FoodEditor({ initial, mode, ai }: Props) {
       setNutrients(next);
     }
     if (Array.isArray(proposal.estimated)) setEstimated(new Set(proposal.estimated));
+    if (proposal.source) setSource(proposal.source);
     if (proposal.rationale) setRationale(proposal.rationale);
     setMessage("Filled from AI. Review before saving.");
   }
@@ -124,6 +128,16 @@ export function FoodEditor({ initial, mode, ai }: Props) {
         note: aiNote || undefined,
       });
       if (!result.ok) setMessage(result.message ?? "Extraction failed.");
+      else applyProposal(result.proposal);
+    });
+  }
+
+  function runBarcodeLookup() {
+    if (!barcode.trim()) { setMessage("Enter a barcode."); return; }
+    setMessage(null);
+    startTransition(async () => {
+      const result = await lookupBarcodeAction(barcode.trim());
+      if (!result.ok) setMessage(result.message ?? "Lookup failed.");
       else applyProposal(result.proposal);
     });
   }
@@ -386,6 +400,27 @@ export function FoodEditor({ initial, mode, ai }: Props) {
               Extract from image
             </button>
             {aiImage && <p className="mt-1 text-[11px] text-muted">Image loaded.</p>}
+
+          <div className="mt-4 border-t border-line pt-3">
+            <p className="text-xs font-medium">Or look up a barcode</p>
+            <p className="text-[11px] text-muted">Open Food Facts. Works for packaged foods.</p>
+            <div className="mt-2 flex gap-2">
+              <input
+                value={barcode}
+                onChange={(e) => setBarcode(e.target.value)}
+                placeholder="e.g. 8901030835511"
+                className="flex-1 rounded-md border border-line bg-bg px-2 py-1.5 text-sm"
+              />
+              <button
+                type="button"
+                onClick={runBarcodeLookup}
+                disabled={pending || !barcode.trim()}
+                className="rounded-md border border-line px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+              >
+                Look up
+              </button>
+            </div>
+          </div>
           </div>
         </section>
       </div>

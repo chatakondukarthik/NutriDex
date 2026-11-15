@@ -546,3 +546,19 @@ export async function promoteFoodToRecipeAction(foodId: string): Promise<{ ok: b
   if (!result.ok) return { ok: false, message: result.message };
   return { ok: true, recipeId: result.recipeId };
 }
+
+import { lookupBarcode, offToInput } from "@/lib/food-sources/openfoodfacts";
+
+export async function lookupBarcodeAction(barcode: string): Promise<{
+  ok: boolean;
+  proposal?: any;
+  message?: string;
+}> {
+  try {
+    const product = await lookupBarcode(barcode);
+    if (!product) return { ok: false, message: "Not found in Open Food Facts. Try a different barcode or add it manually." };
+    return { ok: true, proposal: offToInput(product) };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Lookup failed." };
+  }
+}
