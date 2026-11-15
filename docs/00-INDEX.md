@@ -51,7 +51,7 @@ Reference docs are updated in the same commit as the code they describe.
 | [`spec/NutriPlan_MVP_Product_Specification_v0.3.md`](spec/NutriPlan_MVP_Product_Specification_v0.3.md) | Decision register and product spec (source of truth) |
 | [`spec/NutriPlan_Product_Blueprint_MVP_v0.2.md`](spec/NutriPlan_Product_Blueprint_MVP_v0.2.md) | Original blueprint (superseded structurally, still useful) |
 | [`spec/PATCH_recipe_and_ai.md`](spec/PATCH_recipe_and_ai.md) | Proposed D-013…D-026 and the §7 recipe replacement |
-| [`spec/RECIPE_FLOWCHART.md`](spec/RECIPE_FLOWCHART.md) | Recipe as a flowchart of process blocks (R1–R6) |
+| [`spec/FLOW_RECIPES.md`](spec/FLOW_RECIPES.md) | Recipes as a flowchart of process blocks; per-step nutrient before/after |
 | [`spec/INGREDIENT_CAPTURE.md`](spec/INGREDIENT_CAPTURE.md) | One capture pipeline; ingredient, recipe and sub-ingredient as destinations |
 | [`spec/BYO_LLM.md`](spec/BYO_LLM.md) | Bring-your-own LLM: providers, keys, prompts, evaluation |
 

@@ -122,3 +122,23 @@ export function summariseGraph(result: ReturnType<typeof computeGraph>) {
   }
   return perNode;
 }
+
+import { type FactorRow } from "./factor-table";
+export { type FactorRow } from "./factor-table";
+export { tableFromRows } from "./factor-table";
+
+/** Plain-JSON rows for passing to the client. */
+export function factorRows(): FactorRow[] {
+  const rows = db
+    .prepare(`SELECT operation, qualifier, nutrient, factor, source FROM retention_factors ORDER BY operation`)
+    .all() as unknown as Array<{ operation: string; qualifier: string | null; nutrient: string; factor: number; source: string }>;
+  // node:sqlite returns null-prototype rows; spread into plain objects for the RSC boundary
+  return rows.map((row) => ({
+    operation: String(row.operation),
+    qualifier: row.qualifier == null ? null : String(row.qualifier),
+    nutrient: String(row.nutrient),
+    factor: Number(row.factor),
+    source: String(row.source),
+  }));
+}
+

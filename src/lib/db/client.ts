@@ -249,6 +249,8 @@ function migrate(database: DatabaseSync): void {
   addColumn(database, "profile", "pace", "TEXT NOT NULL DEFAULT 'steady'");
   addColumn(database, "profile", "target_weight_kg", "REAL");
   addColumn(database, "recipe_versions", "label", "TEXT");
+  addColumn(database, "profile", "target_energy_kcal", "REAL");
+  addColumn(database, "recipes", "archived_at", "TEXT");
 }
 
 /**

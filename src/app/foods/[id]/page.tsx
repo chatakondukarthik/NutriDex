@@ -32,7 +32,8 @@ export default async function FoodDetailPage({ params }: { params: Promise<{ id:
               <DeleteButton
                 label="Delete"
                 redirectTo="/foods"
-                onDelete={() => deleteCapturedFoodAction(food.id)}
+                action={deleteCapturedFoodAction}
+                arg={food.id}
               />
             </>
           ) : null}

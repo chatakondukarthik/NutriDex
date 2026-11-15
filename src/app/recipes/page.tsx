@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { PRESETS } from "@/lib/data/preset-recipes";
-import { listRecipes } from "@/lib/db/recipes";
+import { listRecipes, countLegacyRecipes } from "@/lib/db/recipes";
+import { ConvertRecipesButton } from "@/components/convert-recipes-button";
 import { fmt } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -17,12 +18,15 @@ export default function RecipesPage() {
             Every save is a new version. Old versions stay exactly as they were.
           </p>
         </div>
-        <Link
-          href="/recipes/new"
-          className="rounded-lg bg-accent px-4 py-2 text-xs font-medium text-accent-ink transition hover:bg-accent-strong"
-        >
-          New recipe
-        </Link>
+        <div className="flex items-center gap-2">
+          {countLegacyRecipes() > 0 && <ConvertRecipesButton legacyCount={countLegacyRecipes()} />}
+          <Link
+            href="/recipes/new"
+            className="rounded-lg bg-accent px-4 py-2 text-xs font-medium text-accent-ink transition hover:bg-accent-strong"
+          >
+            New recipe
+          </Link>
+        </div>
       </div>
 
       {recipes.length === 0 ? (

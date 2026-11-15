@@ -73,7 +73,8 @@ export default async function RecipePage({
           <DeleteButton
             label="Delete"
             redirectTo="/recipes"
-            onDelete={() => deleteRecipeAction(id)}
+            action={deleteRecipeAction}
+            arg={id}
             confirmText="Delete this recipe? If a plan uses it, it will be archived instead."
           />
           <Link

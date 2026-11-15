@@ -767,3 +767,36 @@ export async function saveGraphAction(input: {
   revalidatePath(`/recipes/${result.recipeId}`);
   return { ok: true, recipeId: result.recipeId };
 }
+
+import { estimateNodeDeltas, type NodeEstimate } from "@/lib/ai/estimate";
+
+export async function estimateNodeDeltasAction(input: {
+  operation: string;
+  qualifier?: string | null;
+  inputs: { name: string; grams: number; kcalPer100g: number | null }[];
+}): Promise<{ ok: boolean; estimate?: NodeEstimate; message?: string }> {
+  const { isAiEnabled, getAiConfig } = await import("@/lib/ai/client");
+  if (!isAiEnabled()) return { ok: false, message: "AI is turned off in Settings." };
+  try {
+    const config = getAiConfig();
+    if (!(await import("@/lib/ai/secrets")).hasKey(config.provider)) {
+      return { ok: false, message: "No key configured. Add one in Settings." };
+    }
+    const estimate = await estimateNodeDeltas(input);
+    return { ok: true, estimate };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Estimation failed." };
+  }
+}
+
+import { convertAllLegacyRecipes } from "@/lib/legacy-convert";
+
+export async function convertAllRecipesToV2Action(): Promise<{ ok: boolean; converted?: number; skipped?: number; errors?: { name: string; message: string }[]; message?: string }> {
+  try {
+    const result = convertAllLegacyRecipes();
+    revalidatePath("/recipes");
+    return { ok: true, ...result };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Conversion failed." };
+  }
+}

@@ -1,7 +1,8 @@
-import { RecipeBuilder } from "@/components/recipe-builder";
+import { FlowEditor } from "@/components/flow-editor";
 import { listFoods } from "@/lib/db/foods";
+import { graphFromBlocks, factorRows } from "@/lib/nutrition/graph-server";
 import { getPreset } from "@/lib/data/preset-recipes";
-import { builderFromDraft, emptyBuilder } from "@/lib/recipe-draft";
+import { builderFromDraft } from "@/lib/recipe-draft";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,9 @@ export default async function NewRecipePage({
 }) {
   const { preset: presetId } = await searchParams;
   const preset = getPreset(presetId);
-  const initial = preset ? builderFromDraft(preset.draft) : emptyBuilder();
+  const foods = listFoods();
+  const foodMap = new Map(foods.map((f) => [f.id, f]));
+  const initialGraph = preset ? graphFromBlocks(builderFromDraft(preset.draft).blocks, foodMap) : null;
 
   return (
     <>
@@ -24,7 +27,13 @@ export default async function NewRecipePage({
           </p>
         </div>
       )}
-      <RecipeBuilder foods={listFoods()} initial={initial} recipeId={null} />
+      <FlowEditor
+        foods={foods}
+        factorRows={factorRows()}
+        recipeId={null}
+        initialGraph={initialGraph}
+        initialName={preset?.name ?? ""}
+      />
     </>
   );
 }

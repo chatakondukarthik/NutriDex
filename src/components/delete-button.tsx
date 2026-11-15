@@ -10,12 +10,14 @@ import { useRouter } from "next/navigation";
  */
 export function DeleteButton({
   label,
-  onDelete,
+  action,
+  arg,
   confirmText,
   redirectTo,
 }: {
   label: string;
-  onDelete: () => Promise<{ ok: boolean; outcome?: string; message?: string }>;
+  action: (arg: string) => Promise<{ ok: boolean; outcome?: string; message?: string }>;
+  arg: string;
   confirmText?: string;
   redirectTo: string;
 }) {
@@ -27,7 +29,7 @@ export function DeleteButton({
   function go() {
     setMessage(null);
     startTransition(async () => {
-      const result = await onDelete();
+      const result = await action(arg);
       if (!result.ok) {
         setMessage(result.message ?? "Could not delete.");
         setConfirming(false);

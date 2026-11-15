@@ -489,3 +489,15 @@ export function deleteRecipe(recipeId: string): DeleteRecipeResult {
   });
   return { ok: true, outcome: "deleted" };
 }
+
+/** Count of non-archived recipes whose current version uses calculation_version = '1' (legacy). */
+export function countLegacyRecipes(): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM recipes r
+       JOIN recipe_versions v ON v.id = r.current_version_id
+       WHERE r.archived_at IS NULL AND v.calculation_version = '1'`,
+    )
+    .get() as unknown as { n: number };
+  return row.n;
+}

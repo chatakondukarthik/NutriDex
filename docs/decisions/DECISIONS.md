@@ -96,14 +96,17 @@ Entities: [`../reference/DATA-MODEL.md`](../reference/DATA-MODEL.md).
 | D-031 | Pace is a body-weight rate, and the energy rails are visible | Agreed | [below](#d-031--pace-is-a-body-weight-rate-and-the-rails-are-visible) |
 | D-032 | A day and a week are different judgement windows | Agreed | [below](#d-032--a-day-and-a-week-are-different-judgement-windows) |
 
-### Recipes — process flowchart (R1–R6)
+### Recipe graphs
 
 | ID | Decision | Status | Full record |
 |---|---|---|---|
-| D-040 | Store the process graph as JSON in `recipe_versions.process_graph` (nullable; null = legacy linear blocks) | Proposed | [spec](../spec/RECIPE_FLOWCHART.md) |
-| D-041 | Cooling/resistant-starch is reported as a note in v1, not a new nutrient code | Proposed | [spec](../spec/RECIPE_FLOWCHART.md) |
-| D-042 | The LLM may propose retention factors only for nutrients the record already knows | Proposed | [spec](../spec/RECIPE_FLOWCHART.md) |
-| D-043 | Use `@xyflow/react` for the flowchart canvas, lazy-loaded | Proposed | [spec](../spec/RECIPE_FLOWCHART.md) |
+| D-040 | Recipes are directed acyclic graphs of source / process / output nodes; linear builders are archived | Proposed | [spec](../spec/FLOW_RECIPES.md) |
+| D-041 | Retention is table-first (USDA-r6), measured-second, LLM-estimated-third; every factor carries source and is revertible | Proposed | [spec](../spec/FLOW_RECIPES.md) |
+| D-042 | Multi-output processes partition nutrients per nutrient across outputs | Proposed | [spec](../spec/FLOW_RECIPES.md) |
+| D-043 | The LLM applies only to nutrients without table or measured factors; cached, `estimated`, revertible | Proposed | [spec](../spec/FLOW_RECIPES.md) |
+| D-044 | Terminal outputs are tagged consumed or discarded; discarding removes that output's nutrients from the dish | Proposed | [spec](../spec/FLOW_RECIPES.md) |
+| D-045 | v2 calculation version; existing v1 recipes convert explicitly (convert-all, not automatic on read) | Proposed | [spec](../spec/FLOW_RECIPES.md) |
+| D-046 | The canvas is optional power; the step list is a full editor, not a fallback | Proposed | [spec](../spec/FLOW_RECIPES.md) |
 
 ### Capture and AI
 
@@ -708,111 +711,184 @@ review says so in words.
 
 ---
 
-## New records (D-040 onward)
+---
 
-### D-040 — Store the process graph as JSON in `recipe_versions.process_graph`
+### D-040 — Recipes are directed acyclic graphs of source / process / output nodes
 
 **Status:** Proposed
 **Date:** 2026-11-15
-**Relates to:** D-021, D-024
+**Relates to:** D-021, D-022
 
 **Context**
 
-The linear block model cannot express branches, merges, splits or mid-flow
-ingredients. A graph is needed. Two storage options: a JSON column on
-`recipe_versions`, or new `process_nodes`/`process_edges` tables.
+Cooking is a graph: block 1 (cashews + tomatoes → cook → blend) and block 2
+(paneer → fry) run in parallel; block 3 combines them. Outputs split
+(hung curd → thick curd + whey). Nutrients change per operation (boiling,
+straining, frying, cooling). A linear list of blocks cannot express any of
+this.
 
 **Decision**
 
-Add `process_graph TEXT` (nullable) to `recipe_versions`. Null means "legacy
-linear blocks" and the existing `components`/`component_inputs` tables are
-used. Non-null means the graph is authoritative and `components` is ignored.
+A recipe version stores a DAG (nodes + edges). Nodes are: `food` (a library
+food), `process` (an operation, e.g. boil, blend, freeze), and `output`
+(multi-output processes split nutrients across outputs). Cycles are rejected
+at save with the path in the message.
 
-**Consequences**
-
-- No migration of existing rows; old versions stay readable.
-- New versions write the graph; reads check `process_graph` first.
-- Querying "which recipes use paneer as a node input" is not possible without
-  parsing JSON. Acceptable for v1; revisit if needed.
+**The linear builder is archived**, not patched; old recipes convert to
+graphs explicitly.
 
 **Alternatives rejected**
 
 | Alternative | Why it lost |
 |---|---|
-| New tables | Cleaner queries, but a real migration and a second code path for old versions |
-| Replace components entirely | Breaks every existing version; not worth it |
+| Patch the linear block model | Cannot express branches, merges, splits, or mid-flow ingredients |
+| Free-form canvas only (no step-list mode) | Fails non-canvas users and mobile |
+| Sub-recipes only (no in-block process stages) | Hung curd is one node; blocks are too coarse |
 
 ---
 
-### D-041 — Cooling and resistant starch is a note in v1
+### D-041 — Retention priority: measured, then table, then LLM
 
 **Status:** Proposed
 **Date:** 2026-11-15
-**Relates to:** D-025
+**Relates to:** D-022, D-026
 
 **Context**
 
-Cooling cooked rice increases resistant starch, which lowers digestible
-carbohydrate. Our 18-nutrient model has no resistant-starch code, so the
-change cannot be represented as a number without either mislabelling it as
-fibre or adding a 19th nutrient.
+A nutrient change per step is real (Vitamin C falls ~50 % when boiling and
+discarding the water) and is needed for "what happened to my food".
 
 **Decision**
 
-Report cooling's effect as a text note on the node ("cooling increases
-resistant starch; not tracked as a separate nutrient yet"). Do not add a
-nutrient code in v1.
+1. Measured output mass (weighed drain/yield) wins.
+2. Retention factor from USDA Release 6 (public domain) matched by operation
+   + qualifier.
+3. LLM estimate (tagged `estimated`, diff UI, revertible, cached).
+4. No data: unchanged + disclosed. Never a fabricated number.
+
+Absolute nutrient amounts never change because of mass loss (D-022
+corrected): boiling concentrates per-100 g values but does not create
+protein.
 
 **Consequences**
 
-- Honest: we say what we cannot quantify.
-- The model stays at 18 nutrients.
+- USDA-r6 seed is unverified fixture data, explicitly labelled; values can be
+  reviewed before any claim is made to a user.
+- Every factor application is shown with its source in the inspector.
 
 ---
 
-### D-042 — The LLM proposes retention factors, never values
+### D-042 — Multi-output processes partition nutrients across outputs
 
 **Status:** Proposed
 **Date:** 2026-11-15
-**Relates to:** D-009, D-016, D-034
+**Relates to:** D-021
 
 **Context**
 
-Process effects need per-nutrient retention factors. Where no reference data
-exists, an LLM estimates them. The same trust rules as capture apply.
+Hung curd gives thick curd and whey. A boiled-and-drained dal gives dal and
+dal water, taking dissolved minerals and water-soluble vitamins with it.
 
 **Decision**
 
-The LLM returns a `ProcessEffect` proposal (retention factors, added,
-removed). It may only propose factors for nutrients the record already knows.
-The engine re-derives the after-profile through `applyEffect`. The proposal
-is shown as a per-nutrient diff and is revertible.
+Each output of a multi-output process gets a per-nutrient partition weight
+(whey takes its share of NA, B-vitamins; curd keeps the fat). Partitions sum
+to 1 per nutrient (or are normalised). Unspecified fractions default to the
+first output. Whey is tagged `discarded` and its nutrients leave the dish.
 
-**Consequences**
+**Alternatives rejected**
 
-- A hallucinated "vitamin C drops 90%" becomes an estimated, revertible diff,
-  not a silent fact.
+| Alternative | Why it lost |
+|---|---|
+| Two separate recipes | Loses the shared inputs; user asked for one flowchart |
+| Ignore discarded outputs | Dish nutrition would be falsely high on minerals/vitamins |
 
 ---
 
-### D-043 — Use reactflow for the flowchart canvas
+### D-043 — The LLM estimates only what no table or measurement can answer
 
 **Status:** Proposed
 **Date:** 2026-11-15
+**Relates to:** D-034, D-041
 
 **Context**
 
-Building a node canvas from scratch is weeks of work and a source of bugs.
+Cooking science is partially tabulated (USDA retention factors cover common
+vegetables × boil/steam/bake/fry) but not for everything (e.g. fermented
+batters, seasonal vegetables, Indian pressure cooking).
 
 **Decision**
 
-Use `@xyflow/react` (reactflow), lazy-loaded on the recipe route. Fall back
-to a vertical list on mobile.
+The LLM receives operation + inputs + before-profile and returns
+nutrient-level retention factors with reasons, subject to:
+
+- temperature 0, structured JSON, cached by operation + input fingerprint;
+- factors apply only to nutrients with no table row and no measured value;
+- every estimate is tagged `estimated` with a one-line reason, revertible
+  with one click, and never overrides better evidence.
 
 **Consequences**
 
-- ~150 KB gzipped, lazy-loaded, so it does not affect the diary or plan.
-- Standard, well-documented, accessible enough for our needs.
+- "What does this step do to my nutrients?" is answerable for every step,
+  honestly labelled by evidence quality.
+- LLM factors flow through the D-016 diff UI for review.
+
+---
+
+### D-044 — Terminal outputs are tagged consumed or discarded
+
+**Status:** Proposed
+**Date:** 2026-11-15
+**Relates to:** D-022, D-032
+
+**Context**
+
+A whey output exists but must not silently count toward the dish; a served
+item might be the only one eaten.
+
+**Decision**
+
+Every terminal output is tagged `consumed` or `discarded`. The dish's
+nutrition counts consumed outputs only; discarded outputs are tracked and
+visible ("whey removed ~5 g protein, ~65 mg sodium") but excluded from
+energy/target judgement. Tagging is required before save.
+
+---
+
+### D-045 — v2 snapshots; legacy recipes convert explicitly
+
+**Status:** Proposed
+**Date:** 2026-11-15
+**Relates to:** D-024
+
+**Context**
+
+Existing recipes were saved as linear blocks. The v2 engine computes graphs.
+
+**Decision**
+
+`calculation_version = "2"` for graph recipes; the snapshot carries both the
+computed result (displays keep working) and the graph + layout. Legacy
+v1 versions stay readable forever. One "Convert all" action builds a v2
+version of every legacy recipe; plans keep their pinned v1 pins.
+
+---
+
+### D-046 — The step-list view is a full editor, not a fallback
+
+**Status:** Proposed
+**Date:** 2026-11-15
+**Relates to:** D-039
+
+**Context**
+
+Canvas editors are power tools; a phone or a keyboard user cannot drag.
+
+**Decision**
+
+The flow editor offers a structured step list alongside the canvas; every
+capability (connect, tag, measure, split, estimate) is available in both.
+The canvas is never the only path to a correct recipe.
 
 ---
 
