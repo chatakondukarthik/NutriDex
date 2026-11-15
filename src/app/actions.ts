@@ -1018,3 +1018,42 @@ export async function resetMasterPromptAction(): Promise<{ ok: boolean }> {
   revalidatePath("/settings");
   return { ok: true };
 }
+
+export async function estimateAllFoodsAction(): Promise<{
+  ok: boolean;
+  filled?: number;
+  skipped?: number;
+  failed?: string[];
+  message?: string;
+}> {
+  const { isAiEnabled, getAiConfig } = await import("@/lib/ai/client");
+  if (!isAiEnabled()) return { ok: false, message: "AI is turned off in Settings." };
+  const { hasKey } = await import("@/lib/ai/secrets");
+  const config = getAiConfig();
+  if (!hasKey(config.provider)) {
+    return { ok: false, message: "No AI key configured. Add one in Settings." };
+  }
+
+  const { fillAllWithAi } = await import("@/lib/ai/estimate-food");
+  try {
+    const result = await fillAllWithAi({ masterPrompt: getMasterPrompt() });
+    const failedNames = result.failed.length;
+    revalidatePath("/foods");
+    revalidatePath("/");
+    return {
+      ok: true,
+      filled: result.foodsEstimated,
+      skipped: result.skipped,
+      failed: result.failed.map((f) => f.name),
+      message:
+        failedNames === 0
+          ? `Estimated ${result.nutritionEntries} values across ${result.foodsEstimated} food${result.foodsEstimated === 1 ? "" : "s"}.`
+          : `Estimated ${result.nutritionEntries} values; ${failedNames} food${failedNames === 1 ? "" : "s"} failed: ${result.failed.map((f) => f.name).join(", ")}.`,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "The batch estimate failed.",
+    };
+  }
+}

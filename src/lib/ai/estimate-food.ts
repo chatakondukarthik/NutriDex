@@ -161,3 +161,57 @@ export async function estimateNutrients(
 
   return { fills, notes: String(parsed.notes ?? "").slice(0, 500), model };
 }
+
+import { listFoods, fillEstimatedCapturedFood } from "@/lib/db/foods";
+
+/**
+ * Estimate every captured food that still has unknown nutrients.
+ *
+ * One LLM call per food (all missing nutrients bundled into one prompt),
+ * never one call per nutrient, and never a value that is already known.
+ * Capped so one run cannot drain a free-tier quota in a loop.
+ */
+export async function fillAllWithAi(opts: {
+  completeFn?: CompleteFn;
+  masterPrompt?: string | null;
+  maxFoods?: number;
+} = {}): Promise<{
+  foodsEstimated: number;
+  nutritionEntries: number;
+  skipped: number;
+  failed: Array<{ name: string; reason: string }>;
+}> {
+  const foods = listFoods().filter((food) => food.source); // captured only
+  const pending = foods.filter((food) =>
+    NUTRIENT_CODES.some((code) => food.nutrients[code]?.amount == null),
+  );
+  const cap = opts.maxFoods ?? 50;
+  const failed: Array<{ name: string; reason: string }> = [];
+  let nutritionEntries = 0;
+  let foodsEstimated = 0;
+  let skipped = 0;
+
+  for (const food of pending.slice(0, cap)) {
+    try {
+      const estimate = await estimateNutrients(food, opts);
+      if (estimate.fills.length === 0) {
+        skipped += 1;
+        continue;
+      }
+      const result = fillEstimatedCapturedFood(food.id, estimate.fills.map((fill) => ({
+        code: fill.code,
+        amount: fill.amount,
+        confidence: fill.confidence,
+        reason: fill.reason,
+        model: estimate.model,
+      })));
+      if (result.filled > 0) nutritionEntries += result.filled;
+      else skipped += 1;
+      foodsEstimated += 1;
+    } catch (error) {
+      failed.push({ name: food.name, reason: error instanceof Error ? error.message : "failed" });
+    }
+  }
+
+  return { foodsEstimated, nutritionEntries, skipped, failed };
+}

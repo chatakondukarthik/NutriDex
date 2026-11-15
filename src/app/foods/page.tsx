@@ -1,12 +1,19 @@
 import Link from "next/link";
 import { listFoods, listCapturedFoods } from "@/lib/db/foods";
 import { FoodsBrowser } from "@/components/foods-browser";
+import { BulkEstimateButton } from "@/components/bulk-estimate-button";
+import { aiStatus } from "@/lib/ai/client";
+import { NUTRIENT_CODES } from "@/lib/nutrition/types";
 
 export const dynamic = "force-dynamic";
 
 export default function FoodsPage() {
   const all = listFoods();
   const captured = listCapturedFoods();
+  const pendingFoods = captured.filter((food) =>
+    NUTRIENT_CODES.some((code) => food.nutrients[code]?.amount == null),
+  ).length;
+  const ai = aiStatus();
   return (
     <main className="mx-auto max-w-5xl px-5 py-6">
       <div className="mb-4 flex items-center justify-between">
@@ -17,6 +24,7 @@ export default function FoodsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <BulkEstimateButton pendingFoods={pendingFoods} aiEnabled={ai.enabled} hasKey={ai.hasKey} />
           <Link href="/foods/import" className="rounded-md border border-line px-3 py-1.5 text-xs font-medium hover:bg-ink/5">
             Import CSV
           </Link>
