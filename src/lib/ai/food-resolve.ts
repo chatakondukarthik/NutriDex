@@ -64,12 +64,19 @@ const STOPWORDS = new Set([
   "sliced", "diced", "minced", "boneless", "skinless",
 ]);
 
+const normalizeToken = (token: string) =>
+  token
+    .replace(/ies$/, "y")
+    .replace(/es$/, "")
+    .replace(/s$/, "");
+
 export function foodTokens(text: string): string[] {
-  return text
+  const words = text
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
     .filter((t) => t && !STOPWORDS.has(t));
+  return words.map(normalizeToken).filter((t) => t.length > 0);
 }
 
 /** Fraction of the query's tokens present in the candidate. */
@@ -86,7 +93,7 @@ export function scoreName(query: string, candidate: string): number {
 /* local matching                                                     */
 /* ------------------------------------------------------------------ */
 
-const LOCAL_THRESHOLD = 0.66;
+const LOCAL_THRESHOLD = 0.5;
 const USDA_THRESHOLD = 0.5;
 
 /**
