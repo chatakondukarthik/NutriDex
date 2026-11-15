@@ -24,6 +24,7 @@ export const FOOD_PROPOSAL_SCHEMA = {
         type: "object",
         properties: { label: { type: "string" }, grams: { type: "number" } },
         required: ["label", "grams"],
+        additionalProperties: false,
       },
     },
     nutrients: {

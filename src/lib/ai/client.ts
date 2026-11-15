@@ -6,6 +6,7 @@ import { getAdapter } from "./adapters";
 import type { AiConfig, ModelRequest, ModelResponse } from "./types";
 
 export interface AiStatus {
+  enabled: boolean;
   configured: boolean;
   provider: string;
   model: string;
@@ -16,7 +17,13 @@ export interface AiStatus {
 }
 
 export function getAiConfig(): AiConfig {
-  return readAiConfig() ?? defaultAiConfig();
+  const config = readAiConfig() ?? defaultAiConfig();
+  if (config.enabled === undefined) config.enabled = true;
+  return config;
+}
+
+export function isAiEnabled(): boolean {
+  return getAiConfig().enabled !== false;
 }
 
 export function isProviderConfigured(provider: string): boolean {
@@ -25,6 +32,7 @@ export function isProviderConfigured(provider: string): boolean {
 
 export async function complete(request: ModelRequest): Promise<ModelResponse> {
   const config = getAiConfig();
+  if (config.enabled === false) throw new Error("AI is turned off in Settings.");
   const primary = config;
   const fallback: AiConfig | null =
     config.fallbackProvider && config.fallbackModel
@@ -107,6 +115,7 @@ export function aiStatus(): AiStatus {
     db.prepare(`SELECT COUNT(*) AS n FROM ai_calls WHERE created_at LIKE ?`).get(`${today}%`) as { n: number }
   ).n;
   return {
+    enabled: config.enabled !== false,
     configured: hasKey(config.provider),
     provider: config.provider,
     model: config.model,

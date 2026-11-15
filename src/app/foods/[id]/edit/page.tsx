@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getCapturedFood } from "@/lib/db/foods";
 import { FoodEditor } from "@/components/food-editor";
+import { aiStatus } from "@/lib/ai/client";
 
 export const dynamic = "force-dynamic";
 
@@ -8,5 +9,5 @@ export default async function EditFoodPage({ params }: { params: Promise<{ id: s
   const { id } = await params;
   const food = getCapturedFood(id);
   if (!food) notFound();
-  return <FoodEditor initial={food} mode="edit" />;
+  return <FoodEditor initial={food} mode="edit" ai={{ enabled: aiStatus().enabled, hasKey: aiStatus().hasKey }} />;
 }

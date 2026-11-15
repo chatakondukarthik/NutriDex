@@ -17,9 +17,11 @@ const CATEGORIES = ["Dairy", "Grains", "Vegetables", "Fruits", "Legumes", "Oils"
 interface Props {
   initial?: Food;
   mode: "create" | "edit";
+  ai?: { enabled: boolean; hasKey: boolean };
 }
 
-export function FoodEditor({ initial, mode }: Props) {
+export function FoodEditor({ initial, mode, ai }: Props) {
+  const aiAvailable = !!ai?.enabled && !!ai?.hasKey;
   const router = useRouter();
   const [name, setName] = useState(initial?.name ?? "");
   const [aliases, setAliases] = useState((initial?.aliases ?? []).join(", "));
@@ -128,6 +130,14 @@ export function FoodEditor({ initial, mode }: Props) {
 
   function onImageFile(file: File | null) {
     if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setMessage("That image is larger than 5 MB. Pick a smaller one.");
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      setMessage("That does not look like an image.");
+      return;
+    }
     setAiImageMime(file.type || "image/jpeg");
     const reader = new FileReader();
     reader.onload = () => {
@@ -315,8 +325,19 @@ export function FoodEditor({ initial, mode }: Props) {
           <h2 className="text-sm font-semibold">Fill from AI</h2>
           <p className="mt-1 text-xs text-muted">
             Describe the food or paste a label. The model proposes values; you review and save.
-            Requires a key in Settings.
           </p>
+
+          {!aiAvailable && (
+            <div className="mt-3 rounded-md border border-dashed border-line bg-bg p-3 text-xs text-muted">
+              {!ai?.enabled
+                ? "AI is turned off. Turn it on in Settings to use this."
+                : "No API key configured. Add one in Settings to use AI fill."}{" "}
+              <a href="/settings" className="underline underline-offset-2 hover:text-ink">
+                Open Settings
+              </a>
+              .
+            </div>
+          )}
 
           <label className="mt-3 flex flex-col gap-1 text-xs">
             <span className="font-medium">Description</span>
@@ -324,6 +345,7 @@ export function FoodEditor({ initial, mode }: Props) {
               value={aiText}
               onChange={(e) => setAiText(e.target.value)}
               rows={3}
+              disabled={!aiAvailable}
               placeholder="e.g. 100 g of home-made paneer, full fat"
               className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm"
             />
@@ -331,7 +353,7 @@ export function FoodEditor({ initial, mode }: Props) {
           <button
             type="button"
             onClick={runTextExtract}
-            disabled={pending || !aiText.trim()}
+            disabled={!aiAvailable || pending || !aiText.trim()}
             className="mt-2 rounded-md border border-line px-3 py-1.5 text-xs font-medium disabled:opacity-50"
           >
             Extract from text
@@ -343,6 +365,7 @@ export function FoodEditor({ initial, mode }: Props) {
               type="file"
               accept="image/*"
               onChange={(e) => onImageFile(e.target.files?.[0] ?? null)}
+              disabled={!aiAvailable}
               className="mt-1 block text-xs"
             />
             <label className="mt-2 flex flex-col gap-1 text-xs">

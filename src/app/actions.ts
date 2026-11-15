@@ -380,6 +380,7 @@ export interface AiConfigResult {
 }
 
 export async function saveAiConfigAction(input: {
+  enabled?: boolean;
   provider: string;
   model: string;
   fallbackProvider?: string;
@@ -389,6 +390,7 @@ export async function saveAiConfigAction(input: {
   key?: string;
 }): Promise<AiConfigResult> {
   const config = {
+    enabled: input.enabled !== false,
     provider: input.provider as any,
     model: input.model.trim(),
     fallbackProvider: input.fallbackProvider as any,
@@ -449,6 +451,10 @@ export async function extractFoodAction(input: {
   images?: ImagePart[];
   note?: string;
 }): Promise<{ ok: boolean; proposal?: any; message?: string }> {
+  const { isAiEnabled } = await import("@/lib/ai/client");
+  if (!isAiEnabled()) {
+    return { ok: false, message: "AI is turned off in Settings." };
+  }
   try {
     const proposal =
       input.mode === "image"

@@ -16,6 +16,7 @@ const PROVIDERS = [
 ];
 
 export function AiSettingsPanel({ status }: { status: ReturnType<typeof import("@/lib/ai/client").aiStatus> }) {
+  const [enabled, setEnabled] = useState(status.enabled);
   const [provider, setProvider] = useState(status.provider);
   const [model, setModel] = useState(status.model);
   const [baseUrl, setBaseUrl] = useState("");
@@ -32,6 +33,7 @@ export function AiSettingsPanel({ status }: { status: ReturnType<typeof import("
     setMessage(null);
     startTransition(async () => {
       const result = await saveAiConfigAction({
+        enabled,
         provider,
         model,
         fallbackProvider: fallback || undefined,
@@ -85,6 +87,12 @@ export function AiSettingsPanel({ status }: { status: ReturnType<typeof import("
         OpenAI-compatible endpoint. Keys are stored in <code>data/secrets.json</code> (mode 0600) or
         an environment variable, never in the database or the browser.
       </p>
+
+      <label className="mt-3 flex items-center gap-2 text-xs">
+        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+        <span className="font-medium">Enable AI features</span>
+        <span className="text-muted">(turn off to use NutriPlan without any model)</span>
+      </label>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-xs">
@@ -175,7 +183,7 @@ export function AiSettingsPanel({ status }: { status: ReturnType<typeof import("
         <button
           type="button"
           onClick={test}
-          disabled={pending}
+          disabled={!enabled || pending}
           className="rounded-md border border-line px-3 py-1.5 text-xs font-medium disabled:opacity-50"
         >
           Test connection

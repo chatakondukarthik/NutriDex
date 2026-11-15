@@ -19,5 +19,5 @@ export function writeAiConfig(config: AiConfig): void {
 }
 
 export function defaultAiConfig(): AiConfig {
-  return { provider: "gemini", model: "gemini-2.0-flash", dailyCallCap: 200 };
+  return { enabled: true, provider: "gemini", model: "gemini-2.0-flash", dailyCallCap: 200 };
 }

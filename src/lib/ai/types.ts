@@ -1,6 +1,7 @@
 export type ProviderId = "gemini" | "openai" | "anthropic" | "openai-compatible";
 
 export interface AiConfig {
+  enabled?: boolean;
   provider: ProviderId;
   model: string;
   fallbackProvider?: ProviderId;

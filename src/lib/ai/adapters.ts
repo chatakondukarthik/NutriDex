@@ -28,6 +28,19 @@ async function fetchJson(url: string, init: RequestInit, timeoutMs: number): Pro
 
 // ---------- Gemini ----------
 
+function stripAdditionalProperties(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripAdditionalProperties);
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (k === "additionalProperties") continue;
+      out[k] = stripAdditionalProperties(v);
+    }
+    return out;
+  }
+  return value;
+}
+
 const gemini: ProviderAdapter = {
   id: "gemini",
   label: "Google Gemini",
@@ -50,7 +63,7 @@ const gemini: ProviderAdapter = {
       generationConfig: {
         temperature: request.temperature ?? 0,
         ...(request.maxTokens ? { maxOutputTokens: request.maxTokens } : {}),
-        ...(request.jsonSchema ? { responseMimeType: "application/json", responseSchema: request.jsonSchema } : {}),
+        ...(request.jsonSchema ? { responseMimeType: "application/json", responseSchema: stripAdditionalProperties(request.jsonSchema) } : {}),
       },
     };
     if (request.system) {
