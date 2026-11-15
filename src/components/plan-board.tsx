@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   addPlanEntryAction,
   copyPlanDayAction,
+  copyPlanWeekAction,
   movePlanEntryAction,
   removePlanEntryAction,
   updatePlanEntryQuantityAction,
@@ -604,6 +605,20 @@ export function PlanBoard({
             >
               Next →
             </Link>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                startTransition(async () => {
+                  const result = await copyPlanWeekAction(week, addDays(week, 7));
+                  if (result.ok) router.push(`/plan?week=${addDays(week, 7)}`);
+                  else setError(result.message ?? "Could not copy week.");
+                })
+              }
+              className="rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink/60 transition hover:bg-ink/5 disabled:opacity-50"
+            >
+              Copy to next week
+            </button>
           </div>
         </div>
 

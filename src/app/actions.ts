@@ -578,6 +578,52 @@ export async function copyPlanDayAction(
   return { ok: true, count };
 }
 
+export async function copyPlanWeekAction(
+  sourceWeekStart: string,
+  targetWeekStart: string,
+): Promise<{ ok: boolean; message?: string; count?: number }> {
+  const { weekDays } = await import("@/lib/plan");
+  const sourceDays = weekDays(sourceWeekStart);
+  const targetDays = weekDays(targetWeekStart);
+  if (sourceDays.length !== 7 || targetDays.length !== 7) {
+    return { ok: false, message: "Invalid week." };
+  }
+
+  const sourcePlan = getOrCreatePlan(sourceWeekStart);
+  const targetPlan = getOrCreatePlan(targetWeekStart);
+  const sourceEntries = listPlanEntries(sourcePlan.id);
+
+  let count = 0;
+  for (const entry of sourceEntries) {
+    const dayIndex = sourceDays.indexOf(entry.day);
+    if (dayIndex < 0) continue;
+    const targetDay = targetDays[dayIndex];
+    if (entry.foodId) {
+      addPlanEntry({
+        planId: targetPlan.id,
+        day: targetDay,
+        slot: entry.slot,
+        foodId: entry.foodId,
+        grams: entry.grams ?? 0,
+        amount: entry.amount ?? undefined,
+        unit: entry.unit ?? undefined,
+      });
+    } else if (entry.recipeVersionId) {
+      addPlanEntry({
+        planId: targetPlan.id,
+        day: targetDay,
+        slot: entry.slot,
+        recipeVersionId: entry.recipeVersionId,
+        servings: entry.servings ?? 1,
+      });
+    }
+    count++;
+  }
+
+  revalidatePath("/plan");
+  return { ok: true, count };
+}
+
 export async function promoteFoodToRecipeAction(foodId: string): Promise<{ ok: boolean; recipeId?: string; message?: string }> {
   const food = getFood(foodId);
   if (!food) return { ok: false, message: "That food does not exist." };
