@@ -45,7 +45,10 @@ const SCHEMA = `
     name               TEXT NOT NULL,
     current_version_id TEXT,
     created_at         TEXT NOT NULL,
-    updated_at         TEXT NOT NULL
+    updated_at         TEXT NOT NULL,
+    -- Set when archived. Archived recipes are hidden but keep their
+    -- versions because plans pin them.
+    archived_at        TEXT
   );
 
   CREATE TABLE IF NOT EXISTS recipe_versions (
@@ -219,7 +222,6 @@ function migrate(database: DatabaseSync): void {
   addColumn(database, "profile", "pace", "TEXT NOT NULL DEFAULT 'steady'");
   addColumn(database, "profile", "target_weight_kg", "REAL");
   addColumn(database, "recipe_versions", "label", "TEXT");
-  addColumn(database, "recipe_versions", "process_graph", "TEXT");
 }
 
 function addColumn(

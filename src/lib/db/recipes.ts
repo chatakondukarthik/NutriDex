@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { db, transaction } from "./client";
 import type { RecipeResult } from "@/lib/nutrition/recipe";
 import type { PlanRecipeOption } from "@/lib/plan";
-import { legacyBlocksToGraph } from "@/lib/recipe-graph";
 
 export interface StoredInput {
   id: string;
@@ -51,7 +50,6 @@ export interface RecipeVersionDetail {
   calculationVersion: string;
   createdAt: string;
   blocks: StoredBlock[];
-  processGraph?: import("@/lib/recipe-graph").ProcessGraph | null;
 }
 
 export interface VersionRef {
@@ -83,7 +81,6 @@ export interface VersionInput {
       note: string | null;
     }>;
   }>;
-  processGraph?: import("@/lib/recipe-graph").ProcessGraph | null;
   snapshot: RecipeResult;
 }
 
@@ -106,7 +103,6 @@ interface VersionRow {
   snapshot: string;
   calculation_version: string;
   label: string | null;
-  process_graph: string | null;
   created_at: string;
 }
 
@@ -199,30 +195,10 @@ function insertVersion(
   const versionNo = (previous?.max ?? 0) + 1;
   const versionId = randomUUID();
 
-  // Derive a process graph from the blocks if one was not supplied.
-  const graph =
-    version.processGraph ??
-    legacyBlocksToGraph(
-      version.blocks.map((b, i) => ({
-        id: `b${i + 1}`,
-        name: b.name,
-        operation: b.operation,
-        outputGrams: b.outputGrams,
-        inputs: b.inputs.map((inp) => ({
-          foodId: inp.foodId,
-          grams: inp.grams,
-          amount: inp.amount,
-          unit: inp.unit,
-          preparation: inp.preparation,
-          note: inp.note,
-        })),
-      })),
-    );
-
   db.prepare(
     `INSERT INTO recipe_versions
-       (id, recipe_id, version_no, instructions, servings, yield_g, snapshot, calculation_version, label, process_graph, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, recipe_id, version_no, instructions, servings, yield_g, snapshot, calculation_version, label, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     versionId,
     recipeId,
@@ -233,7 +209,6 @@ function insertVersion(
     JSON.stringify(version.snapshot),
     version.snapshot.calculationVersion,
     version.label?.trim() || null,
-    JSON.stringify(graph),
     new Date().toISOString(),
   );
 
@@ -274,6 +249,7 @@ export function listRecipes(): RecipeSummary[] {
               v.version_no, v.label, v.servings, v.snapshot
        FROM recipes r
        LEFT JOIN recipe_versions v ON v.id = r.current_version_id
+       WHERE r.archived_at IS NULL
        ORDER BY r.updated_at DESC, r.rowid DESC`,
     )
     .all() as unknown as Array<
@@ -390,9 +366,6 @@ export function getVersion(versionId: string): RecipeVersionDetail | undefined {
       outputGrams: block.output_g,
       inputs: inputsByBlock.get(block.id) ?? [],
     })),
-    processGraph: version.process_graph
-      ? (JSON.parse(version.process_graph) as import("@/lib/recipe-graph").ProcessGraph)
-      : null,
   };
 }
 
@@ -444,4 +417,75 @@ export function listRecipeOptions(): PlanRecipeOption[] {
       perServing: snapshot.perServing,
     };
   });
+}
+
+/** References from plans to any version of a recipe. */
+export function countRecipeReferences(recipeId: string): number {
+  const rows = db
+    .prepare(`SELECT id FROM recipe_versions WHERE recipe_id = ?`)
+    .all(recipeId) as unknown as Array<{ id: string }>;
+  if (rows.length === 0) return 0;
+  const ids = rows.map((r) => r.id);
+  const placeholders = ids.map(() => "?").join(",");
+  const row = db
+    .prepare(`SELECT COUNT(*) AS n FROM plan_entries WHERE recipe_version_id IN (${placeholders})`)
+    .get(...ids) as unknown as { n: number };
+  return row.n;
+}
+
+export type DeleteRecipeResult =
+  | { ok: true; outcome: "deleted" | "archived" }
+  | { ok: false; message: string };
+
+/**
+ * Delete a recipe, or archive it when something references it.
+ * A recipe referenced by a plan or by a component inside another recipe
+ * must keep its versions; it is hidden, never destroyed.
+ */
+export function deleteRecipe(recipeId: string): DeleteRecipeResult {
+  const recipe = db.prepare(`SELECT id FROM recipes WHERE id = ?`).get(recipeId) as unknown as
+    | { id: string }
+    | undefined;
+  if (!recipe) return { ok: false, message: "That recipe no longer exists." };
+
+  const references = countRecipeReferences(recipeId);
+  if (references > 0) {
+    db.prepare(`UPDATE recipes SET archived_at = ? WHERE id = ?`).run(
+      new Date().toISOString(),
+      recipeId,
+    );
+    return { ok: true, outcome: "archived" };
+  }
+
+  transaction(() => {
+    const versionIds = (
+      db.prepare(`SELECT id FROM recipe_versions WHERE recipe_id = ?`).all(recipeId) as unknown as Array<{
+        id: string;
+      }>
+    ).map((r) => r.id);
+    const componentIds = versionIds.length
+      ? (
+          db
+            .prepare(
+              `SELECT id FROM components WHERE recipe_version_id IN (${versionIds.map(() => "?").join(",")})`,
+            )
+            .all(...versionIds) as unknown as Array<{ id: string }>
+        ).map((r) => r.id)
+      : [];
+    if (componentIds.length) {
+      db.prepare(
+        `DELETE FROM component_inputs WHERE component_id IN (${componentIds.map(() => "?").join(",")})`,
+      ).run(...componentIds);
+      db.prepare(`DELETE FROM components WHERE id IN (${componentIds.map(() => "?").join(",")})`).run(
+        ...componentIds,
+      );
+    }
+    if (versionIds.length) {
+      db.prepare(`DELETE FROM recipe_versions WHERE id IN (${versionIds.map(() => "?").join(",")})`).run(
+        ...versionIds,
+      );
+    }
+    db.prepare(`DELETE FROM recipes WHERE id = ?`).run(recipeId);
+  });
+  return { ok: true, outcome: "deleted" };
 }

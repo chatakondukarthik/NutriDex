@@ -719,24 +719,24 @@ export async function importInndbAction(
   }
 }
 
-export async function estimateProcessEffectAction(input: {
-  operation: string;
-  ingredients: string[];
-  beforeSummary: string;
-  outputMassG: number | null;
-}): Promise<{ ok: boolean; effect?: any; message?: string }> {
-  const { isAiEnabled } = await import("@/lib/ai/client");
-  if (!isAiEnabled()) return { ok: false, message: "AI is turned off in Settings." };
-  try {
-    const { estimateProcessEffect } = await import("@/lib/ai/process-effect");
-    const effect = await estimateProcessEffect({
-      operation: input.operation as any,
-      ingredients: input.ingredients,
-      beforeSummary: input.beforeSummary,
-      outputMassG: input.outputMassG,
-    });
-    return { ok: true, effect };
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : "Estimation failed." };
-  }
+import { deleteRecipe } from "@/lib/db/recipes";
+import { deleteCapturedFood } from "@/lib/db/foods";
+
+export async function deleteRecipeAction(recipeId: string): Promise<{ ok: boolean; outcome?: string; message?: string }> {
+  const { getRecipe } = await import("@/lib/db/recipes");
+  if (!getRecipe(recipeId)) return { ok: false, message: "That recipe no longer exists." };
+  const result = deleteRecipe(recipeId);
+  if (!result.ok) return { ok: false, message: result.message };
+  revalidatePath("/recipes");
+  revalidatePath(`/recipes/${recipeId}`);
+  return { ok: true, outcome: result.outcome };
+}
+
+export async function deleteCapturedFoodAction(foodId: string): Promise<{ ok: boolean; outcome?: string; message?: string }> {
+  const { getFood } = await import("@/lib/db/foods");
+  if (!getFood(foodId)) return { ok: false, message: "That food no longer exists." };
+  const result = deleteCapturedFood(foodId);
+  if (!result.ok) return { ok: false, message: result.message };
+  revalidatePath("/foods");
+  return { ok: true, outcome: result.outcome };
 }

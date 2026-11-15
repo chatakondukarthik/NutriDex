@@ -304,3 +304,32 @@ export function archiveCapturedFood(id: string): { ok: boolean; message?: string
   );
   return { ok: true };
 }
+
+export type DeleteCapturedFoodResult =
+  | { ok: true; outcome: "deleted" | "archived" }
+  | { ok: false; message: string };
+
+/**
+ * Delete a captured food outright when nothing references it, otherwise
+ * archive it (history keeps its target). Foods referenced by entries,
+ * recipes or plans cannot be destroyed.
+ */
+export function deleteCapturedFood(id: string): DeleteCapturedFoodResult {
+  const existing = getCapturedFood(id);
+  if (!existing) return { ok: false, message: "That food no longer exists." };
+
+  const references = countFoodReferences(id);
+  if (references > 0) {
+    return {
+      ok: false,
+      message: `It is used in ${references} place${references === 1 ? "" : "s"}. Remove those entries, then delete.`,
+    };
+  }
+
+  transaction(() => {
+    db.prepare(`DELETE FROM captured_food_portions WHERE food_id = ?`).run(id);
+    db.prepare(`DELETE FROM captured_food_nutrients WHERE food_id = ?`).run(id);
+    db.prepare(`DELETE FROM captured_foods WHERE id = ?`).run(id);
+  });
+  return { ok: true, outcome: "deleted" };
+}

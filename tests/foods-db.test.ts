@@ -86,3 +86,33 @@ describe("captured foods round trip", () => {
     expect(result.ok).toBe(false);
   });
 });
+
+describe("deleteCapturedFood", () => {
+  it("deletes an unused food outright", () => {
+    const prepared = captured.prepareCapturedFood({ name: "Delete me" });
+    if (!prepared.ok) throw new Error("prep");
+    const saved = foods.saveCapturedFood(prepared.food);
+    if (!saved.ok) throw new Error("save");
+    const result = foods.deleteCapturedFood(saved.food.id);
+    if (!("outcome" in result)) throw new Error("expected ok delete");
+    expect(result.ok).toBe(true);
+    expect(result.outcome).toBe("deleted");
+    expect(foods.getCapturedFood(saved.food.id)).toBeUndefined();
+  });
+
+  it("refuses to delete a food that is in use", () => {
+    const prepared = captured.prepareCapturedFood({ name: "In use delete check" });
+    if (!prepared.ok) throw new Error("prep");
+    const saved = foods.saveCapturedFood(prepared.food);
+    if (!saved.ok) throw new Error("save");
+    dbMod.db.prepare(
+      `INSERT INTO entries (id, food_id, grams, amount, unit, day, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run("del-e1", saved.food.id, 100, 100, "g", "2026-01-01", new Date().toISOString());
+    const result = foods.deleteCapturedFood(saved.food.id);
+    if (!("message" in result)) throw new Error("expected refusal");
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/used in 1 place/);
+    // the food still exists
+    expect(foods.getCapturedFood(saved.food.id)).toBeDefined();
+  });
+});

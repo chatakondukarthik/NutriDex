@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getFood } from "@/lib/db/foods";
+import { deleteCapturedFoodAction } from "@/app/actions";
+import { DeleteButton } from "@/components/delete-button";
 import { NUTRIENT_CODES, NUTRIENTS } from "@/lib/nutrition/types";
 import { fmt } from "@/lib/format";
 
@@ -23,9 +25,16 @@ export default async function FoodDetailPage({ params }: { params: Promise<{ id:
         </div>
         <div className="flex gap-2">
           {food.source ? (
-            <Link href={`/foods/${food.id}/edit`} className="rounded-md border border-line px-3 py-1.5 text-xs font-medium">
-              Edit
-            </Link>
+            <>
+              <Link href={`/foods/${food.id}/edit`} className="rounded-md border border-line px-3 py-1.5 text-xs font-medium">
+                Edit
+              </Link>
+              <DeleteButton
+                label="Delete"
+                redirectTo="/foods"
+                onDelete={() => deleteCapturedFoodAction(food.id)}
+              />
+            </>
           ) : null}
           <Link href="/foods" className="rounded-md border border-line px-3 py-1.5 text-xs font-medium">
             Back

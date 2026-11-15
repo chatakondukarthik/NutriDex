@@ -43,7 +43,26 @@ export function Diary({ foods, entries, targets, day }: DiaryProps) {
 
   const results = useMemo(() => searchFoods(foods, query), [query]);
   const selectedFood = foods.find((f) => f.id === selectedId) ?? null;
-  const result = useMemo(() => dayRollup(entries, (id) => foods.find((f) => f.id === id)!), [entries, foods]);
+  const result = useMemo(
+    () =>
+      dayRollup(
+        entries,
+        (id) =>
+          foods.find((f) => f.id === id) ?? {
+            id,
+            name: "Deleted food",
+            aliases: [],
+            category: "Custom",
+            kind: "provisional",
+            state: "raw",
+            portions: [],
+            nutrients: Object.fromEntries(
+              NUTRIENT_CODES.map((code) => [code, { amount: null, status: "unknown", source: "none" }]),
+            ) as Food["nutrients"],
+          },
+      ),
+    [entries, foods],
+  );
 
   const targetByCode = useMemo(
     () => new Map(targets.map((t) => [t.code, t])),
