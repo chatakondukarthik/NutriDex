@@ -314,6 +314,36 @@ Tests: 302 passing across 27 files (new: fragment parser, recipe filter,
 recipes-browser, leave-guard, paste-fragment-dialog). jsdom is still the
 reliable verification path while the browser wedge persists.
 
+## Incident 2026-11-16: test suite wiped captured_foods in the dev DB — recovered
+
+`tests/inndb-import.test.ts` had top-level `import { importInndb, listCapturedFoods }`.
+Module-level imports pin the dev DB in the vitest module registry *before*
+`vi.stubEnv("NUTRIPLAN_DB_PATH", tmp)` runs, so the "throwaway" import returned the
+dev database. Its `beforeEach` ran `DELETE FROM captured_foods` on the user's dev
+file — deleting every captured food including the user's own PANEER (GOPI).
+
+Root cause of that recurring class: vitest evaluates a test file's top-level imports
+before beforeAll callbacks, so any top-level import of a db-backed module pins the
+module registry. Rule: never import db-backed modules at the top of a test file;
+bind everything inside beforeAll after stubbing NUTRIPLAN_DB_PATH.
+
+Recovery (all captured foods restored, recipes intact):
+- WAL forensics: frames of pages 29 (captured_foods), 31 (index), 32 (nutrients) in
+  `data/nutriplan.sqlite-wal` still contained all deleted rows. Decoded the leaf-page
+  cells directly (no SQLite tooling could see them).
+- Recovered: 23 foods incl. PANEER (GOPI) with full nutrient values (USDA import),
+  414+ nutrient rows, the AI shawarma instructions text and graph from the
+  lost_and_found region of `sqlite3 .recover`.
+- Rebuilt AI shawarma + manual shawarma from the recovered graph via saveGraphDraft.
+- Ink the target incident into TESTING.md: add a test that the dev DB file is never
+  the db binding when the suite runs (assert `db.name` != default path).
+
+Also lost then restored: Chicken Biryani (manual) recipe (31efdbfb) and duplicate
+bakery artifacts — everything deleted and recreated idempotently.
+
+Verified: 338 tests pass, integrity_check ok, SSR pages render restored recipes,
+foods resolvable from seeds and DB again.
+
 ## Rules of engagement recapped
 
 - Never make claims about what hydrated without querying the browser DOM.
