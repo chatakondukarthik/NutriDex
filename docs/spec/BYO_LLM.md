@@ -2,7 +2,7 @@
 
 **Status:** Proposed (design, not committed)
 **Date:** 2026-11-15
-**Relates to:** D-009, D-016, D-019, D-028, and the capture spec
+**Relates to:** D-009, D-016, D-019, D-028, D-034, D-035, D-036, D-037, D-038
 **Research:** [`research/notes/2026-11-15-fud-ai-and-llm-providers.md`](../research/notes/2026-11-15-fud-ai-and-llm-providers.md)
 **Consumed by:** [`INGREDIENT_CAPTURE.md`](INGREDIENT_CAPTURE.md) S6.3 and S6.4
 

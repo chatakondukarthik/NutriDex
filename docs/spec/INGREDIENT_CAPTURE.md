@@ -2,7 +2,7 @@
 
 **Status:** Proposed (design, not committed)
 **Date:** 2026-11-15
-**Relates to:** D-011, D-012, D-015, D-016, D-020, D-023, D-025, D-026, D-028
+**Relates to:** D-011, D-012, D-015, D-016, D-020, D-023, D-025, D-026, D-028, D-033, D-034
 **Research:** [`research/notes/2026-11-15-fud-ai-and-llm-providers.md`](../research/notes/2026-11-15-fud-ai-and-llm-providers.md)
 **Builds on:** [`PATCH_recipe_and_ai.md`](PATCH_recipe_and_ai.md) parts A and B
 
