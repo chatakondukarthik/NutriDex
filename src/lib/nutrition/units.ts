@@ -1,4 +1,5 @@
 import type { Food, Portion } from "./types";
+import { guessDensity } from "./density";
 
 export type Unit = "g" | "kg" | "oz" | "lb" | "ml" | "l" | "tsp" | "tbsp" | "fl_oz" | "cup" | "portion";
 
@@ -95,16 +96,19 @@ export function toGrams(food: Food, quantity: Quantity): GramResult {
     case "tbsp":
     case "fl_oz":
     case "cup": {
-      const density = food.densityGPerMl;
       const volumeMl = quantity.amount * (VOLUME_FACTORS[quantity.unit] ?? 1);
+      const density = food.densityGPerMl ?? guessDensity(food)?.gPerMl ?? null;
       if (density == null) {
         return gramResult(
           volumeMl,
           "volume",
-          "Assumed 1 g/ml; this food has no density on record.",
+          "No density on record — assumed 1 g/ml (water). Edit this food and set its density for a real number.",
         );
       }
-      return gramResult(volumeMl * density, "volume");
+      const note = food.densityGPerMl != null
+        ? undefined
+        : `Assumed ${density} g/ml (${guessDensity(food)?.source}) — edit the food to override.`;
+      return gramResult(volumeMl * density, "volume", note);
     }
 
     case "portion": {

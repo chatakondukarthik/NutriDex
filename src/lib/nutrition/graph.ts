@@ -26,6 +26,9 @@ export interface GraphFoodNode {
   type: "food";
   foodId: string;
   grams: number;
+  /** Display quantity: what the user typed and the unit chosen, or "g". */
+  amount?: number | null;
+  unit?: string | null;
 }
 
 export interface GraphOutput {

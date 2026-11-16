@@ -171,11 +171,12 @@ describe("units", () => {
     expect(result.ok && result.grams).toBeCloseTo(13.8, 5);
   });
 
-  it("flags a missing density instead of assuming silently", () => {
+  it("flags a missing density with a visible, specific assumption", () => {
     const result = toGrams(paneer, { amount: 100, unit: "ml" });
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.note).toMatch(/1 g\/ml/);
+      expect(result.note).toMatch(/assumed/i);
+      expect(result.note).toMatch(/paneer/i);
     }
   });
 
@@ -258,7 +259,7 @@ describe("units: extended", () => {
   it("converts cups of a densityless food with an explicit assumption note", () => {
     const result = toGrams(paneer, { amount: 1, unit: "cup" });
     expect(result.ok && result.basis).toBe("volume");
-    if (result.ok) expect(result.note).toMatch(/1 g\/ml/);
+    if (result.ok) expect(result.note).toMatch(/assumed/i);
   });
 
   it("converts an egg as a household portion (\u003c 3 × 1 large = 150 g)", () => {
@@ -283,5 +284,57 @@ describe("unitsFor offers everything the diary needs", () => {
     const options = unitsFor(egg).map((option) => option.value);
     expect(options).toEqual(expect.arrayContaining(["g", "kg", "oz", "lb", "ml", "l", "tsp", "tbsp", "fl_oz", "cup"]));
     expect(options).toContain("portion:1 large");
+  });
+});
+
+describe("density guesses replace the 1 g/ml placeholder", () => {
+  const oil = getFood("mustard-oil")!;
+  const paneer = getFood("paneer")!;
+
+  it("uses real density for oils, not 1 g/ml", () => {
+    const result = toGrams(oil, { amount: 1, unit: "cup" });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.grams).toBeCloseTo(236.5882365 * 0.92, 2);
+      expect(result.note).toBeUndefined(); // real density, no assumption note
+    }
+  });
+
+  it("assumes flour-like density for gram flour, with a visible note", () => {
+    // besan's density is not in the seed — the category name is Custom/Flour?
+    // In seed data: besan doesn't exist; use a captured fixture with flour in the name.
+    const floury = {
+      ...paneer,
+      id: "test-flour",
+      name: "Whole wheat flour",
+      densityGPerMl: undefined,
+    };
+    const result = toGrams(floury, { amount: 1, unit: "cup" });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.grams).toBeCloseTo(236.5882365 * 0.57, 2);
+      expect(result.note).toMatch(/assumed/i);
+      expect(result.note).toMatch(/flour/i);
+    }
+  });
+
+  it("falls back loudly for a custom-category food with no rule", () => {
+    const mystery = {
+      ...paneer,
+      id: "mystery",
+      name: "My new food",
+      category: "Custom",
+      densityGPerMl: undefined,
+    };
+    const result = toGrams(mystery, { amount: 250, unit: "ml" });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.note).toMatch(/1 g\/ml/i);
+  });
+
+  it("real density always wins over the guess", () => {
+    const withDensity = { ...oil, densityGPerMl: 0.88 };
+    const result = toGrams(withDensity, { amount: 1, unit: "cup" });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.grams).toBeCloseTo(236.5882365 * 0.88, 2);
   });
 });

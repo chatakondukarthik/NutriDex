@@ -61,7 +61,7 @@ interface EdgeLike {
   target: string;
 }
 
-const FOOD_KEYS = ["foodId", "grams", "label"] as const;
+const FOOD_KEYS = ["foodId", "grams", "amount", "unit", "label"] as const;
 const PROCESS_KEYS = [
   "name",
   "operation",
@@ -196,6 +196,8 @@ function sanitizeFoodData(data: Record<string, unknown>, errors: string[]) {
     foodId: foodId ?? "unknown",
     grams: grams ?? 0,
     label: asString(data.label) ?? undefined,
+    amount: finiteNumber(data.amount) ?? grams,
+    unit: asString(data.unit) ?? "g",
   };
 }
 

@@ -21,6 +21,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { saveGraphAction, estimateNodeDeltasAction, searchUsdaAction, importUsdaAction, saveCapturedFoodAction } from "@/app/actions";
 import { searchFoods } from "@/lib/nutrition/food-search";
+import { toGrams, unitsFor, parseUnitKey } from "@/lib/nutrition/units";
 import { computeGraph, type Graph, type GraphNode as EngineNode, type GraphProcessNode } from "@/lib/nutrition/graph";
 import type { Rollup } from "@/lib/nutrition/engine";
 import dagre from "@dagrejs/dagre";
@@ -211,6 +212,8 @@ function FlowEditorInner({
       data: {
         label: food.name,
         grams: 100,
+        amount: 100,
+        unit: "g",
         foodId: food.id,
         unknownCount: Object.values(food.nutrients).filter((v) => v.amount == null).length,
       },
@@ -378,7 +381,7 @@ function FlowEditorInner({
         id,
         type: "food",
         position: { x: 80 + Math.random() * 120, y: 100 + Math.random() * 220 },
-        data: { label: proposal.name, grams: 100, foodId: saved.foodId, unknownCount: 0 },
+        data: { label: proposal.name, grams: 100, amount: 100, unit: "g", foodId: saved.foodId, unknownCount: 0 },
       },
     ]);
     setSelectedId(id);
@@ -509,7 +512,14 @@ function FlowEditorInner({
           type: "food",
           position: { x: node.position.x + offset, y: node.position.y + offset },
           selected: true,
-          data: { foodId, grams, label, unknownCount },
+          data: {
+            foodId,
+            grams,
+            amount: typeof data.amount === "number" ? data.amount : grams,
+            unit: typeof data.unit === "string" ? data.unit : "g",
+            label,
+            unknownCount,
+          },
         };
       }
       return {
@@ -1076,8 +1086,13 @@ function FoodInspector({
   onRemove: (id: string) => void;
   foods: Food[];
 }) {
-  const d = node.data as { label: string; grams: number; foodId: string };
+  const d = node.data as { label: string; grams: number; amount?: number | null; unit?: string | null; foodId: string };
   const food = foods.find((f) => f.id === d.foodId);
+  const amount = d.amount ?? d.grams;
+  const unitKey = d.unit ?? "g";
+  const parsed = parseUnitKey(unitKey);
+  const preview = food ? toGrams(food, { amount: Number(amount) || 0, unit: parsed.unit, portionLabel: parsed.portionLabel }) : null;
+  const resolved = preview?.ok ? preview.grams : d.grams;
   const [showAll, setShowAll] = useState(false);
   const isUsda = food?.source === "usda" || food?.source === "openfoodfacts";
   return (
@@ -1088,16 +1103,60 @@ function FoodInspector({
           {isUsda ? `Imported from ${food.source === "usda" ? "USDA FoodData Central" : "Open Food Facts"}` : `Source: ${food.source}`}
         </p>
       )}
-      <label className="mt-3 flex flex-col gap-1 text-xs">
-        <span className="font-medium">Amount (g)</span>
-        <input
-          type="number"
-          min={0}
-          value={d.grams}
-          onChange={(e) => onPatch(node.id, { grams: Math.max(0, Number(e.target.value) || 0) })}
-          className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm"
-        />
-      </label>
+      <div className="mt-3 flex flex-col gap-1 text-xs">
+        <span className="font-medium">Amount</span>
+        <div className="flex items-stretch gap-1.5">
+          <input
+            type="number"
+            min={0}
+            step="any"
+            value={amount}
+            aria-label="Quantity"
+            onChange={(e) => {
+              const nextAmount = Math.max(0, Number(e.target.value) || 0);
+              const next = food ? toGrams(food, { amount: nextAmount, unit: parsed.unit, portionLabel: parsed.portionLabel }) : null;
+              onPatch(node.id, {
+                amount: nextAmount,
+                grams: next?.ok ? next.grams : nextAmount,
+              });
+            }}
+            className="w-24 min-w-0 flex-1 rounded-md border border-line bg-bg px-2 py-1.5 text-sm"
+          />
+          <select
+            value={unitKey}
+            aria-label="Unit"
+            onChange={(e) => {
+              const nextKey = e.target.value;
+              const parsedKey = parseUnitKey(nextKey);
+              const next = food ? toGrams(food, { amount: Number(amount) || 0, unit: parsedKey.unit, portionLabel: parsedKey.portionLabel }) : null;
+              onPatch(node.id, {
+                unit: nextKey,
+                grams: next?.ok ? next.grams : Number(amount) || 0,
+              });
+            }}
+            className="max-w-[130px] rounded-md border border-line bg-bg px-2 py-1.5 text-sm"
+          >
+            {food ? (
+              unitsFor(food).map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))
+            ) : (
+              <option value="g">g</option>
+            )}
+          </select>
+        </div>
+        <p className="text-[10px] text-ink/45">
+          = <span className="tabular font-medium text-ink/65">{fmt(resolved, 0)} g</span>
+          {preview && !preview.ok && (
+            <span className="ml-1 text-warn-ink">· {preview.reason}</span>
+          )}
+          {preview?.ok && preview.note && (
+            <span className="ml-1 text-warn-ink">· {preview.note}</span>
+          )}
+        </p>
+      </div>
 
       {food && (
         <div className="mt-4">
@@ -1541,8 +1600,15 @@ function buildGraph(nodes: Node[], edges: Edge[]): Graph {
   const engineNodes: EngineNode[] = [];
   for (const node of nodes) {
     if (node.type === "food") {
-      const d = node.data as { foodId: string; grams: number };
-      engineNodes.push({ id: node.id, type: "food", foodId: d.foodId, grams: d.grams });
+      const d = node.data as { foodId: string; grams: number; amount?: number | null; unit?: string | null };
+      engineNodes.push({
+        id: node.id,
+        type: "food",
+        foodId: d.foodId,
+        grams: d.grams,
+        amount: d.amount ?? null,
+        unit: d.unit ?? "g",
+      });
     } else {
       const d = node.data as unknown as {
         name: string; operation: string; qualifier: string | null;
@@ -1587,7 +1653,14 @@ function buildInitialNodes(graph: Graph | null | undefined, layout: Record<strin
         id: node.id,
         type: "food",
         position: positioned(node.id, false),
-        data: { label: food?.name ?? node.foodId, grams: node.grams, foodId: node.foodId, unknownCount },
+        data: {
+          label: food?.name ?? node.foodId,
+          grams: node.grams,
+          amount: node.amount ?? node.grams,
+          unit: node.unit ?? "g",
+          foodId: node.foodId,
+          unknownCount,
+        },
       };
     }
     const d = node as GraphProcessNode;

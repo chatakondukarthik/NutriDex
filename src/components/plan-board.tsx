@@ -655,6 +655,7 @@ export function PlanBoard({
                         entry={entry}
                         name={entryName(entry, foodById, recipeByVersion)}
                         kcal={entryKcal.get(entry.id) ?? null}
+                        food={entry.foodId ? foodById.get(entry.foodId) ?? null : null}
                         units={entry.foodId && foodById.get(entry.foodId) ? unitsFor(foodById.get(entry.foodId)!) : null}
                         onQuantity={(value) => setFoodQuantity(entry, value)}
                         onUnitChange={(unitKey) => setFoodUnit(entry, unitKey)}
@@ -1199,6 +1200,7 @@ function PlanEntryRow({
   entry,
   name,
   kcal,
+  food,
   units,
   onQuantity,
   onUnitChange,
@@ -1210,6 +1212,7 @@ function PlanEntryRow({
   entry: PlanEntry;
   name: string;
   kcal: number | null;
+  food: Food | null;
   /** Universal + portion unit options for foods; null for recipes. */
   units: { value: string; label: string }[] | null;
   onQuantity: (value: number) => void;
@@ -1261,46 +1264,57 @@ function PlanEntryRow({
         </button>
       </div>
 
-      <div className="mt-0.5 flex items-center justify-between gap-1 pl-3.5">
-        <label className="flex items-center gap-0.5 text-[10px] text-ink/35">
-          <input
-            key={`${entry.id}:${value}:${unitKey}`}
-            type="number"
-            min="0"
-            step="any"
-            defaultValue={value}
-            aria-label={`${entry.foodId ? "Quantity" : "Servings"} of ${name}`}
-            onBlur={(event) => {
-              const next = Number(event.target.value);
-              if (!Number.isFinite(next) || next <= 0) {
-                event.target.value = String(value);
-                return;
-              }
-              if (next !== value) onQuantity(next);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") (event.target as HTMLInputElement).blur();
-            }}
-            className="tabular w-11 rounded border border-line bg-surface px-1 py-0.5 text-[10px] outline-none focus:border-accent/50"
-          />
-          {units && (
-            <select
-              value={unitKey}
-              onChange={(event) => onUnitChange(event.target.value)}
-              aria-label={`Unit for ${name}`}
-              className="max-w-[64px] rounded border border-line bg-surface px-0.5 py-0.5 text-[10px] outline-none focus:border-accent/50"
-            >
-              {units.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          )}
-          {!units && <span className="w-9">srv</span>}
-        </label>
-        <span className="tabular text-[10px] text-ink/40">{fmt(kcal, 0)} kcal</span>
+      <div className="mt-1 flex items-center gap-1 pl-5">
+        <input
+          key={`${entry.id}:${value}:${unitKey}`}
+          type="number"
+          min="0"
+          step="any"
+          defaultValue={value}
+          aria-label={`${entry.foodId ? "Quantity" : "Servings"} of ${name}`}
+          onBlur={(event) => {
+            const next = Number(event.target.value);
+            if (!Number.isFinite(next) || next <= 0) {
+              event.target.value = String(value);
+              return;
+            }
+            if (next !== value) onQuantity(next);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") (event.target as HTMLInputElement).blur();
+          }}
+          className="tabular w-12 min-w-0 flex-1 rounded-md border border-line bg-surface px-1.5 py-1 text-[11px] outline-none focus:border-accent/50"
+        />
+        {units ? (
+          <select
+            value={unitKey}
+            onChange={(event) => onUnitChange(event.target.value)}
+            aria-label={`Unit for ${name}`}
+            className="max-w-[96px] rounded-md border border-line bg-surface px-1 py-1 text-[11px] outline-none focus:border-accent/50"
+          >
+            {units.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="w-10 text-[10px] text-ink/35">srv</span>
+        )}
+        <span className="tabular w-14 text-right text-[11px] text-ink/45">
+          {fmt(kcal, 0)} kcal
+        </span>
       </div>
+      {entry.foodId && unitKey !== "g" && (
+        <p className="mt-0.5 pl-5 text-[9px] leading-tight text-ink/35">
+          = {fmt(entry.grams ?? 0, 0)} g
+          {food && food.densityGPerMl == null && (unitKey === "ml" || unitKey === "l" || unitKey === "cup" || unitKey === "tsp" || unitKey === "tbsp" || unitKey === "fl_oz") && (
+            <span className="ml-1 text-warn-ink" title="No density recorded — using an assumed value (edit the food to set a real one)">
+              · ≈assumed
+            </span>
+          )}
+        </p>
+      )}
     </li>
   );
 }
