@@ -89,7 +89,30 @@ export function PlanSkeleton() {
         </div>
       </SkeletonCard>
 
-      <section className="mt-4 overflow-x-auto pb-1">
+      {/* Day-chip strip + single day below xl; the full seven-column
+          week at xl and up (mirrors plan-board's breakpoint). */}
+      <section className="mt-4 pb-1 xl:hidden">
+        <div className="flex gap-1.5 overflow-x-auto pb-1">
+          {Array.from({ length: 7 }, (_, day) => (
+            <Skeleton key={day} className="h-11 w-[74px] shrink-0 rounded-xl" />
+          ))}
+        </div>
+        <div className="mx-auto mt-2 max-w-2xl rounded-xl border border-line bg-surface p-2">
+          <Skeleton className="h-3 w-12" />
+          <Skeleton className="mt-2 h-5 w-16" />
+          <SkeletonBar />
+          <div className="mt-3 space-y-2">
+            {Array.from({ length: 4 }, (_, slot) => (
+              <div key={slot} className="rounded-lg border border-dashed border-line p-1">
+                <Skeleton className="h-2.5 w-14" />
+                <Skeleton className="mt-1.5 h-9 w-full rounded-md" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-4 hidden overflow-x-auto pb-1 xl:block">
         <div className="grid min-w-[960px] grid-cols-7 gap-2">
           {Array.from({ length: 7 }, (_, day) => (
             <div key={day} className="rounded-xl border border-line bg-surface p-2">

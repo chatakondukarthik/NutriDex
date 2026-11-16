@@ -122,6 +122,10 @@ function FlowEditorInner({
   const [notice, setNotice] = useState<string | null>(null);
   const [pasteOffset, setPasteOffset] = useState(0);
   const [canvasMode, setCanvasMode] = useState<"pan" | "select">("pan");
+  /* Below lg the library/inspector asides would eat 544px of a
+     phone-width screen (w-56 + w-80 shrink-0) and leave the canvas
+     nothing. They become toggleable overlays there instead. */
+  const [mobilePanel, setMobilePanel] = useState<null | "library" | "inspector">(null);
   const [pasteDialogOpen, setPasteDialogOpen] = useState(false);
   const [internalFragment, setInternalFragment] = useState<string | null>(null);
   const historyRef = useRef<{ past: { nodes: Node[]; edges: Edge[] }[]; future: { nodes: Node[]; edges: Edge[] }[] }>({ past: [], future: [] });
@@ -688,6 +692,23 @@ function FlowEditorInner({
     <div className="relative flex h-[calc(100vh-57px)] flex-col">
       {/* top bar */}
       <div className="flex flex-wrap items-center gap-2 border-b border-line bg-surface px-4 py-2">
+        {/* Mobile-only panel toggles — the asides hide below lg. */}
+        <button
+          type="button"
+          onClick={() => setMobilePanel((current) => (current === "library" ? null : "library"))}
+          aria-pressed={mobilePanel === "library"}
+          className="rounded-md border border-line bg-bg px-3 py-2 text-xs font-medium text-muted hover:text-ink lg:hidden"
+        >
+          Foods
+        </button>
+        <button
+          type="button"
+          onClick={() => setMobilePanel((current) => (current === "inspector" ? null : "inspector"))}
+          aria-pressed={mobilePanel === "inspector"}
+          className="rounded-md border border-line bg-bg px-3 py-2 text-xs font-medium text-muted hover:text-ink lg:hidden"
+        >
+          Details
+        </button>
         {aiAction && (
           <RecipeGenerator
             aiEnabled={aiAction.enabled}
@@ -791,9 +812,15 @@ function FlowEditorInner({
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
         {/* palette */}
-        <aside className="w-56 shrink-0 overflow-y-auto border-r border-line bg-surface p-3">
+        <aside
+          className={`w-64 shrink-0 overflow-y-auto border-r border-line bg-surface p-3 lg:block lg:w-56 ${
+            mobilePanel === "library"
+              ? "absolute inset-y-0 left-0 z-30 shadow-2xl"
+              : "hidden"
+          }`}
+        >
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -957,7 +984,13 @@ function FlowEditorInner({
         </div>
 
         {/* inspector */}
-        <aside className="w-80 shrink-0 overflow-y-auto border-l border-line bg-surface p-3">
+        <aside
+          className={`w-72 shrink-0 overflow-y-auto border-l border-line bg-surface p-3 lg:block lg:w-80 ${
+            mobilePanel === "inspector"
+              ? "absolute inset-y-0 right-0 z-30 shadow-2xl"
+              : "hidden"
+          }`}
+        >
           {selectedEdgeId ? (
             <ConnectionInspector
               edgeId={selectedEdgeId}
@@ -995,6 +1028,17 @@ function FlowEditorInner({
             </p>
           )}
         </aside>
+
+        {/* Mobile backdrop: click to dismiss an open overlay panel.
+            On lg+ the asides are static, so this never renders there. */}
+        {mobilePanel && (
+          <button
+            type="button"
+            aria-label="Close panel"
+            onClick={() => setMobilePanel(null)}
+            className="absolute inset-0 z-20 bg-ink/30 lg:hidden"
+          />
+        )}
       </div>
 
       {/* bottom hint bar */}

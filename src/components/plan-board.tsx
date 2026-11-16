@@ -914,9 +914,10 @@ export function PlanBoard({
 
         {/* ---- Week ------------------------------------------------------ */}
         <section className="mt-4 pb-1">
-          {/* Small screens get one day at a time. Seven columns at phone
-              width is a horizontal scroll with nothing readable in it. */}
-          <div className="lg:hidden">
+          {/* Small/medium screens get one day at a time. Seven columns
+              below 1280px starves each day card (see the xl note
+              below). */}
+          <div className="xl:hidden">
             <div className="flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {days.map((day) => {
                 const kcal = rollupsByDay.get(day)?.totals.ENERC_KCAL ?? null;
@@ -961,11 +962,17 @@ export function PlanBoard({
                 tap a slot to add it. Dragging also works.
               </p>
             )}
-            <div className="mt-2">{renderDay(selectedDay, false)}</div>
+            {/* Centered measure: at 1024–1279px this single-day view
+                spans ~1200px, which would stretch the quantity input
+                absurdly wide. */}
+            <div className="mx-auto mt-2 max-w-2xl">{renderDay(selectedDay, false)}</div>
           </div>
 
-          {/* Wide screens get the whole week at once. */}
-          <div className="hidden lg:block">
+          {/* Full week needs ~1280px for seven readable columns; below
+              that the columns starve the entry rows (name squashed to
+              ~10px at 1024), so the single-day view takes over until
+              xl. */}
+          <div className="hidden xl:block">
             <div className="grid grid-cols-7 gap-2">
               {days.map((day) => renderDay(day))}
             </div>
