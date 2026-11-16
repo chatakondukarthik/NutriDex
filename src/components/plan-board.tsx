@@ -1244,6 +1244,10 @@ function PlanEntryRow({
           {name}
         </span>
 
+        <span className="shrink-0 tabular text-[10px] leading-none text-ink/45">
+          {fmt(kcal, 0)} kcal
+        </span>
+
         <button
           type="button"
           onClick={onCopy}
@@ -1301,9 +1305,6 @@ function PlanEntryRow({
         ) : (
           <span className="w-10 text-[10px] text-ink/35">srv</span>
         )}
-        <span className="tabular shrink-0 whitespace-nowrap text-[10px] leading-tight text-ink/45">
-          {fmt(kcal, 0)} kcal
-        </span>
       </div>
       {entry.foodId && unitKey !== "g" && (
         <p className="mt-0.5 pl-5 text-[9px] leading-tight text-ink/35">
