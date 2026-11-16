@@ -20,6 +20,26 @@ export const SLOT_LABELS: Record<Slot, string> = {
   snack: "Snack",
 };
 
+/** Human quantity for an entry: "100 g", "2 kg", "3 eggs", "1 katori", or "2 servings". */
+export function entryQty(entry: PlanEntry): string {
+  if (entry.foodId) {
+    if (entry.amount != null && entry.unit) {
+      if (entry.unit.startsWith("portion:")) {
+        const label = entry.unit.slice("portion:".length).replace(/^1\s+/, "");
+        return `${fmtQtyText(entry.amount)} ${label}${entry.amount === 1 ? "" : ""}`;
+      }
+      const unit = entry.unit.replace(/_/g, " ");
+      return `${fmtQtyText(entry.amount)} ${unit}`;
+    }
+    return `${Math.round(entry.grams ?? 0)} g`;
+  }
+  return `${fmtQtyText(entry.servings ?? 0)} ${entry.servings === 1 ? "serving" : "servings"}`;
+}
+
+function fmtQtyText(value: number): string {
+  return Number.isFinite(value) ? String(Number(value.toFixed(2))) : "—";
+}
+
 export interface PlanEntry {
   id: string;
   planId: string;

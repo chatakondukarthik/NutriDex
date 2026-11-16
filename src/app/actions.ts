@@ -219,7 +219,9 @@ export async function addPlanEntryAction(input: {
 /** Change only the quantity; what the entry points at never moves. */
 export async function updatePlanEntryQuantityAction(
   id: string,
-  patch: { grams: number } | { servings: number },
+  patch:
+    | { grams: number; amount?: number | null; unit?: string | null }
+    | { servings: number },
 ): Promise<PlanActionResult> {
   try {
     if ("grams" in patch) {
@@ -230,7 +232,10 @@ export async function updatePlanEntryQuantityAction(
       if (grams > MAX_GRAMS) {
         return { ok: false, message: "That weight is too large — check the amount." };
       }
-      updatePlanEntryQuantity(id, { grams });
+      if (patch.amount != null && !(Number.isFinite(patch.amount) && patch.amount > 0)) {
+        return { ok: false, message: "Amount must be a positive number." };
+      }
+      updatePlanEntryQuantity(id, { grams, amount: patch.amount ?? null, unit: patch.unit ?? null });
     } else {
       const servings = Number(patch.servings);
       if (!Number.isFinite(servings) || servings <= 0) {

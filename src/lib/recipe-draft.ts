@@ -1,5 +1,5 @@
 import type { Food } from "@/lib/nutrition/types";
-import { toGrams, type GramResult, type Unit } from "@/lib/nutrition/units";
+import { toGrams, type GramResult, type Unit, unitsFor, parseUnitKey } from "@/lib/nutrition/units";
 import { computeRecipe, type RecipeBlockInput, type RecipeResult } from "@/lib/nutrition/recipe";
 import type { RecipeDraft } from "@/lib/recipe-validate";
 import type { RecipeVersionDetail } from "@/lib/db/recipes";
@@ -138,12 +138,6 @@ export function builderFromVersion(version: RecipeVersionDetail): BuilderState {
   };
 }
 
-export function parseUnitKey(key: string): { unit: Unit; portionLabel?: string } {
-  if (key.startsWith("portion:")) {
-    return { unit: "portion", portionLabel: key.slice("portion:".length) };
-  }
-  return { unit: key as Unit };
-}
 
 export function toNumber(value: string): number {
   const parsed = Number(value);
@@ -152,12 +146,8 @@ export function toNumber(value: string): number {
 
 /** The unit options for a food, matching what the diary offers. */
 export function unitOptions(food: Food | undefined): { value: string; label: string }[] {
-  const base = [
-    { value: "g", label: "g" },
-    { value: "ml", label: "ml" },
-  ];
-  if (!food) return base;
-  return [...base, ...food.portions.map((p) => ({ value: `portion:${p.label}`, label: p.label }))];
+  if (!food) return [{ value: "g", label: "g" }];
+  return unitsFor(food);
 }
 
 export function inputGrams(food: Food | undefined, input: BuilderInput): GramResult {

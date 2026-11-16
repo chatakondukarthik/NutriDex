@@ -1,6 +1,6 @@
 import type { Food, Portion } from "./types";
 
-export type Unit = "g" | "kg" | "ml" | "l" | "portion";
+export type Unit = "g" | "kg" | "oz" | "lb" | "ml" | "l" | "tsp" | "tbsp" | "fl_oz" | "cup" | "portion";
 
 export interface Quantity {
   amount: number;
@@ -22,10 +22,33 @@ export type GramResult =
 export const UNITS: { value: Unit; label: string }[] = [
   { value: "g", label: "grams" },
   { value: "kg", label: "kilograms" },
+  { value: "oz", label: "ounces" },
+  { value: "lb", label: "pounds" },
   { value: "ml", label: "millilitres" },
   { value: "l", label: "litres" },
+  { value: "tsp", label: "tsp" },
+  { value: "tbsp", label: "tbsp" },
+  { value: "fl_oz", label: "fl oz" },
+  { value: "cup", label: "cup" },
   { value: "portion", label: "portion" },
 ];
+
+/** Exact factor: how many tentatively-named units equal a gram (mass) or ml (volume). */
+const MASS_FACTORS: Partial<Record<Unit, number>> = {
+  g: 1,
+  kg: 1000,
+  oz: 28.349523125,
+  lb: 453.59237,
+};
+
+const VOLUME_FACTORS: Partial<Record<Unit, number>> = {
+  ml: 1,
+  l: 1000,
+  tsp: 4.92892159375,
+  tbsp: 14.78676478125,
+  fl_oz: 29.5735295625,
+  cup: 236.5882365,
+};
 
 /**
  * One tonne. Well beyond any plausible single ingredient, recipe batch or
@@ -61,33 +84,27 @@ export function toGrams(food: Food, quantity: Quantity): GramResult {
 
   switch (quantity.unit) {
     case "g":
-      return gramResult(quantity.amount, "mass");
-
     case "kg":
-      return gramResult(quantity.amount * 1000, "mass");
+    case "oz":
+    case "lb":
+      return gramResult(quantity.amount * (MASS_FACTORS[quantity.unit] ?? 1), "mass");
 
-    case "ml": {
+    case "ml":
+    case "l":
+    case "tsp":
+    case "tbsp":
+    case "fl_oz":
+    case "cup": {
       const density = food.densityGPerMl;
+      const volumeMl = quantity.amount * (VOLUME_FACTORS[quantity.unit] ?? 1);
       if (density == null) {
         return gramResult(
-          quantity.amount,
+          volumeMl,
           "volume",
           "Assumed 1 g/ml; this food has no density on record.",
         );
       }
-      return gramResult(quantity.amount * density, "volume");
-    }
-
-    case "l": {
-      const density = food.densityGPerMl;
-      if (density == null) {
-        return gramResult(
-          quantity.amount * 1000,
-          "volume",
-          "Assumed 1 g/ml; this food has no density on record.",
-        );
-      }
-      return gramResult(quantity.amount * 1000 * density, "volume");
+      return gramResult(volumeMl * density, "volume");
     }
 
     case "portion": {
@@ -111,11 +128,27 @@ export function findPortion(food: Food, label?: string): Portion | undefined {
   return food.portions.find((p) => p.label === label);
 }
 
-/** All selectable units for a food, including its named portions. */
+/** Parse a select-value like "portion:egg" or a plain unit like "g". */
+export function parseUnitKey(key: string): { unit: Unit; portionLabel?: string } {
+  if (key.startsWith("portion:")) {
+    return { unit: "portion", portionLabel: key.slice("portion:".length) };
+  }
+  return { unit: key as Unit };
+}
+
+/** All selectable units for a food: universal mass/volume, then its named portions. */
 export function unitsFor(food: Food): { value: string; label: string }[] {
   return [
     { value: "g", label: "g" },
+    { value: "kg", label: "kg" },
+    { value: "oz", label: "oz" },
+    { value: "lb", label: "lb" },
     { value: "ml", label: "ml" },
+    { value: "l", label: "l" },
+    { value: "tsp", label: "tsp" },
+    { value: "tbsp", label: "tbsp" },
+    { value: "fl_oz", label: "fl oz" },
+    { value: "cup", label: "cup" },
     ...food.portions.map((p) => ({ value: `portion:${p.label}`, label: p.label })),
   ];
 }

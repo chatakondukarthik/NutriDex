@@ -227,3 +227,61 @@ describe("search", () => {
     expect(searchFoods(SEED_FOODS, "").length).toBe(SEED_FOODS.length);
   });
 });
+
+describe("units: extended", () => {
+  const paneer = getFood("paneer")!;
+  const oil = getFood("mustard-oil")!;
+  const milk = getFood("whole-milk") ?? getFood("milk");
+
+  it("converts ounces", () => {
+    const result = toGrams(paneer, { amount: 1, unit: "oz" });
+    expect(result.ok && Math.round(result.grams * 1000)).toBe(28350);
+  });
+
+  it("converts pounds", () => {
+    const result = toGrams(paneer, { amount: 1, unit: "lb" });
+    expect(result.ok && Math.round(result.grams)).toBe(454);
+  });
+
+  it("converts teaspoons and cups of oil via density", () => {
+    const tsp = toGrams(oil, { amount: 1, unit: "tsp" });
+    expect(tsp.ok && tsp.grams).toBeCloseTo(4.929 * 0.92, 3);
+    const cup = toGrams(oil, { amount: 1, unit: "cup" });
+    expect(cup.ok && cup.grams).toBeCloseTo(236.5882365 * 0.92, 2);
+  });
+
+  it("converts fluid ounces", () => {
+    const result = toGrams(oil, { amount: 1, unit: "fl_oz" });
+    expect(result.ok && result.grams).toBeCloseTo(29.5735 * 0.92, 2);
+  });
+
+  it("converts cups of a densityless food with an explicit assumption note", () => {
+    const result = toGrams(paneer, { amount: 1, unit: "cup" });
+    expect(result.ok && result.basis).toBe("volume");
+    if (result.ok) expect(result.note).toMatch(/1 g\/ml/);
+  });
+
+  it("converts an egg as a household portion (\u003c 3 × 1 large = 150 g)", () => {
+    const egg = getFood("egg");
+    expect(egg).toBeDefined();
+    const result = toGrams(egg!, { amount: 3, unit: "portion", portionLabel: "1 large" });
+    expect(result.ok && result.grams).toBe(150);
+  });
+
+  it("uses density for millilitres", () => {
+    if (milk) {
+      const result = toGrams(milk, { amount: 250, unit: "ml" });
+      expect(result.ok && result.grams).toBeCloseTo(257.5, 1);
+    }
+  });
+});
+
+describe("unitsFor offers everything the diary needs", () => {
+  it("includes masses, volumes and portions", async () => {
+    const { unitsFor } = await import("@/lib/nutrition/units");
+    const egg = getFood("egg")!;
+    const options = unitsFor(egg).map((option) => option.value);
+    expect(options).toEqual(expect.arrayContaining(["g", "kg", "oz", "lb", "ml", "l", "tsp", "tbsp", "fl_oz", "cup"]));
+    expect(options).toContain("portion:1 large");
+  });
+});

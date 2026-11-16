@@ -528,7 +528,7 @@ export function FoodEditor({ initial, mode, ai }: Props) {
         {/* Portions */}
         <div className="mt-4">
           <div className="flex items-baseline justify-between gap-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-ink/50">Household portions</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-ink/50">Portions &amp; pieces</h3>
             <button
               type="button"
               onClick={() => setPortions([...portions, { label: "", grams: "" }])}
@@ -537,8 +537,38 @@ export function FoodEditor({ initial, mode, ai }: Props) {
               + Add portion
             </button>
           </div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {[
+              { label: "1 piece", grams: "50" },
+              { label: "1 egg", grams: "50" },
+              { label: "1 banana", grams: "118" },
+              { label: "1 cup", grams: "237" },
+              { label: "1 tbsp", grams: "15" },
+              { label: "1 tsp", grams: "5" },
+              { label: "1 katori", grams: "150" },
+            ].map((preset) => (
+              <button
+                key={preset.label}
+                type="button"
+                onClick={() =>
+                  setPortions((current) =>
+                    current.some((p) => p.label === preset.label)
+                      ? current
+                      : [...current, { label: preset.label, grams: preset.grams }],
+                  )
+                }
+                className="rounded-full border border-line bg-bg px-2 py-0.5 text-[10px] text-muted transition hover:border-accent/40 hover:text-accent"
+              >
+                + {preset.label} ≈ {preset.grams} g
+              </button>
+            ))}
+          </div>
           {portions.length === 0 && (
-            <p className="mt-1 text-[11px] text-muted">Optional. "1 katori = 100 g", "1 tbsp = 14 g" — helps you plan without scales.</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted">
+              Optional. How you actually measure this food: "1 egg = 50 g", "1 banana = 118 g",
+              "1 cup = 120 g", "1 katori = 100 g". Everything downstream (diary, plan, recipes)
+              can then log in those units.
+            </p>
           )}
           <div className="mt-1.5 flex flex-wrap gap-2">
             {portions.map((portion, index) => (

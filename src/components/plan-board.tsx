@@ -15,6 +15,7 @@ import { CopyIcon, GripIcon } from "@/components/icons";
 import { NutrientBar } from "@/components/nutrient-bar";
 import { PlanItemSheet, type SheetItem } from "@/components/plan-item-sheet";
 import { fmt, fmtMass } from "@/lib/format";
+import { toGrams, unitsFor, parseUnitKey } from "@/lib/nutrition/units";
 import type { Rollup } from "@/lib/nutrition/engine";
 import { type Food } from "@/lib/nutrition/types";
 import {
@@ -28,6 +29,7 @@ import {
   versionName,
   weekdayShort,
   weekDays,
+  entryQty,
   weekStart,
   type PlanEntry,
   type PlanRecipeOption,
@@ -163,7 +165,7 @@ export function PlanBoard({
       return {
         id: entry.id,
         name: entryName(entry, foodById, recipeByVersion),
-        qty: entry.foodId ? `${fmtMass(entry.grams)} g` : servingsLabel(entry.servings ?? 0),
+        qty: entryQty(entry),
         slot: entry.slot,
         slotLabel:
           period === "week"
@@ -308,6 +310,75 @@ export function PlanBoard({
     });
   }
 
+  /** Keep amount + unit as the user-facing quantity; grams is derived. */
+  function setFoodUnit(entry: PlanEntry, unitKey: string) {
+    if (!entry.foodId) return;
+    const food = foodById.get(entry.foodId);
+    if (!food) return;
+    const amount = entry.amount ?? entry.grams ?? 0;
+    const parsed = parseUnitKey(unitKey);
+    const converted = toGrams(food, { amount, unit: parsed.unit, portionLabel: parsed.portionLabel });
+    if (!converted.ok) {
+      setError(converted.reason);
+      return;
+    }
+    setError(null);
+
+    const previous = entry;
+    const optimistic: PlanEntry = { ...entry, grams: converted.grams, amount, unit: unitKey };
+    setEntries((current) => current.map((item) => (item.id === entry.id ? optimistic : item)));
+
+    startTransition(async () => {
+      const response = await updatePlanEntryQuantityAction(entry.id, {
+        grams: converted.grams,
+        amount,
+        unit: unitKey,
+      });
+      if (!response.ok) {
+        setEntries((current) =>
+          current.map((item) => (item.id === previous.id ? previous : item)),
+        );
+        setError(response.message ?? "Could not update that item.");
+      }
+    });
+  }
+
+  /** Keep amount + unit as the user-facing quantity; grams is derived. */
+  function setFoodQuantity(entry: PlanEntry, value: number) {
+    if (!entry.foodId) return setQuantity(entry, value);
+    const food = foodById.get(entry.foodId);
+    if (!food) return;
+    if (!Number.isFinite(value) || value <= 0) {
+      setError("Quantity must be a positive number.");
+      return;
+    }
+    const parsed = parseUnitKey(entry.unit ?? "g");
+    const converted = toGrams(food, { amount: value, unit: parsed.unit, portionLabel: parsed.portionLabel });
+    if (!converted.ok) {
+      setError(converted.reason);
+      return;
+    }
+    setError(null);
+
+    const previous = entry;
+    const optimistic: PlanEntry = { ...entry, grams: converted.grams, amount: value, unit: entry.unit ?? "g" };
+    setEntries((current) => current.map((item) => (item.id === entry.id ? optimistic : item)));
+
+    startTransition(async () => {
+      const response = await updatePlanEntryQuantityAction(entry.id, {
+        grams: converted.grams,
+        amount: value,
+        unit: entry.unit ?? "g",
+      });
+      if (!response.ok) {
+        setEntries((current) =>
+          current.map((item) => (item.id === previous.id ? previous : item)),
+        );
+        setError(response.message ?? "Could not update that item.");
+      }
+    });
+  }
+
   /** Move a placed item to another day or slot. The item itself is unchanged. */
   function move(entry: PlanEntry, day: string, slot: Slot) {
     if (entry.day === day && entry.slot === slot) return;
@@ -347,7 +418,7 @@ export function PlanBoard({
 
     const previous = entry;
     const optimistic: PlanEntry = entry.foodId
-      ? { ...entry, grams: value }
+      ? { ...entry, grams: value, amount: value, unit: "g" }
       : { ...entry, servings: value };
 
     setEntries((current) => current.map((item) => (item.id === entry.id ? optimistic : item)));
@@ -355,7 +426,7 @@ export function PlanBoard({
     startTransition(async () => {
       const response = await updatePlanEntryQuantityAction(
         entry.id,
-        entry.foodId ? { grams: value } : { servings: value },
+        entry.foodId ? { grams: value, amount: value, unit: "g" } : { servings: value },
       );
 
       if (!response.ok) {
@@ -584,7 +655,9 @@ export function PlanBoard({
                         entry={entry}
                         name={entryName(entry, foodById, recipeByVersion)}
                         kcal={entryKcal.get(entry.id) ?? null}
-                        onQuantity={(value) => setQuantity(entry, value)}
+                        units={entry.foodId && foodById.get(entry.foodId) ? unitsFor(foodById.get(entry.foodId)!) : null}
+                        onQuantity={(value) => setFoodQuantity(entry, value)}
+                        onUnitChange={(unitKey) => setFoodUnit(entry, unitKey)}
                         onCopy={() => copyToPalette(entry)}
                         onRemove={() => remove(entry)}
                         onDragStart={(event) => startEntryDrag(event, entry)}
@@ -1126,7 +1199,9 @@ function PlanEntryRow({
   entry,
   name,
   kcal,
+  units,
   onQuantity,
+  onUnitChange,
   onCopy,
   onRemove,
   onDragStart,
@@ -1135,13 +1210,17 @@ function PlanEntryRow({
   entry: PlanEntry;
   name: string;
   kcal: number | null;
+  /** Universal + portion unit options for foods; null for recipes. */
+  units: { value: string; label: string }[] | null;
   onQuantity: (value: number) => void;
+  onUnitChange: (unitKey: string) => void;
   onCopy: () => void;
   onRemove: () => void;
   onDragStart: (event: React.DragEvent) => void;
   onDragEnd: () => void;
 }) {
-  const value = entry.foodId ? entry.grams ?? 0 : entry.servings ?? 0;
+  const value = entry.foodId ? (entry.amount ?? entry.grams ?? 0) : entry.servings ?? 0;
+  const unitKey = entry.unit ?? "g";
 
   return (
     <li className="animate-pop group rounded-md bg-surface-2 px-1.5 py-1 transition hover:bg-ink/[0.05]">
@@ -1185,12 +1264,12 @@ function PlanEntryRow({
       <div className="mt-0.5 flex items-center justify-between gap-1 pl-3.5">
         <label className="flex items-center gap-0.5 text-[10px] text-ink/35">
           <input
-            key={`${entry.id}:${value}`}
+            key={`${entry.id}:${value}:${unitKey}`}
             type="number"
             min="0"
             step="any"
             defaultValue={value}
-            aria-label={`${entry.foodId ? "Grams" : "Servings"} of ${name}`}
+            aria-label={`${entry.foodId ? "Quantity" : "Servings"} of ${name}`}
             onBlur={(event) => {
               const next = Number(event.target.value);
               if (!Number.isFinite(next) || next <= 0) {
@@ -1204,7 +1283,21 @@ function PlanEntryRow({
             }}
             className="tabular w-11 rounded border border-line bg-surface px-1 py-0.5 text-[10px] outline-none focus:border-accent/50"
           />
-          {entry.foodId ? "g" : "srv"}
+          {units && (
+            <select
+              value={unitKey}
+              onChange={(event) => onUnitChange(event.target.value)}
+              aria-label={`Unit for ${name}`}
+              className="max-w-[64px] rounded border border-line bg-surface px-0.5 py-0.5 text-[10px] outline-none focus:border-accent/50"
+            >
+              {units.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          )}
+          {!units && <span className="w-9">srv</span>}
         </label>
         <span className="tabular text-[10px] text-ink/40">{fmt(kcal, 0)} kcal</span>
       </div>
@@ -1295,10 +1388,7 @@ function servingsLabel(servings: number): string {
   }`;
 }
 
-function quantityLabel(entry: PlanEntry): string {
-  if (entry.foodId) return `${fmtMass(entry.grams)} g`;
-  return servingsLabel(entry.servings ?? 0);
-}
+const quantityLabel = entryQty;
 
 function entryName(
   entry: PlanEntry,

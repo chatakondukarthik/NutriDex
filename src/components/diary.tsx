@@ -8,7 +8,7 @@ import type { Entry } from "@/lib/db/entries";
 import { dayRollup } from "@/lib/day";
 import { searchFoods } from "@/lib/nutrition/food-search";
 import { fmt, fmtDay } from "@/lib/format";
-import { toGrams, type Unit } from "@/lib/nutrition/units";
+import { toGrams, unitsFor, parseUnitKey, type Unit } from "@/lib/nutrition/units";
 import { weekStart } from "@/lib/plan";
 import Link from "next/link";
 import type { Rollup } from "@/lib/nutrition/engine";
@@ -41,13 +41,6 @@ export interface DiaryProps {
   day: string;
   planned: PlannedItem[];
   plannedKcal: number;
-}
-
-function parseUnitKey(key: string): { unit: Unit; portionLabel?: string } {
-  if (key.startsWith("portion:")) {
-    return { unit: "portion", portionLabel: key.slice("portion:".length) };
-  }
-  return { unit: key as Unit };
 }
 
 export function Diary({ foods, entries, targets, day, planned, plannedKcal, recipes }: DiaryProps) {
@@ -428,11 +421,9 @@ export function Diary({ foods, entries, targets, day, planned, plannedKcal, reci
                             onChange={(event) => setUnitKey(event.target.value)}
                             className="w-full rounded-lg border border-line bg-surface px-2.5 py-2 text-sm outline-none focus:border-accent/50"
                           >
-                            <option value="g">g</option>
-                            <option value="ml">ml</option>
-                            {food.portions.map((portion) => (
-                              <option key={portion.label} value={`portion:${portion.label}`}>
-                                {portion.label}
+                            {unitsFor(food).map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
                               </option>
                             ))}
                           </select>
