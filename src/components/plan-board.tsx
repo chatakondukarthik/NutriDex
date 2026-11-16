@@ -1283,14 +1283,14 @@ function PlanEntryRow({
           onKeyDown={(event) => {
             if (event.key === "Enter") (event.target as HTMLInputElement).blur();
           }}
-          className="tabular w-12 min-w-0 flex-1 rounded-md border border-line bg-surface px-1.5 py-1 text-[11px] outline-none focus:border-accent/50"
+          className="tabular min-w-0 flex-1 rounded-md border border-line bg-surface px-1.5 py-1 text-[11px] outline-none focus:border-accent/50"
         />
         {units ? (
           <select
             value={unitKey}
             onChange={(event) => onUnitChange(event.target.value)}
             aria-label={`Unit for ${name}`}
-            className="max-w-[96px] rounded-md border border-line bg-surface px-1 py-1 text-[11px] outline-none focus:border-accent/50"
+            className="w-16 shrink-0 rounded-md border border-line bg-surface px-1 py-1 text-[11px] outline-none focus:border-accent/50"
           >
             {units.map((option) => (
               <option key={option.value} value={option.value}>
@@ -1301,7 +1301,7 @@ function PlanEntryRow({
         ) : (
           <span className="w-10 text-[10px] text-ink/35">srv</span>
         )}
-        <span className="tabular w-14 text-right text-[11px] text-ink/45">
+        <span className="tabular shrink-0 whitespace-nowrap text-[10px] leading-tight text-ink/45">
           {fmt(kcal, 0)} kcal
         </span>
       </div>
