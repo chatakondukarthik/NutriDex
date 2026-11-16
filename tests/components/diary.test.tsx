@@ -21,6 +21,7 @@ vi.mock("@/app/actions", () => ({
   addFoodAction: (input: unknown) => addFoodAction(input),
   addRecipeEntryAction: (input: unknown) => addRecipeEntryAction(input),
   removeEntryAction: (id: unknown) => removeEntryAction(id),
+  defaultAmountAction: async () => ({ ok: false }),
 }));
 
 function perServingRollup(kcal: number): Rollup {

@@ -12,6 +12,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/app/actions", () => ({
   saveRecipeAction: vi.fn(),
+  defaultAmountAction: async () => ({ ok: false }),
 }));
 
 /**

@@ -11,10 +11,12 @@ import {
   searchUsdaAction,
   importUsdaAction,
   promoteFoodToRecipeAction,
+  saveFoodDefaultAction,
 } from "@/app/actions";
 import type { CapturedFoodInput } from "@/lib/captured-food";
 import { NUTRIENT_CODES, NUTRIENTS, type NutrientCode } from "@/lib/nutrition/types";
 import type { Food } from "@/lib/nutrition/types";
+import { UNITS } from "@/lib/nutrition/units";
 
 const CATEGORIES = ["Dairy", "Grains", "Vegetables", "Fruits", "Legumes", "Oils", "Nuts", "Meat", "Seafood", "Spices", "Beverages", "Custom"];
 
@@ -31,11 +33,13 @@ interface Props {
   initial?: Food;
   mode: "create" | "edit";
   ai?: { enabled: boolean; hasKey: boolean };
+  /** The stored pin for this food, if any (edit mode only). */
+  defaultPin?: { amount: number; unit: string } | null;
 }
 
 const NUMERIC_PRECISION = NUTRIENTS;
 
-export function FoodEditor({ initial, mode, ai }: Props) {
+export function FoodEditor({ initial, mode, ai, defaultPin }: Props) {
   const aiAvailable = !!ai?.enabled && !!ai?.hasKey;
   const router = useRouter();
   const draftKey = `nutriplan-food-draft:${mode}:${initial?.id ?? "new"}`;
@@ -52,6 +56,15 @@ export function FoodEditor({ initial, mode, ai }: Props) {
   const [servingsPerPack, setServingsPerPack] = useState(initial?.servingsPerPack ? String(initial.servingsPerPack) : "");
   const [portions, setPortions] = useState<{ label: string; grams: string }[]>(
     (initial?.portions ?? []).map((p) => ({ label: p.label, grams: String(p.grams) })),
+  );
+  /**
+   * The pinned default quantity: what this food pre-fills with when
+   * added anywhere. Null = follow the chain (last-used → portion →
+   * serving → rules → 100 g). Saved with the food, since a pin only
+   * makes sense for a food that exists.
+   */
+  const [pin, setPin] = useState<{ amount: string; unit: string } | null>(
+    defaultPin ? { amount: String(defaultPin.amount), unit: defaultPin.unit } : null,
   );
   const [nutrients, setNutrients] = useState<Record<string, string>>(() => {
     const out: Record<string, string> = {};
@@ -294,6 +307,33 @@ export function FoodEditor({ initial, mode, ai }: Props) {
         return;
       }
       clearDraftOnSave();
+
+      // The pin rides along with the save: null clears it, a value pins
+      // it. A bad amount (typed but not finished) keeps the food save
+      // and reports instead of discarding everything else.
+      const foodId = result.foodId ?? initial?.id;
+      if (foodId && (pin !== null || defaultPin != null)) {
+        let pinResult: { ok: boolean; message?: string } = { ok: true };
+        if (pin === null) {
+          if (defaultPin != null) pinResult = await saveFoodDefaultAction(foodId, null);
+        } else {
+          const amount = Number(pin.amount);
+          if (!Number.isFinite(amount) || amount <= 0) {
+            setMessage("Saved, but the default amount must be a positive number — pin not saved.");
+            router.push("/foods");
+            router.refresh();
+            return;
+          }
+          pinResult = await saveFoodDefaultAction(foodId, { amount, unit: pin.unit });
+        }
+        if (!pinResult.ok) {
+          setMessage(`Saved, but the default pin failed: ${pinResult.message ?? "unknown error"}`);
+          router.push("/foods");
+          router.refresh();
+          return;
+        }
+      }
+
       router.push("/foods");
       router.refresh();
     });
@@ -570,6 +610,66 @@ export function FoodEditor({ initial, mode, ai }: Props) {
               can then log in those units.
             </p>
           )}
+
+          {/* Pinned default quantity */}
+          <div className="mt-4 rounded-xl border border-line bg-bg p-3">
+            <label className="flex items-center gap-2 text-xs font-medium">
+              <input
+                type="checkbox"
+                checked={pin !== null}
+                onChange={(e) =>
+                  setPin(
+                    e.target.checked
+                      ? { amount: "1", unit: portions[0] ? `portion:${portions[0].label}` : "g" }
+                      : null,
+                  )
+                }
+                className="h-3.5 w-3.5 accent-accent"
+              />
+              Pin a default amount
+            </label>
+            {pin !== null ? (
+              <div className="mt-2 flex flex-wrap items-end gap-2">
+                <label className="flex flex-col gap-1 text-[11px] text-muted">
+                  Amount
+                  <input
+                    inputMode="decimal"
+                    value={pin.amount}
+                    onChange={(e) => setPin({ ...pin, amount: e.target.value })}
+                    className="w-20 rounded-md border border-line bg-bg px-2 py-1.5 text-sm text-ink"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-[11px] text-muted">
+                  Unit
+                  <select
+                    value={pin.unit}
+                    onChange={(e) => setPin({ ...pin, unit: e.target.value })}
+                    className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm text-ink"
+                  >
+                    {UNITS.map((unit) => (
+                      <option key={unit.value} value={unit.value}>{unit.label}</option>
+                    ))}
+                    {portions
+                      .filter((p) => p.label.trim())
+                      .map((p) => (
+                        <option key={p.label} value={`portion:${p.label.trim()}`}>
+                          {p.label.trim()}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <p className="basis-full text-[11px] leading-relaxed text-muted">
+                  Added foods open with this quantity everywhere. Off = last-used → portion →
+                  serving size → rules → 100 g.
+                </p>
+              </div>
+            ) : (
+              <p className="mt-1 text-[11px] leading-relaxed text-muted">
+                Off: this food defaults to the chain — last amount used, then its portion,
+                serving size, name rules, then 100 g.
+              </p>
+            )}
+          </div>
           <div className="mt-1.5 flex flex-wrap gap-2">
             {portions.map((portion, index) => (
               <span key={index} className="flex items-center gap-1 rounded-full border border-line bg-bg py-1 pl-3 text-xs">

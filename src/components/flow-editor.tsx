@@ -19,9 +19,10 @@ import {
   SelectionMode,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { saveGraphAction, estimateNodeDeltasAction, searchUsdaAction, importUsdaAction, saveCapturedFoodAction } from "@/app/actions";
+import { saveGraphAction, estimateNodeDeltasAction, searchUsdaAction, importUsdaAction, saveCapturedFoodAction, defaultAmountAction } from "@/app/actions";
 import { searchFoods } from "@/lib/nutrition/food-search";
 import { toGrams, unitsFor, parseUnitKey } from "@/lib/nutrition/units";
+import { defaultAmountFor } from "@/lib/nutrition/defaults";
 import { computeGraph, type Graph, type GraphNode as EngineNode, type GraphProcessNode } from "@/lib/nutrition/graph";
 import type { Rollup } from "@/lib/nutrition/engine";
 import dagre from "@dagrejs/dagre";
@@ -207,7 +208,22 @@ function FlowEditorInner({
   );
   const selectedProcess = preview.result?.perNode.get(selectedId ?? "") ?? null;
 
-  function addFood(food: Food) {
+  async function addFood(food: Food) {
+    // The stored layers (pin, last-used) live on the server; the food's
+    // own data and the rules answer instantly as the fallback.
+    const fallback = defaultAmountFor(food);
+    let chosen: { amount: number; unit: string } = fallback;
+    const resolved = await defaultAmountAction(food.id);
+    if (resolved.ok && resolved.amount != null && resolved.unit) {
+      chosen = { amount: resolved.amount, unit: resolved.unit };
+    }
+    const parsed = parseUnitKey(chosen.unit);
+    const converted = toGrams(food, {
+      amount: chosen.amount,
+      unit: parsed.unit,
+      portionLabel: parsed.portionLabel,
+    });
+
     const id = crypto.randomUUID();
     const foodNode: Node = {
       id,
@@ -215,9 +231,9 @@ function FlowEditorInner({
       position: { x: 80 + Math.random() * 120, y: 80 + Math.random() * 160 },
       data: {
         label: food.name,
-        grams: 100,
-        amount: 100,
-        unit: "g",
+        grams: converted.ok ? converted.grams : chosen.amount,
+        amount: chosen.amount,
+        unit: chosen.unit,
         foodId: food.id,
         unknownCount: Object.values(food.nutrients).filter((v) => v.amount == null).length,
       },
@@ -378,6 +394,16 @@ function FlowEditorInner({
       source: "usda",
     };
     setLibrary((current) => [...current, newFood]);
+    const resolvedDefault = await defaultAmountAction(saved.foodId);
+    const amount =
+      resolvedDefault.ok && resolvedDefault.amount != null ? resolvedDefault.amount : 100;
+    const unit = resolvedDefault.ok && resolvedDefault.unit ? resolvedDefault.unit : "g";
+    const parsed = parseUnitKey(unit);
+    const converted = toGrams(newFood, {
+      amount,
+      unit: parsed.unit,
+      portionLabel: parsed.portionLabel,
+    });
     const id = crypto.randomUUID();
     setNodes((current) => [
       ...current,
@@ -385,7 +411,14 @@ function FlowEditorInner({
         id,
         type: "food",
         position: { x: 80 + Math.random() * 120, y: 100 + Math.random() * 220 },
-        data: { label: proposal.name, grams: 100, amount: 100, unit: "g", foodId: saved.foodId, unknownCount: 0 },
+        data: {
+          label: proposal.name,
+          grams: converted.ok ? converted.grams : amount,
+          amount,
+          unit,
+          foodId: saved.foodId,
+          unknownCount: 0,
+        },
       },
     ]);
     setSelectedId(id);
@@ -509,8 +542,35 @@ function FlowEditorInner({
         const foodId = String(data.foodId);
         const food = library.find((f) => f.id === foodId);
         const label = (typeof data.label === "string" && data.label) || food?.name || foodId;
-        const grams = typeof data.grams === "number" ? data.grams : Number(data.grams) || 0;
         const unknownCount = food ? Object.values(food.nutrients).filter((v) => v.amount == null).length : 0;
+
+        // An explicit quantity (copied from a canvas node or a rich
+        // fragment) travels as-is; a bare foodId gets the food's own
+        // default rather than a hardcoded 100 g.
+        let amount: number;
+        let unit: string;
+        let grams: number;
+        if (typeof data.amount === "number" && typeof data.unit === "string") {
+          amount = data.amount;
+          unit = data.unit;
+          grams = typeof data.grams === "number" ? data.grams : Number(data.grams) || amount;
+        } else if (food) {
+          const chosen = defaultAmountFor(food);
+          amount = chosen.amount;
+          unit = chosen.unit;
+          const parsed = parseUnitKey(unit);
+          const converted = toGrams(food, {
+            amount,
+            unit: parsed.unit,
+            portionLabel: parsed.portionLabel,
+          });
+          grams = converted.ok ? converted.grams : amount;
+        } else {
+          grams = typeof data.grams === "number" ? data.grams : Number(data.grams) || 0;
+          amount = grams;
+          unit = "g";
+        }
+
         return {
           id: idMap.get(node.id)!,
           type: "food",
@@ -519,8 +579,8 @@ function FlowEditorInner({
           data: {
             foodId,
             grams,
-            amount: typeof data.amount === "number" ? data.amount : grams,
-            unit: typeof data.unit === "string" ? data.unit : "g",
+            amount,
+            unit,
             label,
             unknownCount,
           },

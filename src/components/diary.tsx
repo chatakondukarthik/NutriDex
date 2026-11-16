@@ -1,14 +1,20 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { addFoodAction, addRecipeEntryAction, removeEntryAction } from "@/app/actions";
+import {
+  addFoodAction,
+  addRecipeEntryAction,
+  defaultAmountAction,
+  removeEntryAction,
+} from "@/app/actions";
 import { NutrientBar } from "@/components/nutrient-bar";
 import type { Entry } from "@/lib/db/entries";
 import { dayRollup } from "@/lib/day";
 import { searchFoods } from "@/lib/nutrition/food-search";
 import { fmt, fmtDay } from "@/lib/format";
 import { toGrams, unitsFor, parseUnitKey, type Unit } from "@/lib/nutrition/units";
+import { defaultAmountFor } from "@/lib/nutrition/defaults";
 import { weekStart } from "@/lib/plan";
 import Link from "next/link";
 import type { Rollup } from "@/lib/nutrition/engine";
@@ -57,6 +63,8 @@ export function Diary({ foods, entries, targets, day, planned, plannedKcal, reci
   const [unitKey, setUnitKey] = useState("g");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  /** Which food's default-refine may still land; null after deselect. */
+  const selectTokenRef = useRef<string | null>(null);
 
   const categories = useMemo(
     () => ["All", ...Array.from(new Set(foods.map((f) => f.category))).sort()],
@@ -134,10 +142,28 @@ export function Diary({ foods, entries, targets, day, planned, plannedKcal, reci
   }, [selectedFood, preview]);
 
   function select(food: Food) {
-    setSelectedId(food.id === selectedId ? null : food.id);
+    const next = food.id === selectedId ? null : food.id;
+    setSelectedId(next);
     setError(null);
-    setAmount("100");
-    setUnitKey("g");
+    if (!next) {
+      selectTokenRef.current = null;
+      return;
+    }
+    // Optimistic: the food's own data (portions, serving size, rules)
+    // answers instantly; the server then refines with the two stored
+    // layers the client cannot know — the pin and the last amount used.
+    const optimistic = defaultAmountFor(food);
+    setAmount(String(optimistic.amount));
+    setUnitKey(optimistic.unit);
+    selectTokenRef.current = food.id;
+    startTransition(async () => {
+      const result = await defaultAmountAction(food.id);
+      if (selectTokenRef.current !== food.id) return;
+      if (result.ok && result.amount != null && result.unit) {
+        setAmount(String(result.amount));
+        setUnitKey(result.unit);
+      }
+    });
   }
 
   function submit() {

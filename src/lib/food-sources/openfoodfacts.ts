@@ -37,6 +37,10 @@ export interface OffProduct {
   imageUrl?: string;
   nutrients: Partial<Record<NutrientCode, number>>;
   basis: "per_100g";
+  /** Grams per serving from the label (`serving_quantity`), when declared. */
+  servingSizeG?: number;
+  /** The label's serving phrase ("1 cup", "30 g"), when declared. */
+  servingLabel?: string;
 }
 
 export async function lookupBarcode(barcode: string): Promise<OffProduct | null> {
@@ -64,6 +68,19 @@ export async function lookupBarcode(barcode: string): Promise<OffProduct | null>
     nutrients.NA = (nutriments["salt_100g"] as number) * 400; // salt g -> sodium mg (approx)
   }
 
+  // The declared serving: a gram size and/or the label's own phrase
+  // ("1 cup"). Feeds the default-amount chain's "serving" tier.
+  const servingSizeG =
+    typeof product.serving_quantity === "number" &&
+    Number.isFinite(product.serving_quantity) &&
+    product.serving_quantity > 0
+      ? product.serving_quantity
+      : undefined;
+  const servingLabel =
+    typeof product.serving_size === "string" && product.serving_size.trim()
+      ? product.serving_size.trim()
+      : undefined;
+
   return {
     code,
     name: product.product_name || product.generic_name || `Product ${code}`,
@@ -72,6 +89,8 @@ export async function lookupBarcode(barcode: string): Promise<OffProduct | null>
     imageUrl: product.image_url,
     nutrients,
     basis: "per_100g",
+    servingSizeG,
+    servingLabel,
   };
 }
 
@@ -87,5 +106,19 @@ export function offToInput(product: OffProduct): CapturedFoodInput {
     sourceCode: product.code,
     imagePath: product.imageUrl,
     nutrients: product.nutrients,
+    servingSizeG: product.servingSizeG,
+    // A named serving ("1 cup", "2 biscuits") becomes a portion, so the
+    // food can be logged in the phrase the label itself uses. A serving
+    // that is just a weight ("30 g") is not a name — keep it as the
+    // serving size only, which the chain's "serving" tier already reads.
+    portions:
+      product.servingSizeG != null && product.servingLabel
+        ? (() => {
+            const phrase = product.servingLabel!.trim();
+            if (/^[\d.,\s]+(g|gr|gram|grams|ml|l|kg|oz)$/i.test(phrase)) return undefined;
+            const label = /^1\s+/.test(phrase) ? phrase : `1 ${phrase}`;
+            return [{ label, grams: product.servingSizeG!, source: "label serving" }];
+          })()
+        : undefined,
   };
 }

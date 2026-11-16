@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
-import { saveRecipeAction } from "@/app/actions";
+import { defaultAmountAction, saveRecipeAction } from "@/app/actions";
 import { searchFoods } from "@/lib/nutrition/food-search";
+import { defaultAmountFor } from "@/lib/nutrition/defaults";
 import { fmt, fmtMass } from "@/lib/format";
 import { yieldNote } from "@/lib/nutrition/recipe";
 import type { Food } from "@/lib/nutrition/types";
@@ -408,6 +409,35 @@ function IngredientRow({
   onRemove: () => void;
 }) {
   const food = foods.find((candidate) => candidate.id === input.foodId);
+
+  // The picker seeds the row with the food's own default (portions,
+  // serving size, rules) instantly; this effect refines it once with the
+  // stored layers the client cannot know — the pin and the last amount
+  // used — and never overwrites a quantity the user has started editing.
+  const [quantityDirty, setQuantityDirty] = useState(false);
+  const resolvedForRef = useRef<string | null>(null);
+  useEffect(() => {
+    resolvedForRef.current = null;
+    setQuantityDirty(false);
+  }, [input.foodId]);
+  useEffect(() => {
+    if (quantityDirty || !food || resolvedForRef.current === food.id) return;
+    resolvedForRef.current = food.id;
+    let cancelled = false;
+    defaultAmountAction(food.id).then((result) => {
+      if (cancelled || !result.ok || result.amount == null || !result.unit) return;
+      const nextAmount = String(result.amount);
+      if (nextAmount === input.amount && result.unit === input.unitKey) return;
+      onChange({ amount: nextAmount, unitKey: result.unit });
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Intentionally not depending on input.amount: the pick is what
+    // triggers a refine, and reacting to our own write would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [food, quantityDirty]);
+
   const grams = inputGrams(food, input);
   const kcal =
     food && grams.ok && food.nutrients.ENERC_KCAL.amount != null
@@ -417,7 +447,15 @@ function IngredientRow({
   return (
     <div className="rounded-xl bg-surface-2 p-2.5">
       <div className="flex items-start gap-2">
-        <FoodPicker foods={foods} value={input.foodId} onSelect={(foodId) => onChange({ foodId, unitKey: "g" })} />
+        <FoodPicker
+          foods={foods}
+          value={input.foodId}
+          onSelect={(foodId) => {
+            const picked = foods.find((candidate) => candidate.id === foodId);
+            const chosen = picked ? defaultAmountFor(picked) : { amount: 100, unit: "g" };
+            onChange({ foodId, amount: String(chosen.amount), unitKey: chosen.unit });
+          }}
+        />
         <button
           type="button"
           onClick={onRemove}
@@ -439,7 +477,10 @@ function IngredientRow({
               <input
                 inputMode="decimal"
                 value={input.amount}
-                onChange={(event) => onChange({ amount: event.target.value })}
+                onChange={(event) => {
+                  setQuantityDirty(true);
+                  onChange({ amount: event.target.value });
+                }}
                 className="w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-sm outline-none focus:border-accent/50"
               />
             </label>
@@ -450,7 +491,10 @@ function IngredientRow({
               </span>
               <select
                 value={input.unitKey}
-                onChange={(event) => onChange({ unitKey: event.target.value })}
+                onChange={(event) => {
+                  setQuantityDirty(true);
+                  onChange({ unitKey: event.target.value });
+                }}
                 className="w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-sm outline-none focus:border-accent/50"
               >
                 {unitOptions(food).map((option) => (

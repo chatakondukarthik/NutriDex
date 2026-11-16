@@ -13,7 +13,8 @@ import {
 import { saveProfile } from "@/lib/db/profile";
 import { getRecipe, getVersion } from "@/lib/db/recipes";
 import { getFood } from "@/lib/db/foods";
-import { toGrams, MAX_GRAMS, type Unit } from "@/lib/nutrition/units";
+import { resolveDefaultAmount, getFoodDefaultPin, setFoodDefaultPin } from "@/lib/db/defaults";
+import { toGrams, parseUnitKey, MAX_GRAMS, type Unit } from "@/lib/nutrition/units";
 import { SLOTS, weekDays, weekStart, type PlanEntry, type Slot } from "@/lib/plan";
 import { parseProfile } from "@/lib/profile";
 import { saveRecipeDraft, type RecipeDraft } from "@/lib/recipes";
@@ -147,6 +148,9 @@ export async function addPlanEntryAction(input: {
   foodId?: string | null;
   recipeVersionId?: string | null;
   grams?: number | null;
+  /** Amount + unit travel together; omit both to use the default chain. */
+  amount?: number | null;
+  unit?: string | null;
   servings?: number | null;
 }): Promise<PlanActionResult> {
   if (!isDay(input.week)) return { ok: false, message: "That week is not valid." };
@@ -171,6 +175,8 @@ export async function addPlanEntryAction(input: {
   let foodId: string | null = null;
   let versionId: string | null = null;
   let grams: number | null = null;
+  let amount: number | null = null;
+  let unit: string | null = null;
   let servings: number | null = null;
 
   if (hasFood) {
@@ -178,8 +184,51 @@ export async function addPlanEntryAction(input: {
     if (!food) return { ok: false, message: "That food does not exist." };
     foodId = food.id;
 
-    grams = Number(input.grams);
-    if (!Number.isFinite(grams) || grams <= 0) {
+    if (input.grams != null) {
+      // Explicit grams from the caller: validate, and record the
+      // user-facing pair so the row can show "120 g".
+      grams = Number(input.grams);
+      if (!Number.isFinite(grams) || grams <= 0) {
+        return { ok: false, message: "Weight must be a positive number." };
+      }
+      amount = grams;
+      unit = "g";
+    } else if (input.amount != null || input.unit != null) {
+      // Amount + unit travel together; half of the pair is a client bug.
+      if (input.amount == null || input.unit == null) {
+        return { ok: false, message: "Amount and unit go together." };
+      }
+      amount = Number(input.amount);
+      unit = input.unit;
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return { ok: false, message: "Amount must be a positive number." };
+      }
+      const parsed = parseUnitKey(unit);
+      const converted = toGrams(food, {
+        amount,
+        unit: parsed.unit,
+        portionLabel: parsed.portionLabel,
+      });
+      grams = converted.ok ? converted.grams : null;
+      if (grams == null) {
+        return { ok: false, message: "That amount could not be measured." };
+      }
+    } else {
+      // No quantity from the client: the default chain answers
+      // (pin → last-used → portion → serving → rules → 100 g).
+      const resolved = resolveDefaultAmount(food.id) ?? { amount: 100, unit: "g" };
+      amount = resolved.amount;
+      unit = resolved.unit;
+      const parsed = parseUnitKey(unit);
+      const converted = toGrams(food, {
+        amount,
+        unit: parsed.unit,
+        portionLabel: parsed.portionLabel,
+      });
+      grams = converted.ok ? converted.grams : 100;
+    }
+
+    if (grams == null || !Number.isFinite(grams) || grams <= 0) {
       return { ok: false, message: "Weight must be a positive number." };
     }
     if (grams > MAX_GRAMS) {
@@ -205,6 +254,8 @@ export async function addPlanEntryAction(input: {
       foodId,
       recipeVersionId: versionId,
       grams,
+      amount,
+      unit,
       servings,
     });
     return { ok: true, entry };
@@ -375,6 +426,69 @@ export async function updateCapturedFoodAction(
   revalidatePath("/");
   revalidatePath("/foods");
   return { ok: true, foodId: result.food.id };
+}
+
+/**
+ * The default amount a food pre-fills with when added anywhere:
+ * pin → last-used → portion → serving size → name/category rules → 100 g.
+ * Client components call this so their optimistic value can be refined
+ * with the two stored layers (pin, last-used) they cannot compute.
+ */
+export async function defaultAmountAction(foodId: string): Promise<{
+  ok: boolean;
+  amount?: number;
+  unit?: string;
+  source?: string;
+  message?: string;
+}> {
+  try {
+    const resolved = resolveDefaultAmount(foodId);
+    if (!resolved) return { ok: false, message: "That food does not exist." };
+    return { ok: true, amount: resolved.amount, unit: resolved.unit, source: resolved.source };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Could not resolve a default." };
+  }
+}
+
+/** Read the pinned default for the food editor. */
+export async function getFoodDefaultAction(foodId: string): Promise<{
+  ok: boolean;
+  amount?: number;
+  unit?: string;
+}> {
+  try {
+    const pin = getFoodDefaultPin(foodId);
+    return pin ? { ok: true, ...pin } : { ok: true };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/**
+ * Pin the default amount for a food (undefined-ish null clears it).
+ * `null` pin clears; validation of usefulness happens at read time in
+ * `defaultAmountFor`, but nonsense here is rejected outright.
+ */
+export async function saveFoodDefaultAction(
+  foodId: string,
+  pin: { amount: number; unit: string } | null,
+): Promise<SaveFoodResult> {
+  try {
+    if (!getFood(foodId)) return { ok: false, message: "That food does not exist." };
+    if (pin !== null) {
+      if (!Number.isFinite(pin.amount) || pin.amount <= 0) {
+        return { ok: false, message: "Default amount must be a positive number." };
+      }
+      if (typeof pin.unit !== "string" || pin.unit.length === 0) {
+        return { ok: false, message: "Pick a default unit." };
+      }
+    }
+    setFoodDefaultPin(foodId, pin);
+    revalidatePath("/foods");
+    return { ok: true, foodId };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Could not save the default." };
+  }
 }
 
 export async function archiveCapturedFoodAction(id: string): Promise<SaveFoodResult> {
@@ -635,6 +749,13 @@ export async function copyPlanWeekAction(
 export async function promoteFoodToRecipeAction(foodId: string): Promise<{ ok: boolean; recipeId?: string; message?: string }> {
   const food = getFood(foodId);
   if (!food) return { ok: false, message: "That food does not exist." };
+  const resolved = resolveDefaultAmount(food.id) ?? { amount: 100, unit: "g" };
+  const parsed = parseUnitKey(resolved.unit);
+  const converted = toGrams(food, {
+    amount: resolved.amount,
+    unit: parsed.unit,
+    portionLabel: parsed.portionLabel,
+  });
   const draft: RecipeDraft = {
     name: food.name,
     instructions: "",
@@ -643,12 +764,12 @@ export async function promoteFoodToRecipeAction(foodId: string): Promise<{ ok: b
       {
         name: "Main",
         operation: null,
-        outputGrams: 100,
+        outputGrams: converted.ok ? converted.grams : 100,
         inputs: [
           {
             foodId: food.id,
-            amount: 100,
-            unit: "g",
+            amount: resolved.amount,
+            unit: resolved.unit,
             preparation: "",
             note: "",
           },

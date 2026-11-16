@@ -230,6 +230,16 @@ const SCHEMA = `
     grams   REAL NOT NULL,
     source  TEXT
   );
+
+  -- User-pinned default amount/unit for a food when it is added
+  -- anywhere. Separate from captured_foods so pins work for seed foods
+  -- too (they live in code, not in a table).
+  CREATE TABLE IF NOT EXISTS food_default_amounts (
+    food_id    TEXT PRIMARY KEY,
+    amount     REAL NOT NULL,
+    unit       TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
 `;
 
 function createDb(): DatabaseSync {

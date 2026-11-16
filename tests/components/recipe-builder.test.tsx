@@ -14,6 +14,9 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/app/actions", () => ({
   saveRecipeAction: (draft: unknown) => saveRecipeAction(draft),
+  // No stored pin/last-used in tests: the row keeps the pure default
+  // the picker seeded, and the refine is a no-op.
+  defaultAmountAction: async () => ({ ok: false }),
 }));
 
 function setup() {

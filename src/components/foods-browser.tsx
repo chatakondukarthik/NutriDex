@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { Food } from "@/lib/nutrition/types";
 import { searchFoods } from "@/lib/nutrition/food-search";
+import { toGrams, parseUnitKey } from "@/lib/nutrition/units";
+import { defaultAmountFor } from "@/lib/nutrition/defaults";
 import { serializeFragment } from "@/lib/recipe-fragment";
 import { BulkEstimateButton } from "@/components/bulk-estimate-button";
 import { NUTRIENT_CODES } from "@/lib/nutrition/types";
@@ -95,12 +97,29 @@ export function FoodsBrowser({
     const chosen = foods.filter((food) => selected.has(food.id));
     if (chosen.length === 0) return;
 
-    const nodes = chosen.map((food, index) => ({
-      id: food.id,
-      type: "food" as const,
-      position: { x: (index % 4) * 240, y: Math.floor(index / 4) * 170 },
-      data: { foodId: food.id, grams: 100, label: food.name },
-    }));
+    const nodes = chosen.map((food, index) => {
+      // Carry each food's own default (portions, serving size, rules)
+      // so the pasted canvas node opens with a sensible quantity.
+      const chosenAmount = defaultAmountFor(food);
+      const parsed = parseUnitKey(chosenAmount.unit);
+      const converted = toGrams(food, {
+        amount: chosenAmount.amount,
+        unit: parsed.unit,
+        portionLabel: parsed.portionLabel,
+      });
+      return {
+        id: food.id,
+        type: "food" as const,
+        position: { x: (index % 4) * 240, y: Math.floor(index / 4) * 170 },
+        data: {
+          foodId: food.id,
+          label: food.name,
+          grams: converted.ok ? converted.grams : chosenAmount.amount,
+          amount: chosenAmount.amount,
+          unit: chosenAmount.unit,
+        },
+      };
+    });
     const json = serializeFragment(nodes, [], new Set(chosen.map((food) => food.id)));
     if (!json) return;
 

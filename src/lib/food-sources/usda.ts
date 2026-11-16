@@ -33,6 +33,8 @@ export interface UsdaFood {
   brand?: string;
   category?: string;
   nutrients: Partial<Record<NutrientCode, number>>;
+  /** Household measures the USDA publishes for this food ("1 cup = 237 g"). */
+  portions?: { label: string; grams: number; source: string }[];
 }
 
 export async function searchUsda(query: string): Promise<UsdaFood[]> {
@@ -62,6 +64,34 @@ export async function searchUsda(query: string): Promise<UsdaFood[]> {
   });
 }
 
+/**
+ * Household measures from a USDA food-detail response.
+ *
+ * `foodPortions` rows carry a measure ("1 cup", "1 tbsp") and a
+ * `gramWeight`, which is exactly a `Portion`. Rows without a weight, or
+ * with "none" measures, are skipped — an unusable portion would break
+ * conversion rather than help it.
+ */
+function mapUsdaPortions(f: any): { label: string; grams: number; source: string }[] {
+  const rows = f.foodPortions ?? f.portions ?? [];
+  const out: { label: string; grams: number; source: string }[] = [];
+  for (const row of rows) {
+    const grams = Number(row.gramWeight ?? row.gram_weight);
+    if (!Number.isFinite(grams) || grams <= 0) continue;
+    const measure = row.measureUnit?.name ?? row.measure_unit?.name ?? "";
+    const description = row.portionDescription ?? row.portion_description ?? "";
+    const amount = Number(row.amount);
+    const label =
+      (description && !/^none/i.test(description) ? description : "") ||
+      (measure && !/^none$/i.test(measure)
+        ? `${Number.isFinite(amount) && amount > 0 ? amount : 1} ${measure}`
+        : "");
+    if (!label) continue;
+    out.push({ label, grams, source: "USDA household measure" });
+  }
+  return out;
+}
+
 export async function getUsdaFood(fdcId: number): Promise<UsdaFood | null> {
   const key = process.env.NUTRIPLAN_USDA_KEY ?? "DEMO_KEY";
   const url = `https://api.nal.usda.gov/fdc/v1/food/${fdcId}?api_key=${encodeURIComponent(key)}`;
@@ -76,12 +106,14 @@ export async function getUsdaFood(fdcId: number): Promise<UsdaFood | null> {
       nutrients[code] = n.amount;
     }
   }
+  const portions = mapUsdaPortions(f);
   return {
     fdcId: f.fdcId,
     name: f.description ?? `Food ${f.fdcId}`,
     brand: f.brandName,
     category: f.foodCategory?.description,
     nutrients,
+    portions: portions.length > 0 ? portions : undefined,
   };
 }
 
@@ -96,5 +128,6 @@ export function usdaToInput(food: UsdaFood): CapturedFoodInput {
     source: "usda",
     sourceCode: String(food.fdcId),
     nutrients: food.nutrients,
+    portions: food.portions,
   };
 }

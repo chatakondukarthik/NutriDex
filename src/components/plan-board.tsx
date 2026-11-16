@@ -14,8 +14,9 @@ import {
 import { CopyIcon, GripIcon } from "@/components/icons";
 import { NutrientBar } from "@/components/nutrient-bar";
 import { PlanItemSheet, type SheetItem } from "@/components/plan-item-sheet";
-import { fmt, fmtMass } from "@/lib/format";
+import { fmt } from "@/lib/format";
 import { toGrams, unitsFor, parseUnitKey } from "@/lib/nutrition/units";
+import { defaultAmountFor } from "@/lib/nutrition/defaults";
 import type { Rollup } from "@/lib/nutrition/engine";
 import { type Food } from "@/lib/nutrition/types";
 import {
@@ -59,9 +60,11 @@ interface PlanBoardProps {
  *
  * The quantity travels with the selection so that copying a placed item
  * can seed the palette with the same portion instead of a default one.
+ * A palette selection carries no quantity — the server's default chain
+ * (pin → last-used → portion → serving → rules → 100 g) answers for it.
  */
 type Selection =
-  | { kind: "food"; id: string; grams: number }
+  | { kind: "food"; id: string; amount?: number; unit?: string }
   | { kind: "recipe"; versionId: string; servings: number };
 
 /** What is being dragged: something new, or something already placed. */
@@ -76,9 +79,13 @@ type DragPayload =
  */
 const DRAG_MIME = "application/x-nutriplan";
 
-/** Default amounts for a tap-to-add: a sensible portion, editable in place. */
-const DEFAULT_FOOD_GRAMS = 100;
+/** Default amount for a tap-to-add: a sensible portion, editable in place. */
 const DEFAULT_RECIPE_SERVINGS = 1;
+
+/** "portion:1 katori" → "1 katori"; "tbsp" → "tbsp". Matches entryQty. */
+function displayUnit(unitKey: string): string {
+  return unitKey.startsWith("portion:") ? unitKey.slice("portion:".length) : unitKey;
+}
 
 type Period = "day" | "week";
 
@@ -236,7 +243,18 @@ export function PlanBoard({
   function describe(selection: Selection): string {
     if (selection.kind === "food") {
       const food = foodById.get(selection.id);
-      return `${food?.name ?? "Food"} · ${fmtMass(selection.grams)} g`;
+      const name = food?.name ?? "Food";
+      if (!food) return name;
+      const chosen =
+        selection.amount != null && selection.unit
+          ? { amount: selection.amount, unit: selection.unit }
+          : defaultAmountFor(food);
+      // Same convention as entryQty: portion labels carry their own "1"
+      // ("1 katori"), so strip it and prefix the amount — "1 katori",
+      // "2 katori".
+      const precision = chosen.amount % 1 === 0 ? 0 : 1;
+      const label = displayUnit(chosen.unit).replace(/^1\s+/, "");
+      return `${name} · ${fmt(chosen.amount, precision)} ${label}`;
     }
     const recipe = recipeByVersion.get(selection.versionId);
     return `${recipe ? versionName(recipe) : "Recipe"} · ${servingsLabel(
@@ -267,14 +285,33 @@ export function PlanBoard({
 
     const optimistic: PlanEntry =
       picked.kind === "food"
-        ? {
-            ...base,
-            id: `pending-${crypto.randomUUID()}`,
-            foodId: picked.id,
-            recipeVersionId: null,
-            grams: picked.grams,
-            servings: null,
-          }
+        ? (() => {
+            const food = foodById.get(picked.id);
+            const chosen =
+              picked.amount != null && picked.unit
+                ? { amount: picked.amount, unit: picked.unit }
+                : food
+                  ? defaultAmountFor(food)
+                  : { amount: 100, unit: "g" };
+            const parsed = parseUnitKey(chosen.unit);
+            const converted = food
+              ? toGrams(food, {
+                  amount: chosen.amount,
+                  unit: parsed.unit,
+                  portionLabel: parsed.portionLabel,
+                })
+              : null;
+            return {
+              ...base,
+              id: `pending-${crypto.randomUUID()}`,
+              foodId: picked.id,
+              recipeVersionId: null,
+              amount: chosen.amount,
+              unit: chosen.unit,
+              grams: converted?.ok ? converted.grams : chosen.amount,
+              servings: null,
+            };
+          })()
         : {
             ...base,
             id: `pending-${crypto.randomUUID()}`,
@@ -293,7 +330,10 @@ export function PlanBoard({
         slot,
         foodId: picked.kind === "food" ? picked.id : null,
         recipeVersionId: picked.kind === "recipe" ? picked.versionId : null,
-        grams: picked.kind === "food" ? picked.grams : null,
+        // Only an explicit quantity (re-adding a placed item) travels;
+        // otherwise the server runs its full default chain.
+        amount: picked.kind === "food" ? picked.amount ?? null : null,
+        unit: picked.kind === "food" ? picked.unit ?? null : null,
         servings: picked.kind === "recipe" ? picked.servings : null,
       });
 
@@ -871,7 +911,6 @@ export function PlanBoard({
                   const picked: Selection = {
                     kind: "food",
                     id: food.id,
-                    grams: DEFAULT_FOOD_GRAMS,
                   };
                   const active = selection?.kind === "food" && selection.id === food.id;
 
@@ -1401,7 +1440,12 @@ function readPayload(
 
 function selectionOf(entry: PlanEntry): Selection | null {
   if (entry.foodId && entry.grams != null) {
-    return { kind: "food", id: entry.foodId, grams: entry.grams };
+    return {
+      kind: "food",
+      id: entry.foodId,
+      amount: entry.amount ?? entry.grams,
+      unit: entry.unit ?? "g",
+    };
   }
   if (entry.recipeVersionId && entry.servings != null) {
     return { kind: "recipe", versionId: entry.recipeVersionId, servings: entry.servings };
