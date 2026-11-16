@@ -1268,7 +1268,17 @@ function PlanEntryRow({
         </button>
       </div>
 
-      <div className="mt-1 flex items-center gap-1 pl-5">
+      {/*
+        Quantity + unit. The week column is only ~108–144px of content
+        wide (7 columns inside max-w-7xl), so a fixed side-by-side row
+        starves the input down to ~20–56px. Instead the input declares a
+        72px floor: with the 64px select that needs 140px, so on narrow
+        columns the select wraps onto its own line and the input takes
+        the full width (94–130px); on wide columns they sit side by
+        side (input ≥76px). Pure flex-wrap — adapts to the real column,
+        not a guessed breakpoint.
+      */}
+      <div className="mt-1 flex flex-wrap items-center gap-1">
         <input
           key={`${entry.id}:${value}:${unitKey}`}
           type="number"
@@ -1287,14 +1297,14 @@ function PlanEntryRow({
           onKeyDown={(event) => {
             if (event.key === "Enter") (event.target as HTMLInputElement).blur();
           }}
-          className="tabular min-w-0 flex-1 rounded-md border border-line bg-surface px-1.5 py-1 text-[11px] outline-none focus:border-accent/50"
+          className="tabular h-6 min-w-[4.5rem] flex-1 rounded-md border border-line bg-surface px-1.5 text-[11px] outline-none focus:border-accent/50"
         />
         {units ? (
           <select
             value={unitKey}
             onChange={(event) => onUnitChange(event.target.value)}
             aria-label={`Unit for ${name}`}
-            className="w-16 shrink-0 rounded-md border border-line bg-surface px-1 py-1 text-[11px] outline-none focus:border-accent/50"
+            className="h-6 w-16 shrink-0 rounded-md border border-line bg-surface px-1 text-[11px] outline-none focus:border-accent/50"
           >
             {units.map((option) => (
               <option key={option.value} value={option.value}>
@@ -1303,11 +1313,11 @@ function PlanEntryRow({
             ))}
           </select>
         ) : (
-          <span className="w-10 text-[10px] text-ink/35">srv</span>
+          <span className="h-6 w-10 text-[10px] leading-6 text-ink/35">srv</span>
         )}
       </div>
       {entry.foodId && unitKey !== "g" && (
-        <p className="mt-0.5 pl-5 text-[9px] leading-tight text-ink/35">
+        <p className="mt-0.5 text-[9px] leading-tight text-ink/35">
           = {fmt(entry.grams ?? 0, 0)} g
           {food && food.densityGPerMl == null && (unitKey === "ml" || unitKey === "l" || unitKey === "cup" || unitKey === "tsp" || unitKey === "tbsp" || unitKey === "fl_oz") && (
             <span className="ml-1 text-warn-ink" title="No density recorded — using an assumed value (edit the food to set a real one)">
