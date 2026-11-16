@@ -33,9 +33,9 @@ export function RecipeGenerator({
   const [prompt, setPrompt] = useState("");
   const [plan, setPlan] = useState<RecipePlan | null>(null);
   const [resolutions, setResolutions] = useState<PlanFoodResolution[] | null>(null);
-  // Fill the leftover nutrition of the ingredients with AI estimates at
-  // save time. Known values are never touched; every fill lands as
-  // estimated + ai:model with a reason attached.
+  // Fill the leftover nutrition of the ingredients with AI estimates after
+  // the save (never blocks it). Known values are never touched; every fill
+  // lands as estimated + ai:model with a reason attached.
   const [fillMissingNutrition, setFillMissingNutrition] = useState(true);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -174,6 +174,14 @@ export function RecipeGenerator({
                         <span>
                           <span className="font-medium">{step.name}</span>
                           <span className="text-[10px] uppercase text-ink/40"> · {step.operation}</span>
+                          {step.consumes && step.consumes.length > 0 && (
+                            <span className="block pl-3 text-[10px] text-accent/80">
+                              ↓ uses output of{" "}
+                              {step.consumes
+                                .map((d) => plan.steps[d]?.name ?? `step ${d + 1}`)
+                                .join(" + ")}
+                            </span>
+                          )}
                           {step.inputs.length > 0 && (
                             <span className="block pl-3 text-[10px] text-muted">
                               {step.inputs.map((input) => `${input.foodName} ${Math.round(input.grams)}g`).join(" · ")}
@@ -232,7 +240,8 @@ export function RecipeGenerator({
                     />
                     <span>
                       Fill the {missingCount} ingredient{missingCount === 1 ? "" : "s"} above with
-                      AI estimates. They will land as <strong>estimated</strong> (marked, editable,
+                      AI estimates, right after the save — the recipe itself never waits on it.
+                      They will land as <strong>estimated</strong> (marked, editable,
                       never overwriting known values) — every future recipe, plan and diary entry
                       that uses them reuses these estimates.
                     </span>

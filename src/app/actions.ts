@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { addEntry, removeEntry, today } from "@/lib/db/entries";
 import {
   addPlanEntry,
@@ -975,7 +976,7 @@ export async function createRecipeFromPlanAction(
     recipeId?: string | null;
     mode?: "new-version" | "replace-current";
     replaceVersionId?: string | null;
-    /** Fill missing ingredient nutrition with AI before saving (default: true). */
+    /** Fill missing ingredient nutrition with AI after the save (default: true). */
     fillMissingNutrition?: boolean;
   },
 ): Promise<{ ok: boolean; recipeId?: string; message?: string }> {
@@ -984,11 +985,28 @@ export async function createRecipeFromPlanAction(
     const saved = await materializeRecipe(base, input.recipeId ?? undefined, {
       mode: input.mode,
       replaceVersionId: input.replaceVersionId ?? null,
-      fillMissingNutrition: input.fillMissingNutrition,
     });
-    const { recipeId } = saved;
+    const { recipeId, fillTargets } = saved;
     revalidatePath("/recipes");
     if (input.recipeId) revalidatePath(`/recipes/${input.recipeId}`);
+
+    // Nutrition fill is one LLM call per unknown ingredient — slow, and
+    // non-essential to the save itself. Schedule it after the response so
+    // the recipe (and the button) never wait on the model. Failures are
+    // non-fatal: foods stay unknown and can be filled from Foods later.
+    if (input.fillMissingNutrition !== false && fillTargets.length > 0) {
+      after(async () => {
+        try {
+          const { fillAllWithAi } = await import("@/lib/ai/estimate-food");
+          await fillAllWithAi({ foodIds: fillTargets });
+        } catch {
+          /* nutrition stayed as-is */
+        }
+        revalidatePath("/recipes");
+        revalidatePath(`/recipes/${recipeId}`);
+      });
+    }
+
     return { ok: true, recipeId };
   } catch (error) {
     return {

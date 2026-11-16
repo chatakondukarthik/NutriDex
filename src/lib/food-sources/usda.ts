@@ -42,7 +42,9 @@ export async function searchUsda(query: string): Promise<UsdaFood[]> {
   if (!q) return [];
   const key = process.env.NUTRIPLAN_USDA_KEY ?? "DEMO_KEY";
   const url = `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(q)}&pageSize=12&api_key=${encodeURIComponent(key)}`;
-  const res = await fetch(url);
+  // Bounded: this runs inside recipe saves and searches — a stalled
+  // connection must fail fast, not hang the request indefinitely.
+  const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
   if (!res.ok) return [];
   const data = (await res.json()) as any;
   const foods = (data?.foods ?? []) as any[];
@@ -95,7 +97,7 @@ function mapUsdaPortions(f: any): { label: string; grams: number; source: string
 export async function getUsdaFood(fdcId: number): Promise<UsdaFood | null> {
   const key = process.env.NUTRIPLAN_USDA_KEY ?? "DEMO_KEY";
   const url = `https://api.nal.usda.gov/fdc/v1/food/${fdcId}?api_key=${encodeURIComponent(key)}`;
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
   if (!res.ok) return null;
   const f = (await res.json()) as any;
   const nutrients: Partial<Record<NutrientCode, number>> = {};

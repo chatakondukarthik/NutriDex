@@ -29,6 +29,12 @@ export interface RecipePlanStep {
   name: string;
   operation: string;
   inputs: RecipePlanStepInput[];
+  /**
+   * Indices of earlier steps whose output this step consumes. [] means the
+   * step starts fresh (its inputs are just the listed foods); omitted on
+   * legacy plans, which fall back to a plain chain.
+   */
+  consumes?: number[];
 }
 
 export interface RecipePlan {
@@ -79,8 +85,14 @@ const PLAN_SCHEMA = {
               required: ["foodName", "grams"],
             },
           },
+          consumes: {
+            type: "array",
+            items: { type: "number" },
+            description:
+              "0-based indices of earlier steps whose OUTPUT this step uses (e.g. the sauce step's output into the assembly step). Empty if this step uses no upstream output.",
+          },
         },
-        required: ["name", "operation", "inputs"],
+        required: ["name", "operation", "inputs", "consumes"],
       },
     },
   },
@@ -89,10 +101,11 @@ const PLAN_SCHEMA = {
 
 const SYSTEM = `You are a recipe architect for Indian home cooking.
 Return ONLY a JSON object matching the schema. Rules:
-- Decompose the dish into sequential steps (3–7 steps for most dishes).
+- Decompose the dish into preparation steps (3–7 steps for most dishes), in a natural work order.
 - Each step takes the quantities of its inputs in grams.
-- Only include food inputs needed for that step — do not repeat upstream steps' inputs in later steps unless they are used again.
-- Chain steps: each step's output feeds the next step's inputs implicitly; later steps only list NEW ingredients.
+- Only include food inputs added IN that step — do not repeat an upstream step's ingredients in later steps unless they are added again.
+- Declare real dependencies with "consumes": the 0-based indices of earlier steps whose OUTPUT this step uses. Example: ["Assemble wraps"] consumes the pan-fry step AND the garlic-sauce step; the sauce step itself consumes nothing ([]) and runs independently of the marinade. A step with consumes: [] starts fresh from its own listed inputs — list everything it needs.
+- Do NOT chain steps just because they appear in order: only set consumes when the earlier step's output is genuinely an ingredient of the later step (a sauce, a cooked component, a strained liquid).
 - If the prompt is vague, keep quantities modest (serves ~2) and say so in instructions.
 - Never invent nutrient values; you are not asked for them.
 - Use common Indian ingredient names.`;
@@ -136,37 +149,29 @@ export async function materializeRecipe(
   opts?: {
     mode?: "new-version" | "replace-current";
     replaceVersionId?: string | null;
-    /** Fill missing ingredient nutrition with AI estimates before saving (default true). */
-    fillMissingNutrition?: boolean;
-    /** Test hook — overrides the LLM used for estimation. */
-    completeFn?: import("@/lib/ai/estimate-food").CompleteFn;
   },
-): Promise<{ recipeId: string; resolutions: import("@/lib/ai/food-resolve").PlanFoodResolution[] }> {
+): Promise<{
+  recipeId: string;
+  resolutions: import("@/lib/ai/food-resolve").PlanFoodResolution[];
+  /**
+   * Resolved food ids that still have unknown nutrients. The caller fills
+   * them AFTER the response (see createRecipeFromPlanAction) — saving the
+   * recipe itself never waits on the LLM.
+   */
+  fillTargets: string[];
+}> {
   const { map: foodIndex, resolutions } = await resolvePlanFoods(plan, listFoods(), { persist: true });
 
-  // Fill leftover nutrition data with AI estimates BEFORE saving, so the
-  // recipe is born with real numbers rather than empty ones. One LLM call
-  // per food (all missing nutrients bundled); known values are never
-  // touched. Failures are non-fatal — the recipe still saves.
-  if (opts?.fillMissingNutrition !== false) {
-    const targets = [...new Set([...foodIndex.values()].filter(Boolean))] as string[];
-    if (targets.length > 0) {
-      try {
-        const { fillAllWithAi } = await import("@/lib/ai/estimate-food");
-        await fillAllWithAi({ foodIds: targets, completeFn: opts?.completeFn });
-      } catch {
-        // Nutrition stayed as-is; the recipe can be filled later per food.
-      }
-    }
-  }
   const idBase = `gen-${Date.now().toString(36)}`;
   const nodes: Graph["nodes"] = [];
   const edges: Graph["edges"] = [];
 
   let prevProcessId: string | null = null;
+  const processIds: string[] = [];
   for (let i = 0; i < plan.steps.length; i++) {
     const step = plan.steps[i];
     const processId = `${idBase}-p${i}`;
+    processIds.push(processId);
     nodes.push({
       id: processId,
       type: "process",
@@ -195,8 +200,17 @@ export async function materializeRecipe(
       });
     }
 
-    if (prevProcessId) {
-      edges.push({ id: `${prevProcessId}-${processId}`, from: prevProcessId, to: processId });
+    // Real dependencies: which earlier steps' outputs this step uses.
+    // Only strictly-earlier indices are honoured, so the graph is acyclic
+    // by construction (the engine rejects cycles loudly anyway). A plan
+    // without `consumes` (legacy) keeps the old straight chain.
+    const deps = Array.isArray(step.consumes)
+      ? step.consumes.filter((d) => Number.isInteger(d) && d >= 0 && d < i)
+      : prevProcessId
+        ? [i - 1]
+        : [];
+    for (const d of [...new Set(deps)]) {
+      edges.push({ id: `${processIds[d]}-${processId}`, from: processIds[d], to: processId });
     }
     prevProcessId = processId;
   }
@@ -230,5 +244,6 @@ export async function materializeRecipe(
   if (!saved.ok || !saved.recipeId) {
     throw new Error(saved.message ?? "Could not save the generated recipe.");
   }
-  return { recipeId: saved.recipeId, resolutions };
+  const fillTargets = [...new Set([...foodIndex.values()].filter(Boolean))] as string[];
+  return { recipeId: saved.recipeId, resolutions, fillTargets };
 }

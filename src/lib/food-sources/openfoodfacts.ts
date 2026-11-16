@@ -48,7 +48,10 @@ export async function lookupBarcode(barcode: string): Promise<OffProduct | null>
   if (!/^\d{8,14}$/.test(code)) return null;
 
   const url = `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json`;
-  const res = await fetch(url, { headers: { "User-Agent": "NutriPlan/1.0" } });
+  const res = await fetch(url, {
+    headers: { "User-Agent": "NutriPlan/1.0" },
+    signal: AbortSignal.timeout(10_000),
+  });
   if (!res.ok) return null;
   const data = (await res.json()) as any;
   if (data?.status !== 1 || !data?.product) return null;
