@@ -833,7 +833,7 @@ export function PlanBoard({
           <p className="mt-2 text-[11px] text-ink/40">
             {selection
               ? `Selected: ${describe(selection)} — tap a slot, or drag it there.`
-              : "Pick an item, then tap a slot. Drag a placed item by its handle to move it, or hold Alt while dropping to copy."}
+              : "Pick an item, then tap a slot. Drag a placed item by its handle to move it, or hold Alt while dropping to copy. Press Enter on the handle to move or copy from the keyboard."}
           </p>
 
           <div className="mt-2 flex max-h-56 flex-wrap gap-1.5 overflow-y-auto">
@@ -1214,6 +1214,10 @@ export function PlanBoard({
           slot={moving.slot}
           week={week}
           onMove={(day, slot) => move(moving, day, slot)}
+          onCopy={(day, slot) => {
+            const picked = selectionOf(moving);
+            if (picked) place(day, slot, picked);
+          }}
           onClose={() => setMoving(null)}
         />
       )}
@@ -1299,7 +1303,7 @@ function PlanEntryRow({
           onDragEnd={onDragEnd}
           aria-haspopup="dialog"
           aria-label={`Move ${name} to another day or meal`}
-          title="Drag to move · hold Alt to copy · press Enter to choose"
+          title="Drag to move · hold Alt to copy · press Enter to move or copy"
           className="-ml-0.5 mt-0.5 grid h-4 w-3.5 shrink-0 cursor-grab place-items-center rounded text-ink/25 transition hover:text-ink/60 active:cursor-grabbing"
         >
           <GripIcon className="h-3 w-3" />

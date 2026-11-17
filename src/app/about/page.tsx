@@ -195,8 +195,12 @@ export default function AboutPage() {
               in three cookies, so the server can render the right theme on the first paint.
             </li>
             <li>
-              <strong className="text-ink/80">Nothing is sent anywhere.</strong> There is no AI
-              feature in this build and no third-party request from the page.
+              <strong className="text-ink/80">Nothing leaves this machine until you ask it to.</strong>{" "}
+              AI features are switched on by default but need a key you add yourself in Settings →
+              AI access; until then no model request is made. With a key, prompts and images go only
+              to the provider you configure, using a key stored locally in{" "}
+              <code className="rounded bg-ink/[0.06] px-1 py-0.5">data/secrets.json</code>. Barcode
+              lookups query public food databases when you ask for them.
             </li>
           </ul>
         </Section>

@@ -1,4 +1,4 @@
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, readdirSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { db, reseedRetentionFactors, transaction } from "./client";
 import { dataFile } from "@/lib/data-dir";
@@ -51,7 +51,7 @@ export const PURGE_CATEGORIES = [
     id: "foods",
     label: "Foods you created",
     unit: "food",
-    description: "Foods you added, their nutrients, portions and local evidence images. Foods that ship with the app are kept.",
+    description: "Foods you added, their nutrients, portions and local evidence images, plus their pinned amounts. Foods that ship with the app are kept.",
   },
   {
     id: "defaults",
@@ -69,7 +69,7 @@ export const PURGE_CATEGORIES = [
     id: "preferences",
     label: "Settings and overrides",
     unit: "setting",
-    description: "AI instructions, nutrient status thresholds and cooking-retention overrides. Shipped defaults are restored.",
+    description: "AI instructions, nutrient status thresholds and cooking-retention overrides. Shipped defaults are restored. Provider, model and endpoint settings in AI access are managed separately, like keys.",
   },
   {
     id: "ai",
@@ -167,6 +167,59 @@ function preferenceSql(): { sql: string; keys: string[] } {
 }
 
 /**
+ * Distinct recipes that reference a captured food.
+ *
+ * A connected v2 food node also becomes a `component_inputs` row, but an
+ * unconnected node lives only in the version's snapshot JSON. Counting both
+ * sources by recipe id keeps the blocker count in the same unit as its label
+ * ("recipe") and catches a hand-orphaned node that would otherwise make the
+ * saved graph fail with "Unknown food" after its food was deleted.
+ */
+function recipesReferencingCapturedFoods(): number {
+  const recipeIds = new Set<string>();
+  const connected = db
+    .prepare(
+      `SELECT DISTINCT rv.recipe_id AS id
+       FROM component_inputs ci
+       JOIN components c ON c.id = ci.component_id
+       JOIN recipe_versions rv ON rv.id = c.recipe_version_id
+       JOIN captured_foods f ON f.id = ci.food_id`,
+    )
+    .all() as unknown as Array<{ id: string }>;
+  for (const row of connected) recipeIds.add(row.id);
+
+  const captured = new Set(
+    (db.prepare("SELECT id FROM captured_foods").all() as unknown as Array<{ id: string }>).map(
+      (row) => row.id,
+    ),
+  );
+  if (captured.size === 0) return recipeIds.size;
+
+  const snapshots = db
+    .prepare("SELECT recipe_id, snapshot FROM recipe_versions")
+    .all() as unknown as Array<{ recipe_id: string; snapshot: string }>;
+  for (const row of snapshots) {
+    try {
+      const snapshot = JSON.parse(row.snapshot) as {
+        graph?: { nodes?: Array<{ type?: string; foodId?: string }> };
+      };
+      const nodes = snapshot.graph?.nodes ?? [];
+      if (
+        nodes.some(
+          (node) => node.type === "food" && node.foodId && captured.has(node.foodId),
+        )
+      ) {
+        recipeIds.add(row.recipe_id);
+      }
+    } catch {
+      // A corrupt snapshot is a separate problem; it cannot authorise a
+      // dangling delete, so skip it here rather than failing the preview.
+    }
+  }
+  return recipeIds.size;
+}
+
+/**
  * Rows that reference a captured food. None of these columns has a foreign
  * key, because a food can be a seed fixture in code, so the check is explicit.
  */
@@ -180,10 +233,7 @@ function foodReferenceCounts(): Record<"diary" | "plans" | "recipes", number> {
       `SELECT COUNT(*) AS n FROM plan_entries p
        JOIN captured_foods f ON f.id = p.food_id`,
     ),
-    recipes: count(
-      `SELECT COUNT(*) AS n FROM component_inputs ci
-       JOIN captured_foods f ON f.id = ci.food_id`,
-    ),
+    recipes: recipesReferencingCapturedFoods(),
   };
 }
 
@@ -281,13 +331,17 @@ function statsFor(id: PurgeCategoryId): { count: number; detail?: string } {
       const foods = count("SELECT COUNT(*) AS n FROM captured_foods");
       const nutrients = count("SELECT COUNT(*) AS n FROM captured_food_nutrients");
       const portions = count("SELECT COUNT(*) AS n FROM captured_food_portions");
-      const images = count(
-        `SELECT COUNT(*) AS n FROM captured_foods
-         WHERE image_path LIKE 'data/evidence/%'`,
+      // Pins for captured foods are removed with the food, so disclose them
+      // here instead of silently deleting another category's rows.
+      const pins = count(
+        `SELECT COUNT(*) AS n FROM food_default_amounts
+         WHERE food_id IN (SELECT id FROM captured_foods)`,
       );
+      const images = localEvidenceNames().length;
       const parts = [
         nutrients > 0 ? `${nutrients} nutrient row${nutrients === 1 ? "" : "s"}` : null,
         portions > 0 ? `${portions} portion${portions === 1 ? "" : "s"}` : null,
+        pins > 0 ? `${pins} pinned amount${pins === 1 ? "" : "s"}` : null,
         images > 0 ? `${images} image${images === 1 ? "" : "s"}` : null,
       ].filter((part): part is string => Boolean(part));
       return { count: foods, detail: parts.length > 0 ? parts.join(" · ") : undefined };
@@ -387,6 +441,18 @@ function normalizeCategories(categories: readonly string[]): PurgeCategoryId[] |
 const EVIDENCE_PREFIX = "data/evidence/";
 const EVIDENCE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
+/**
+ * Evidence names to remove: every name referenced by a captured food plus
+ * every valid file in `data/evidence`.
+ *
+ * A replace-import can leave an image with no row pointing at it, and an
+ * earlier failed unlink can leave a file behind after its row is gone. Both
+ * are still the user's photos on the user's disk. A purge of the foods
+ * category is the one moment when no row can need them, so that is where the
+ * directory is reconciled. Invalid names are never considered: the value
+ * may come from a hand-edited database row or a directory entry, and only
+ * single-segment names may reach `unlinkSync`.
+ */
 function localEvidenceNames(): string[] {
   const rows = db
     .prepare(
@@ -402,6 +468,16 @@ function localEvidenceNames(): string[] {
     if (!EVIDENCE_NAME.test(name)) continue;
     names.add(name);
   }
+
+  try {
+    for (const name of readdirSync(path.resolve(dataFile("evidence")))) {
+      if (EVIDENCE_NAME.test(name)) names.add(name);
+    }
+  } catch {
+    // No evidence directory yet (or it is unreadable). Row-derived names are
+    // still removed; a warning is not useful until there is something to do.
+  }
+
   return [...names];
 }
 
@@ -457,7 +533,10 @@ export function purgeData(categories: readonly string[]): PurgeResult {
   }
 
   const selectedSet = new Set(selected);
-  const before = getPurgePreview();
+  // Taken inside the write lock below; declared here only so the post-commit
+  // count arithmetic can see it. A preview taken before BEGIN IMMEDIATE can
+  // be stale by the time another worker commits.
+  let before: PurgePreview | null = null;
   const warnings: string[] = [];
   let evidenceNames: string[] = [];
   let filesRemoved = 0;
@@ -470,6 +549,8 @@ export function purgeData(categories: readonly string[]): PurgeResult {
       if (blocked.owners.length > 0) {
         throw new PurgeBlockedError(blocked.owners, blocked.blockers);
       }
+
+      before = getPurgePreview();
 
       // Read the file names inside the write transaction: a food added by
       // another process between the preview and here is deleted with the
@@ -564,9 +645,12 @@ export function purgeData(categories: readonly string[]): PurgeResult {
   }
 
   const after = getPurgePreview();
+  // `before` is always assigned inside the transaction unless it threw, in
+  // which case we never reach here. The fallback keeps the type honest.
+  const beforeCounts = (before ?? after).categories;
   const deleted: Partial<Record<PurgeCategoryId, number>> = {};
   for (const id of selected) {
-    const beforeCount = before.categories.find((category) => category.id === id)?.count ?? 0;
+    const beforeCount = beforeCounts.find((category) => category.id === id)?.count ?? 0;
     const afterCount = after.categories.find((category) => category.id === id)?.count ?? 0;
     deleted[id] = Math.max(0, beforeCount - afterCount);
   }

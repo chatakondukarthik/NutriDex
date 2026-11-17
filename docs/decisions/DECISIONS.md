@@ -1066,6 +1066,14 @@ silent cascades are how a user loses a week they meant to keep. There is no
 tombstone and no undo; the archive is the recovery path. AI keys remain a
 separate control because they are credentials, not content.
 
+Settings → AI access (provider, model, custom endpoints and daily cap) is
+also outside every category: like keys, it is an access setting rather than
+content, and the deletion copy says so. A full purge sweeps `data/evidence`
+for images with no owning row, which a replace-import can otherwise leave
+behind. SQL `DELETE` is not secure erase — freed pages and the WAL can still
+hold removed text until reused — which is accepted under R1/R2 because the
+OS account and the encrypted volume are the trust boundary.
+
 **Alternatives rejected**
 
 - Cascade deletes: one click would remove rows the preview never showed.

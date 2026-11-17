@@ -107,9 +107,10 @@ const SCHEMA = `
   );
 
   -- Archive and identity metadata, one row per key. This is *not* user
-  -- content: the archive carries its own manifest, so these values never
-  -- travel inside an export. account_id is the only link to an online
-  -- identity, and it is opaque (never an email or a name).
+  -- content: created_at and account_id are copied into the archive
+  -- manifest, not into the NDJSON tables, and an import never overwrites
+  -- them. account_id is the only link to an online identity, and it is
+  -- opaque (never an email or a name).
   CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL

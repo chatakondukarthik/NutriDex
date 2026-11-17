@@ -1798,19 +1798,53 @@ export type PurgeActionResult =
     };
 
 /**
+ * A preview is always part of the reply, even when the database is locked or
+ * corrupt enough that the read itself fails. The panel can then show a fixed
+ * message instead of throwing while trying to render its own error.
+ */
+function safePurgePreview(): PurgePreview {
+  try {
+    return getPurgePreview();
+  } catch {
+    return {
+      categories: PURGE_CATEGORIES.map((spec) => ({
+        id: spec.id,
+        label: spec.label,
+        unit: spec.unit,
+        description: spec.description,
+        count: 0,
+        blockers: [],
+      })),
+    };
+  }
+}
+
+/**
  * Delete selected categories of user data.
  *
  * The category ids are the allowlist; `purgeData` rejects an unknown one
  * instead of guessing. Everything else the action does is containment: a
- * small rate limit so a stuck loop cannot hammer the disk, a shape check
- * before the database is touched, and a fresh preview in every reply so the
- * panel never shows counts from before the delete.
+ * shape check before the database is touched, a small rate limit, a catch
+ * that turns a low-level failure into a fixed sentence, and a fresh preview
+ * in every reply so the panel never shows counts from before the delete.
  *
  * There is no confirmation token here. The UI's two-step flow is a guard
  * against a mis-click, not an authorisation: this app has one user, and the
  * gate in `proxy.ts` decides whether the request reaches the app at all.
  */
 export async function purgeDataAction(categories: string[]): Promise<PurgeActionResult> {
+  const preview = safePurgePreview();
+
+  // Validate before charging the bucket: a malformed request from the UI
+  // should not lock the legitimate user out of their own delete button.
+  if (!Array.isArray(categories) || categories.length > PURGE_CATEGORIES.length) {
+    return {
+      ok: false,
+      message: "That deletion request is not valid.",
+      preview,
+    };
+  }
+
   const { rateLimit } = await import("@/lib/security/rate-limit");
   const budget = rateLimit("purge", 5, 60_000);
   if (!budget.ok) {
@@ -1819,31 +1853,33 @@ export async function purgeDataAction(categories: string[]): Promise<PurgeAction
       message: `Too many deletion attempts. Try again in ${budget.retryAfter ?? 60} second${
         budget.retryAfter === 1 ? "" : "s"
       }.`,
-      preview: getPurgePreview(),
+      preview,
     };
   }
 
-  if (!Array.isArray(categories) || categories.length > PURGE_CATEGORIES.length) {
+  try {
+    const result = purgeData(categories);
+    if (!result.ok) {
+      return { ...result, preview: safePurgePreview() };
+    }
+
+    revalidatePath("/");
+    revalidatePath("/plan");
+    revalidatePath("/recipes");
+    revalidatePath("/foods");
+    revalidatePath("/profile");
+    revalidatePath("/settings");
+
+    return { ...result, preview: safePurgePreview() };
+  } catch {
+    // `purgeData` already rolls back its transaction. A failure here is a
+    // locked or corrupt database, not a reason to leak a driver message.
     return {
       ok: false,
-      message: "That deletion request is not valid.",
-      preview: getPurgePreview(),
+      message: "The deletion could not be completed. Check the counts and try again.",
+      preview: safePurgePreview(),
     };
   }
-
-  const result = purgeData(categories);
-  if (!result.ok) {
-    return { ...result, preview: getPurgePreview() };
-  }
-
-  revalidatePath("/");
-  revalidatePath("/plan");
-  revalidatePath("/recipes");
-  revalidatePath("/foods");
-  revalidatePath("/profile");
-  revalidatePath("/settings");
-
-  return { ...result, preview: getPurgePreview() };
 }
 
 export async function estimateFoodsAction(input?: {

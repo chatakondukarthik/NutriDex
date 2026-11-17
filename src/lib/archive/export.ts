@@ -80,8 +80,10 @@ function buildSnapshot(includeAiCalls: boolean): Buffer {
   ensureDataDir();
   const tmp = dataFile(`.snapshot-${randomUUID()}.sqlite`);
   try {
-    // The path is generated above and cannot contain a quote.
-    db.exec(`VACUUM INTO '${tmp}'`);
+    // `tmp` is generated here, but its parent comes from NUTRIPLAN_DATA_DIR,
+    // which an operator can set to a path containing a quote. Escape it so a
+    // legal POSIX directory name cannot turn into SQL syntax.
+    db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
     restrictFile(tmp);
 
     const copy = new DatabaseSync(tmp);

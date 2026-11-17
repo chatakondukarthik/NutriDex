@@ -163,6 +163,18 @@ describe("selection", () => {
     expect(all.checked).toBe(false);
   });
 
+  it("drops a selection when the server sends a new preview", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<DataDeletionPanel initialPreview={preview()} />);
+
+    await user.click(screen.getByRole("checkbox", { name: /Diary entries/ }));
+    expect(screen.getByRole("checkbox", { name: /Diary entries/ })).toBeChecked();
+
+    rerender(<DataDeletionPanel initialPreview={preview({ diary: 2 })} />);
+
+    expect(screen.getByRole("checkbox", { name: /Diary entries/ })).not.toBeChecked();
+  });
+
   it("keeps delete disabled while a selected parent is still referenced", async () => {
     const user = userEvent.setup();
     render(<DataDeletionPanel initialPreview={preview()} />);
@@ -203,6 +215,56 @@ describe("confirmation", () => {
     expect(screen.getByRole("button", { name: /Delete selected data/ })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: /Delete selected data/ }));
     expect(screen.getByRole("button", { name: /Delete permanently/ })).toBeDisabled();
+  });
+
+  it("returns focus to the trigger on cancel and on Escape", async () => {
+    const user = userEvent.setup();
+    render(<DataDeletionPanel initialPreview={preview()} />);
+
+    await user.click(screen.getByRole("checkbox", { name: /Diary entries/ }));
+    await user.click(screen.getByRole("button", { name: /Delete selected data/ }));
+    expect(screen.getByRole("checkbox", { name: /I understand/ })).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("button", { name: /Delete selected data/ })).toHaveFocus();
+
+    await user.click(screen.getByRole("button", { name: /Delete selected data/ }));
+    await user.click(screen.getByRole("button", { name: /Cancel/ }));
+    expect(screen.getByRole("button", { name: /Delete selected data/ })).toHaveFocus();
+  });
+
+  it("moves focus to the result after a successful delete", async () => {
+    purgeDataAction.mockResolvedValue(success());
+    const user = userEvent.setup();
+    render(<DataDeletionPanel initialPreview={preview()} />);
+
+    await user.click(screen.getByRole("checkbox", { name: /Diary entries/ }));
+    await user.click(screen.getByRole("button", { name: /Delete selected data/ }));
+    await user.click(screen.getByRole("checkbox", { name: /I understand/ }));
+    await user.click(screen.getByRole("button", { name: /Delete permanently/ }));
+
+    const result = await screen.findByText("Deleted.");
+    await waitFor(() => expect(result.parentElement).toHaveFocus());
+  });
+
+  it("returns focus to the trigger when the server refuses", async () => {
+    purgeDataAction.mockResolvedValue({
+      ok: false,
+      message: "That data is still used by Diary entries.",
+      preview: preview(),
+    });
+    const user = userEvent.setup();
+    render(<DataDeletionPanel initialPreview={preview()} />);
+
+    await user.click(screen.getByRole("checkbox", { name: /Diary entries/ }));
+    await user.click(screen.getByRole("button", { name: /Delete selected data/ }));
+    await user.click(screen.getByRole("checkbox", { name: /I understand/ }));
+    await user.click(screen.getByRole("button", { name: /Delete permanently/ }));
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Delete selected data/ })).toHaveFocus(),
+    );
   });
 
   it("sends only the selected categories and reports what was deleted", async () => {

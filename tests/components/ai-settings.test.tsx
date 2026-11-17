@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { AiSettingsPanel } from "@/components/ai-settings";
 import {
   listAiModelsAction,
+  saveAiConfigAction,
   testAiConnectionAction,
 } from "@/app/actions";
 
@@ -40,6 +41,7 @@ const config = {};
 beforeEach(() => {
   vi.mocked(listAiModelsAction).mockReset();
   vi.mocked(testAiConnectionAction).mockReset();
+  vi.mocked(saveAiConfigAction).mockReset();
 });
 
 async function showModels() {
@@ -53,6 +55,36 @@ async function showModels() {
   expect(await screen.findByText("Gemini 3.8 Flash")).toBeInTheDocument();
   return user;
 }
+
+describe("accessibility of feedback", () => {
+  it("announces success in a live region", async () => {
+    vi.mocked(saveAiConfigAction).mockResolvedValue({ ok: true } as never);
+    const user = userEvent.setup();
+    render(<AiSettingsPanel status={status} config={config} />);
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("Saved.")).toBeInTheDocument();
+    expect(screen.getByText("Saved.").closest('[role="status"]')).not.toBeNull();
+  });
+
+  it("renders the copyable diagnostic in the alert so clipboard fallback is actionable", async () => {
+    vi.mocked(testAiConnectionAction).mockResolvedValue({
+      ok: false,
+      kind: "http",
+      message: "Provider returned HTTP 404",
+      detail: "action=test | type=http",
+    });
+    const user = userEvent.setup();
+    render(<AiSettingsPanel status={status} config={config} />);
+
+    await user.click(screen.getByRole("button", { name: "Test primary" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("NutriPlan AI error");
+    expect(alert).toHaveTextContent("type: http");
+  });
+});
 
 describe("model list", () => {
   it("shows the exact model ID next to the display name", async () => {

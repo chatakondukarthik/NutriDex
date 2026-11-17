@@ -42,6 +42,10 @@ export function DataDeletionPanel({ initialPreview }: { initialPreview: PurgePre
 
   const allRef = useRef<HTMLInputElement>(null);
   const acknowledgeRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const outcomeRef = useRef<HTMLDivElement>(null);
+  const wasConfirming = useRef(false);
+  const focusOutcome = useRef(false);
 
   // A server refresh (after an import, or another tab) replaces the preview.
   // Selections made against the old counts are discarded rather than carried
@@ -114,8 +118,26 @@ export function DataDeletionPanel({ initialPreview }: { initialPreview: PurgePre
     setAcknowledged(false);
   }
 
+  // The confirmation is inline, but it still owns focus while it is open.
+  // Returning focus matters most on success: when the last category is gone
+  // the trigger unmounts, so focus goes to the result instead of <body>.
   useEffect(() => {
-    if (confirming) acknowledgeRef.current?.focus();
+    if (confirming) {
+      acknowledgeRef.current?.focus();
+      wasConfirming.current = true;
+      return;
+    }
+    if (!wasConfirming.current) return;
+    wasConfirming.current = false;
+    const focusResult = focusOutcome.current;
+    focusOutcome.current = false;
+    const target = () => (focusResult ? outcomeRef.current : triggerRef.current)?.focus();
+    // Focus synchronously, then again after the commit that mounted the
+    // trigger/result. The second call covers a state update in the same
+    // transition swapping the node between the two.
+    target();
+    const timer = window.setTimeout(target, 0);
+    return () => window.clearTimeout(timer);
   }, [confirming]);
 
   function perform() {
@@ -139,6 +161,7 @@ export function DataDeletionPanel({ initialPreview }: { initialPreview: PurgePre
         filesRemoved: result.filesRemoved,
         warnings: result.warnings,
       });
+      focusOutcome.current = true;
       setSelected(new Set());
       setConfirming(false);
       setAcknowledged(false);
@@ -272,6 +295,7 @@ export function DataDeletionPanel({ initialPreview }: { initialPreview: PurgePre
 
           {!confirming ? (
             <button
+              ref={triggerRef}
               type="button"
               onClick={openConfirm}
               disabled={!canConfirm}
@@ -283,6 +307,12 @@ export function DataDeletionPanel({ initialPreview }: { initialPreview: PurgePre
             <div
               role="group"
               aria-labelledby="purge-confirm-title"
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.stopPropagation();
+                  cancel();
+                }
+              }}
               className="mt-4 rounded-xl border border-danger-line bg-danger-soft p-4"
             >
               <h3 id="purge-confirm-title" className="text-xs font-semibold text-danger-ink">
@@ -335,18 +365,22 @@ export function DataDeletionPanel({ initialPreview }: { initialPreview: PurgePre
         </>
       )}
 
-      <div aria-live="polite" className="mt-3 space-y-2">
-        {error && (
-          <p
-            role="alert"
-            className="rounded-lg border border-danger-line bg-danger-soft px-3 py-2 text-[11px] text-danger-ink"
-          >
-            {error}
-          </p>
-        )}
+      {error && (
+        <p
+          role="alert"
+          className="mt-3 rounded-lg border border-danger-line bg-danger-soft px-3 py-2 text-[11px] text-danger-ink"
+        >
+          {error}
+        </p>
+      )}
 
-        {outcome && (
-          <div className="rounded-lg border border-line bg-bg px-3 py-2 text-[11px]">
+      {outcome && (
+        <div
+          ref={outcomeRef}
+          role="status"
+          tabIndex={-1}
+          className="mt-3 rounded-lg border border-line bg-bg px-3 py-2 text-[11px] outline-none"
+        >
             <p className="font-medium">Deleted.</p>
             <ul className="mt-1 space-y-0.5 text-[10px] text-muted">
               {Object.entries(outcome.deleted)
@@ -370,9 +404,8 @@ export function DataDeletionPanel({ initialPreview }: { initialPreview: PurgePre
                 ))}
               </ul>
             )}
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </section>
   );
 }

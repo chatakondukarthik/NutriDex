@@ -188,6 +188,11 @@ describe("preview", () => {
     ]);
   });
 
+  it("reports pinned amounts under foods as well", () => {
+    const byId = new Map(purge.getPurgePreview().categories.map((category) => [category.id, category]));
+    expect(byId.get("foods")?.detail).toContain("1 pinned amount");
+  });
+
   it("reports nothing to block when no row references the parent", () => {
     const byId = new Map(purge.getPurgePreview().categories.map((category) => [category.id, category]));
     expect(byId.get("foods")?.blockers).toEqual([]);
@@ -284,6 +289,22 @@ describe("references block a delete", () => {
     expect(result.ok).toBe(true);
     expect(count("SELECT COUNT(*) AS n FROM plan_entries")).toBe(0);
     expect(count("SELECT COUNT(*) AS n FROM recipe_versions")).toBe(0);
+  });
+  it("blocks foods when a v2 snapshot holds a disconnected food node", () => {
+    db.prepare("UPDATE recipe_versions SET snapshot = ? WHERE id = 'v1'").run(
+      JSON.stringify({ graph: { nodes: [{ type: "food", foodId: "f1", grams: 100 }] } }),
+    );
+
+    const result = purge.purgeData(["foods"]);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.blocked).toEqual(["foods"]);
+    expect(result.blockers).toEqual([expect.objectContaining({ category: "recipes", count: 1 })]);
+    expect(count("SELECT COUNT(*) AS n FROM captured_foods")).toBe(1);
+
+    const withRecipe = purge.purgeData(["foods", "recipes"]);
+    expect(withRecipe.ok).toBe(true);
   });
 });
 
@@ -410,6 +431,18 @@ describe("action boundary", () => {
 });
 
 describe("evidence files", () => {
+  it("removes an orphaned evidence image that no row references", () => {
+    const orphan = path.join(dir, "evidence", "orphan.png");
+    writeFileSync(orphan, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+    const result = purge.purgeData(["foods"]);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.filesRemoved).toBe(2);
+    expect(existsSync(orphan)).toBe(false);
+  });
+
   it("never unlinks outside data/evidence, even with a hand-edited path", () => {
     const outside = path.join(dir, "outside.txt");
     writeFileSync(outside, "keep me");

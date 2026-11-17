@@ -259,9 +259,10 @@ Control: The caller sends category ids, never table names; unknown or empty
 Where:   `src/lib/db/purge.ts`, `src/app/actions.ts` (`purgeDataAction`),
          `src/components/data-deletion.tsx`
 Verify:  `tests/purge.test.ts` (counts, selective delete, blockers and
-         rollback, select-all survival, reseed, invalid input, traversal);
+         rollback, select-all survival, reseed, invalid input, traversal,
+         orphan images and v2 snapshot nodes);
          `tests/components/data-deletion.test.tsx` (selection, blocker,
-         acknowledgement, refusal, warnings).
+         acknowledgement, focus return, refusal, warnings).
 
 ### SEC-INP-01 — Server-action inputs are bounded
 Status:  verified
@@ -640,7 +641,6 @@ Verify:  `npm test`
 Status:  verified
 Track:   TST
 Threat:  A security patch breaks an unrelated path.
-Control: `npx tsc --noEmit` and `npm test` (66 files, 691 tests at this
-         commit).
+Control: `npx tsc --noEmit` and `npm test` (68 files, 729 tests).
 Where:   `tests/`
 Verify:  Run both before every commit.

@@ -88,6 +88,7 @@ beforeEach(() => {
     action.mockReset();
   }
   movePlanEntryAction.mockResolvedValue({ ok: true });
+  addPlanEntryAction.mockResolvedValue({ ok: true, entry: ENTRY });
 });
 
 describe("moving a placed item from the keyboard", () => {
@@ -95,7 +96,7 @@ describe("moving a placed item from the keyboard", () => {
     const user = setup();
     await user.click(grips()[0]);
 
-    const dialog = screen.getByRole("dialog", { name: /move “paneer”/i });
+    const dialog = screen.getByRole("dialog", { name: /move or copy “paneer”/i });
     expect(within(dialog).getByLabelText("Day")).toHaveValue(WEEK);
     expect(within(dialog).getByLabelText("Meal")).toHaveValue("lunch");
   });
@@ -126,6 +127,22 @@ describe("moving a placed item from the keyboard", () => {
       }),
     );
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("copies from the keyboard with the Alt-drop semantics", async () => {
+    const user = setup();
+    await user.click(grips()[0]);
+
+    await user.click(screen.getByRole("radio", { name: /Copy/ }));
+    await user.selectOptions(screen.getByLabelText("Meal"), "dinner");
+    await user.click(screen.getByRole("button", { name: "Copy here" }));
+
+    await waitFor(() =>
+      expect(addPlanEntryAction).toHaveBeenCalledWith(
+        expect.objectContaining({ day: WEEK, slot: "dinner", foodId: "paneer" }),
+      ),
+    );
+    expect(movePlanEntryAction).not.toHaveBeenCalled();
   });
 
   it("keeps Move disabled until something changes", async () => {

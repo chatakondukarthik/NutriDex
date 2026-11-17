@@ -52,7 +52,7 @@ depends on a hosted multi-user design the product does not have.
 |---|---|---|
 | Uploaded file type is validated by content | met | magic-byte sniff in `extractFoodAction` |
 | Upload size is bounded | met | 5 MB/image, 12 MB total, 10 images |
-| Path traversal is not possible | met | No user-supplied path reaches `fs`; `dataDir` is fixed |
+| Path traversal is not possible | met | No caller-supplied path reaches `fs`; evidence unlinks are confined by the name check and dirname guard in `src/lib/db/purge.ts` (`SEC-DAT-06`, `tests/purge.test.ts`) |
 | Imported text is bounded | met | 400k chars, 50k rows, 50 errors |
 | Temporary files are private | met | `atomicWritePrivateFile` uses random `wx` temp files, `0600`, short-write/fsync, cleanup on failure; fault-tested |
 
@@ -122,7 +122,7 @@ depends on a hosted multi-user design the product does not have.
 | Security controls are centralized | met | gate, URL validation, private files, rate limits, secrets |
 | Dependencies are current | met | `next@16.4.6`; clean `npm audit` (`SEC-SUP-01`) |
 | No known vulnerable components | met | `npm audit` clean at time of writing |
-| Security tests exist | met | 691 tests, including gate, origin, URL, key-binding, client-bundle boundary, file-fault, graph-validation, archive round-trip and DB-recovery suites |
+| Security tests exist | met | 729 tests, including gate, origin, URL, key-binding, client-bundle boundary, file-fault, graph-validation, archive round-trip, deletion and DB-recovery suites |
 
 ## V16 — Security logging and error handling
 

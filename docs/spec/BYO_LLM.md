@@ -214,8 +214,10 @@ A single local user is not a denial-of-service risk, but a runaway loop is.
 - **A failed test or model list is diagnosable without the key.** Settings shows
   the provider's HTTP status and its own explanation (redacted and bounded), a
   category (`http`, `timeout`, `network`, `config`), and a copy button for one
-  line containing the action, provider, model, host and message. Redaction
-  happens before that line is built, so it is safe to send to a developer.
+  line containing the action, provider, model, host and message. Known key
+  formats (`sk-…`, `AIza…`, `api_key=…`, bearer) are redacted before that line
+  is built, so it is safe to send to a developer; an unknown provider's own
+  key format is not guaranteed to match the patterns.
 
 ---
 

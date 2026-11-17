@@ -138,6 +138,20 @@ describe("aiFailure", () => {
     expect(failure.message).not.toMatch(/AIzaLEAK/);
   });
 
+  it("redacts OpenAI-style keys and records the host", () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const error = new ProviderHttpError(401, "invalid api_key=sk-LEAK1234567890");
+
+    const failure = aiFailure("Connection failed.", error, {
+      action: "testAiConnectionAction",
+      provider: "openai",
+      baseUrl: "https://api.example.com/v1",
+    });
+
+    expect(failure.detail).not.toMatch(/LEAK/);
+    expect(failure.detail).toContain("host=api.example.com");
+  });
+
   it("classifies timeouts and network failures separately", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
 

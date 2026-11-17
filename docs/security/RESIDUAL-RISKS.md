@@ -12,7 +12,10 @@ they are deliberate for a local-first, single-user app.
 app would move the key-recovery problem into the app, where a forgotten
 passphrase means permanent data loss.
 **Mitigation:** rely on FileVault / LUKS / BitLocker. File modes prevent
-casual reads by other local accounts, not an offline disk copy.
+casual reads by other local accounts, not an offline disk copy. SQL `DELETE`
+is not secure erase: freed pages and the WAL can retain removed text until
+reused. The UI promises "cannot be undone" through the app, not physical
+erasure from the disk image.
 **Revisit:** if the app ever stores data on a shared or cloud-synced volume.
 
 ### R2 — Another process under the same OS account

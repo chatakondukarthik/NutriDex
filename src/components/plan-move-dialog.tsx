@@ -12,8 +12,9 @@ import { SLOTS, SLOT_LABELS, weekDays, type Slot } from "@/lib/plan";
  * Drag-and-drop is the fast path for a mouse, but it cannot be performed
  * from the keyboard: a draggable element has nothing to activate. This
  * dialog is opened by the grip button (Enter or Space), offers the same
- * week's days and the same four slots, and calls the same `move` that a
- * drop does, so the two paths cannot diverge.
+ * week's days and the same four slots, and calls the same `move` or `copy`
+ * that a drop does — including the Alt-drop copy — so the two paths cannot
+ * diverge.
  */
 export function PlanMoveDialog({
   name,
@@ -21,6 +22,7 @@ export function PlanMoveDialog({
   slot: initialSlot,
   week,
   onMove,
+  onCopy,
   onClose,
 }: {
   name: string;
@@ -28,13 +30,16 @@ export function PlanMoveDialog({
   slot: Slot;
   week: string;
   onMove: (day: string, slot: Slot) => void;
+  /** Same target as a drag with Alt held: leaves the original where it is. */
+  onCopy: (day: string, slot: Slot) => void;
   onClose: () => void;
 }) {
   const days = weekDays(week);
   const [day, setDay] = useState(initialDay);
   const [slot, setSlot] = useState<Slot>(initialSlot);
+  const [mode, setMode] = useState<"move" | "copy">("move");
   const panelRef = useDialogFocus(true, onClose);
-  const unchanged = day === initialDay && slot === initialSlot;
+  const unchanged = mode === "move" && day === initialDay && slot === initialSlot;
 
   return createPortal(
     <div
@@ -52,10 +57,10 @@ export function PlanMoveDialog({
         className="w-full max-w-sm rounded-2xl border border-line bg-surface p-4 shadow-card outline-none"
       >
         <h2 id="move-entry-title" className="text-sm font-semibold">
-          Move “{name}”
+          Move or copy “{name}”
         </h2>
         <p className="mt-1 text-[11px] leading-relaxed text-muted">
-          Pick the day and meal. The amount travels with the item; nothing else changes.
+          Pick the day and meal. Moving changes the slot; copying leaves the original in place.
         </p>
 
         <form
@@ -66,7 +71,8 @@ export function PlanMoveDialog({
               onClose();
               return;
             }
-            onMove(day, slot);
+            if (mode === "copy") onCopy(day, slot);
+            else onMove(day, slot);
             onClose();
           }}
         >
@@ -108,6 +114,28 @@ export function PlanMoveDialog({
             </label>
           </div>
 
+          <fieldset className="mt-3">
+            <legend className="sr-only">What to do</legend>
+            <label className="mr-4 inline-flex items-center gap-1.5 text-[11px]">
+              <input
+                type="radio"
+                name="move-mode"
+                checked={mode === "move"}
+                onChange={() => setMode("move")}
+              />
+              Move
+            </label>
+            <label className="inline-flex items-center gap-1.5 text-[11px]">
+              <input
+                type="radio"
+                name="move-mode"
+                checked={mode === "copy"}
+                onChange={() => setMode("copy")}
+              />
+              Copy (like Alt-drop)
+            </label>
+          </fieldset>
+
           <div className="mt-4 flex items-center justify-end gap-2">
             <button
               type="button"
@@ -121,7 +149,7 @@ export function PlanMoveDialog({
               disabled={unchanged}
               className="rounded-lg bg-accent px-4 py-1.5 text-[11px] font-semibold text-accent-fg transition hover:bg-accent-strong disabled:opacity-50"
             >
-              Move
+              {mode === "copy" ? "Copy here" : "Move"}
             </button>
           </div>
         </form>

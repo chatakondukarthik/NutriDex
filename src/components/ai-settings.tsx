@@ -391,36 +391,46 @@ export function AiSettingsPanel({ status, config }: Props) {
             <button type="button" onClick={() => removeKey(provider)} disabled={pending} className="rounded-md border border-line px-3 py-1.5 text-xs font-medium text-warn disabled:opacity-50">Remove primary key</button>
           </div>
 
-          {message && <p className="mt-2 text-xs text-muted">{message}</p>}
+          {message && (
+            <p role="status" className="mt-2 text-xs text-muted">
+              {message}
+            </p>
+          )}
 
           {failure && (
-            <div role="alert" className="mt-2 rounded-md border border-line bg-bg p-2 text-xs">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="font-medium text-warn">
-                    {FAILURE_LABELS[failure.kind] ?? "Error"}
-                    <span className="ml-1 font-normal text-muted">({failure.kind})</span>
+            <div className="mt-2 flex items-start justify-between gap-2 rounded-md border border-line bg-bg p-2 text-xs">
+              <div role="alert" className="min-w-0 flex-1">
+                <p className="font-medium text-warn">
+                  {FAILURE_LABELS[failure.kind] ?? "Error"}
+                  <span className="ml-1 font-normal text-muted">({failure.kind})</span>
+                </p>
+                <p className="mt-0.5">{failure.message}</p>
+                {failure.detail && (
+                  <p className="mt-1 break-all font-mono text-[10px] text-muted">
+                    {failure.detail}
                   </p>
-                  <p className="mt-0.5">{failure.message}</p>
-                  {failure.detail && (
-                    <p className="mt-1 break-all font-mono text-[10px] text-muted">
-                      {failure.detail}
-                    </p>
-                  )}
-                  <p className="mt-1 text-[10px] text-muted">
-                    Safe to share — keys are redacted.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={copyFailure}
-                  className="shrink-0 rounded border border-line px-2 py-0.5 text-[10px] font-medium hover:bg-surface"
-                >
-                  {errorCopied ? "Copied" : "Copy error"}
-                </button>
+                )}
+                <p className="mt-1 text-[10px] text-muted">
+                  Safe to share — keys are redacted.
+                </p>
+                {/* Shown verbatim so the clipboard-fallback instruction is
+                    actionable: the user can select and copy this block. */}
+                <pre className="mt-2 select-all whitespace-pre-wrap break-all rounded border border-line bg-surface p-2 font-mono text-[10px] text-muted">
+                  {failureText(failure)}
+                </pre>
               </div>
+              <button
+                type="button"
+                onClick={copyFailure}
+                className="shrink-0 rounded border border-line px-2 py-0.5 text-[10px] font-medium hover:bg-surface"
+              >
+                {errorCopied ? "Copied" : "Copy error"}
+              </button>
             </div>
           )}
+          <span role="status" className="sr-only">
+            {errorCopied ? "Error copied to clipboard." : ""}
+          </span>
 
           {models && models.length > 0 && (
             <div className="mt-3 rounded-md border border-line bg-bg p-2 text-xs">
@@ -452,6 +462,9 @@ export function AiSettingsPanel({ status, config }: Props) {
               </div>
             </div>
           )}
+          <span role="status" className="sr-only">
+            {copied ? "Model ID copied to clipboard." : ""}
+          </span>
         </>
       )}
 
