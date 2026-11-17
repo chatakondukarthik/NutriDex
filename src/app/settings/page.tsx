@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ThemeSettingsPanel } from "@/components/theme-settings";
 import { AiSettingsPanel } from "@/components/ai-settings";
 import { AiInstructionsPanel } from "@/components/ai-instructions-panel";
+import { DataPortabilityPanel } from "@/components/data-portability";
 import { getMasterPrompt } from "@/lib/db/settings";
 import { aiStatus } from "@/lib/ai/client";
 import { readAiConfig } from "@/lib/ai/config";
@@ -28,6 +29,9 @@ export default function SettingsPage() {
       </div>
       <div className="mt-6">
         <AiInstructionsPanel initial={getMasterPrompt()} />
+      </div>
+      <div className="mt-6">
+        <DataPortabilityPanel />
       </div>
     </main>
   );

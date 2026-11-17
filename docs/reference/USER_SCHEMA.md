@@ -1,71 +1,57 @@
-# NutriPlan — User & Profile Schema (parked, not built)
+# NutriPlan — Identity and profiles (design only)
 
-**Status:** Design only. The app is single-user today. This document is the
-minimal change set needed to support accounts and multiple profiles later,
-so the current schema does not paint us into a corner.
+**Status:** Design only. The app is single-user today, and D-048 fixes the
+shape of any future account: identity is optional, holds no content, and is
+represented by `meta.account_id`. This document records that seam and the
+multi-user design we deliberately rejected, so neither is reopened by
+accident.
 
 ## Current state
+
 Everything hangs off a single implicit row: `profile.id = 'local'`, one plan
-per week, entries with no owner. There is no `users` table.
+per week, entries with no owner. There is no `users` table and no `owner_id`
+column. `meta.account_id` exists and is `NULL` until an identity provider is
+wired in (P3, optional).
 
-## Minimal change set
+## The seam
 
-### 1. Add a `users` table
-```sql
-CREATE TABLE users (
-  id          TEXT PRIMARY KEY,
-  email       TEXT UNIQUE,
-  name        TEXT,
-  created_at  TEXT NOT NULL,
-  archived_at TEXT
-);
-```
+- **Content stays local.** Profile, diary, recipes, plans, captured foods and
+  evidence live only in the SQLite file.
+- **Identity holds no content.** At most an opaque `account_id` and an email
+  in the provider's `auth.users`.
+- **The app is fully usable signed out, forever.** A paused or deleted
+  identity project must never make local data unreachable.
+- **Profiles are filters, not a privacy boundary.** One OS account owns every
+  row; a profile is a label on rows that account already owns. No code path
+  may treat a profile as an authorization check (`SEC-GOV-02`).
+- **Multi-device is the archive** (D-047): export on A, import on B. Later,
+  an encrypted archive in the user's own storage — not our database.
 
-### 2. Make `profile` per-user
-- Add `user_id TEXT NOT NULL REFERENCES users(id)` to `profile`.
-- Change PK from `id` to `(user_id, id)` or add a surrogate PK and keep
-  `id = 'local'` as the default profile name.
-- One user may have multiple profiles (e.g. "cutting", "maintenance") —
-  the profile row already represents one person's numbers, so a `label`
-  column is enough: `label TEXT NOT NULL DEFAULT 'default'`.
+## Rejected: a `users` table and `owner_id` on every table
 
-### 3. Scope every owned table by `user_id`
-Add `user_id TEXT NOT NULL REFERENCES users(id)` to:
-- `entries`
-- `recipes`
-- `plans`
-- `captured_foods`
-- `ai_calls` (optional; keep for transparency)
+Before D-048, the parked plan was to add a local `users` table and scope every
+owned table by `user_id`. That design is rejected for v1 because:
 
-Add an index on `(user_id, ...)` for each.
+- in a single-tenant file it adds a join to every query and buys no security;
+- it invites a false "profile isolation" claim;
+- it duplicates what the archive already provides for multi-device.
 
-### 4. Plans and entries
-- `plans` already has `starts_on UNIQUE`. Change to `UNIQUE (user_id, starts_on)`.
-- `plan_entries` is reached through `plans`, so scoping `plans` is enough.
+It would only make sense if the product ever becomes a hosted, multi-tenant
+service — which is out of scope by design.
 
-### 5. Recipes
-- `recipes.user_id` scopes ownership. `current_version_id` stays.
-- Shared/public recipes are out of scope for v1; if needed later, add a
-  `visibility TEXT` column.
+## If accounts are built (P3)
 
-### 6. Secrets
-- Keys currently live in `data/secrets.json` (mode 0600). For multi-user,
-  move to a `user_secrets` table encrypted at rest, or keep BYOK per user
-  in their browser's secure storage. Recommend: keep BYOK, store encrypted
-  per user in the DB, never in plaintext.
+1. Add Supabase auth-only behind a config flag; magic link, no content table.
+2. Store the provider's opaque id in `meta.account_id`. Never store an email
+   or name locally.
+3. Keep every feature available signed out; the account only enables
+   optional multi-device workflows.
+4. Removing the account clears `meta.account_id` and touches nothing else.
 
-### 7. Migration strategy
-- Add the column nullable first, backfill `user_id = 'local-user'` for
-  existing rows, then make it NOT NULL.
-- Create the implicit `local-user` row on first boot so existing installs
-  keep working.
+## What not to change
 
-## What NOT to change
-- The 18-nutrient model, block model, pinned versions, and provenance rules
+- The 18-nutrient model, block model, pinned versions and provenance rules
   are user-agnostic. Do not touch them.
-- Theme/settings can stay per-browser (cookies) even with accounts.
-
-## When to do this
-Only when accounts are actually being built. Until then, the single
-`'local'` row is correct and the cost of the migration is one ALTER per
-table.
+- Theme/settings stay per-browser (cookies) even with an account.
+- Seed food ids are part of the archive contract; they may only change with a
+  migration (see `DATA-MODEL.md`).

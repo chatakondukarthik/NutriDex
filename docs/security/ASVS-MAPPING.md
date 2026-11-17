@@ -16,7 +16,7 @@ depends on a hosted multi-user design the product does not have.
 |---|---|---|
 | Output is context-encoded; no raw HTML injection | met | React text nodes only; no `dangerouslySetInnerHTML` in `src/` |
 | Untrusted data is not interpreted as code | met | `asData` escapes `&`, `<`, `>` in `src/lib/ai/prompt.ts` |
-| CSV/formula injection is not introduced into exports | partial | Import is covered; export is `SEC-EXP-01` (gap) |
+| CSV/formula injection is not introduced into exports | met | The archive is ZIP + NDJSON; rows are `JSON.stringify`-encoded, never written into a spreadsheet context. The legacy CSV importer is covered by `SEC-INP-04`/`SEC-INP-08`. |
 
 ## V2 — Validation and business logic
 
@@ -111,7 +111,7 @@ depends on a hosted multi-user design the product does not have.
 | Sensitive data is protected at rest | partial | `0700`/`0600`; encryption delegated to the OS (`SEC-DAT-05`) |
 | Sensitive data is not cached inappropriately | met | `cache-control: no-store` on gate responses |
 | Data is not leaked in error messages | met | `publicError` returns fixed sentences; details are logged |
-| Data can be exported | gap | `SEC-EXP-01` |
+| Data can be exported | met | `SEC-EXP-01`: complete archive from `src/lib/archive/export.ts`; round-trip test in `tests/archive.test.ts` |
 | Data can be deleted | met | delete actions for entries, foods, recipes, versions |
 
 ## V15 — Secure coding and architecture (L2)
@@ -122,7 +122,7 @@ depends on a hosted multi-user design the product does not have.
 | Security controls are centralized | met | gate, URL validation, private files, rate limits, secrets |
 | Dependencies are current | met | `next@16.4.6`; clean `npm audit` (`SEC-SUP-01`) |
 | No known vulnerable components | met | `npm audit` clean at time of writing |
-| Security tests exist | met | 554 tests, including gate, origin, URL, key-binding, file-fault, graph-validation and DB-recovery suites |
+| Security tests exist | met | 587 tests, including gate, origin, URL, key-binding, file-fault, graph-validation, archive round-trip and DB-recovery suites |
 
 ## V16 — Security logging and error handling
 
@@ -142,6 +142,5 @@ N/A. No WebRTC.
 |---|---|
 | App passphrase lock (`SEC-LCK-01`) | Optional; OS account is the primary boundary |
 | Encryption at rest (`SEC-DAT-05`) | `node:sqlite` cannot use SQLCipher; OS/volume encryption is the answer |
-| Total export (`SEC-EXP-01`) | Product feature, tracked as a gap |
 | Audit logging | Not useful for a single local user; adds cost and a new data store |
 | Multi-tenant authZ | Out of scope by design |

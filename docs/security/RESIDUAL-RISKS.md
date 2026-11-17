@@ -84,14 +84,13 @@ another sensitive store to protect.
 
 ## Open gaps
 
-### G1 — Total export is not implemented
-**Target:** next product slice
-**Why it matters:** local ownership is incomplete if the user cannot take
-the database and settings out in one step.
-**Plan:** a versioned archive containing a SQLite snapshot, `ai-config.json`
-and optionally `secrets.json`; a matching import that validates the manifest
-and refuses to overwrite without confirmation.
-**Tracked as:** `SEC-EXP-01`.
+### G1 — Total export is not implemented — **closed 2026-11-17**
+**Resolution:** one ZIP per export containing a manifest with per-file
+checksums, NDJSON for every user-owned table, referenced evidence images and
+an optional `VACUUM INTO` snapshot. Import validates the archive as hostile
+input, runs one transaction, and defaults to merge-without-overwrite.
+Secrets never travel. See `SEC-EXP-01`/`SEC-EXP-03`/`SEC-EXP-04` and D-047.
+**Residual:** no automated cross-machine restore yet (manual R-011).
 
 ### G2 — App passphrase lock is not implemented
 **Target:** deferred

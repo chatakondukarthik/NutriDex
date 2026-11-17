@@ -132,7 +132,13 @@ Restore:
 3. Remove stale `-wal` and `-shm` files.
 4. Start the app and confirm the row counts in the UI.
 
-A full export/import feature is tracked as `SEC-EXP-01`.
+The supported backup is **Settings → Your data → Download archive**. It is a
+single ZIP containing every user-owned row, referenced evidence images and a
+checksummed manifest. Restore it with **Check archive** then **Import** on the
+target machine; merge is the default and never overwrites. The SQLite copy
+above remains a manual fallback and is the only option if the app cannot
+start. The archive never contains `secrets.json`; re-enter AI keys after a
+restore.
 
 If a restore or an interrupted upgrade leaves an `entries_v1` table beside
 `entries`, the next boot finishes it: the live `entries` table wins when the

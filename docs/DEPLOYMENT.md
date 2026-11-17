@@ -326,6 +326,14 @@ It never prints the token or the allowlist contents.
 
 ## 8. Backups and restore
 
+**Preferred: the app's own archive.** Settings → Your data → Download archive
+produces one ZIP with every user-owned row, evidence images and a checksummed
+manifest. Restore it with Check archive → Import on the target machine. It is
+portable across machines and versions, and it never contains `secrets.json`.
+
+The SQLite copy below is the fallback: exact, but tied to this schema, and the
+only option if the app cannot start.
+
 The database is a single SQLite file in `WAL` mode. Copying it while the app
 is running can miss the `-wal` file, so use one of these:
 

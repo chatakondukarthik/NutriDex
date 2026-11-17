@@ -31,7 +31,7 @@ means writing a new record that supersedes it.
 |---|---|
 | [`reference/NUTRITION.md`](reference/NUTRITION.md) | How are nutrient values calculated? |
 | [`reference/DATA-MODEL.md`](reference/DATA-MODEL.md) | What are the entities? |
-| [`reference/USER_SCHEMA.md`](reference/USER_SCHEMA.md) | How to add accounts later without a rewrite |
+| [`reference/USER_SCHEMA.md`](reference/USER_SCHEMA.md) | How identity is separated from content, and why profiles are not a boundary |
 | [`reference/STACK.md`](reference/STACK.md) | What runs this, and why? |
 | [`reference/TESTING.md`](reference/TESTING.md) | What is tested, how, and what is still manual? |
 | [`DEPLOYMENT.md`](DEPLOYMENT.md) | How is it hosted, gated and backed up? |
@@ -54,6 +54,7 @@ Reference docs are updated in the same commit as the code they describe.
 |---|---|
 | [`research/RESEARCH.md`](research/RESEARCH.md) | What must we learn, and what have we already learned? |
 | [`research/notes/2026-11-15-fud-ai-and-llm-providers.md`](research/notes/2026-11-15-fud-ai-and-llm-providers.md) | What does a shipping open-source tracker do for capture and AI providers? |
+| [`research/notes/2026-11-17-portability-and-identity.md`](research/notes/2026-11-17-portability-and-identity.md) | How do local-first apps split identity from content, and what should a total export look like? |
 
 ## Specifications — the source documents
 
@@ -82,5 +83,8 @@ Reference docs are updated in the same commit as the code they describe.
 | S6 — Ingredient capture | Planned |
 | S7 — Bring-your-own LLM | Planned |
 | S8 — Status colour | Planned |
+| S9 — Food search and glossary | Done except external food search (blocked) |
+| S10 — Flow recipes | Done except auto-layout and convert-all |
+| S11 — Portability | In progress (export + import) |
 
 See [`build/PLAN.md`](build/PLAN.md) for what each slice means.

@@ -26,6 +26,7 @@ record.
 | Trust | Coverage indicator | Honesty is a feature |
 | Trust | Attribution page and health disclaimer | Required by licence and by law |
 | Platform | Mobile-responsive layout | Cooking happens on a phone |
+| Data | Total export and import as one archive | The user owns the data (D-047) |
 
 ### Shipped so far
 
@@ -39,6 +40,9 @@ record.
   selected day. Planned recipes are pinned to a version. (S3)
 - A profile that derives daily energy and protein targets and picks
   sex- and age-banded reference values for the rest. (S3)
+- A complete archive: every user-owned row, evidence images and a checksummed
+  manifest in one ZIP, with a checked import that never overwrites silently.
+  (S11, D-047)
 
 ---
 
@@ -56,6 +60,8 @@ record.
 | Copy a day or a week | The plan shipping and being used |
 | Status colour: yellow/red overflow (S8) | A threshold decision |
 | Retention factors for sensitive vitamins (D-026) | Nutrient fidelity mattering enough |
+| Optional account: Supabase auth-only, no content online (D-048) | A decision on whether an account earns its keep |
+| Multi-device: encrypted archive in the user's own storage | The archive proving itself first |
 
 ---
 

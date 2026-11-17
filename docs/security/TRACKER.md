@@ -440,16 +440,65 @@ Where:   `src/lib/ai/client.ts`, `src/app/actions.ts` — `aiThrottle`
 Verify:  Manual: loop a test connection and see the throttle message.
 
 ### SEC-EXP-01 — Total export
-Status:  gap
+Status:  verified
 Track:   EXP
 Threat:  A user cannot take their data out, which contradicts local
          ownership and makes lock-in a real risk.
-Control: Not implemented. Plan: one archive containing the SQLite snapshot
-         plus `ai-config.json` and `secrets.json` (keys optionally omitted),
-         with a versioned manifest.
-Where:   —
-Verify:  Export, wipe the data directory, import, compare row counts.
-Notes:   Product feature, not a security patch. Tracked so it is not lost.
+Control: `buildArchive` writes one ZIP containing `manifest.json` (format
+         version, row counts, columns, a SHA-256 per file), one
+         `data/<table>.ndjson` per table in the registry, `files/evidence/*`
+         for referenced images, an optional `snapshot.sqlite` produced by
+         `VACUUM INTO`, and a README. Every table is exported and columns
+         are read from the live schema, so a new column cannot be
+         forgotten. Secrets never travel; seed foods and seed retention
+         factors stay in code; `estimate_cache` is derived and excluded;
+         the AI activity log is opt-in.
+Where:   `src/lib/archive/registry.ts`, `export.ts`, `manifest.ts`,
+         `zip.ts`; `src/app/api/export/route.ts`;
+         `src/components/data-portability.tsx`
+Verify:  `tests/archive.test.ts` → "restores identical content after a full
+         wipe" (export → wipe → import → per-table content hash). Manual:
+         `GET /api/export`, `unzip -l`, then `POST /api/import` with
+         `dryRun=1`.
+
+### SEC-EXP-03 — Imported archives are treated as hostile input
+Status:  verified
+Track:   EXP
+Threat:  A crafted archive can traverse paths, exhaust memory, forge a
+         checksum, or plant a row that breaks the app.
+Control: strict ZIP reader (rejects traversal, absolute and duplicate
+         names, encryption, ZIP64, multi-disk; caps entries, entry size,
+         total size and compression ratio; verifies CRC); a manifest
+         checksum for every entry and refusal of unlisted files; unknown
+         tables refused; rows validated against the live schema (required
+         columns, scalar types only); `image_path` re-validated against the
+         same https / `data/evidence` allowlist as the capture action;
+         settings restricted to an allowlist; all writes in one transaction
+         followed by `PRAGMA foreign_key_check`; a dry run rolls back.
+Where:   `src/lib/archive/zip.ts`, `import.ts`, `schema.ts`, `registry.ts`
+Verify:  `tests/archive.test.ts` → "hostile archives" (tampered file,
+         unknown table, unlisted file, missing required column, dangling
+         parent, traversal name, entry cap, zip bomb, non-ZIP input,
+         duplicate manifest path, local/central header mismatch, planted
+         `origin`, refused setting, unsafe image path, seed factors through
+         a replace).
+
+### SEC-EXP-04 — Import cannot be a one-click overwrite
+Status:  verified
+Track:   EXP
+Threat:  A mistaken or malicious import silently destroys the local diary.
+Control: the mode is explicit — `merge` is the default and never
+         overwrites: an existing row with different values is counted as a
+         conflict and left alone, and the report says so. `replace` deletes
+         and inserts in one transaction. The UI disables "Import" until the
+         same archive has passed a dry run, and the dry run uses the real
+         importer so the two cannot drift.
+Where:   `src/lib/archive/import.ts`,
+         `src/components/data-portability.tsx`
+Verify:  `tests/archive.test.ts` → "merge reports a conflict instead of
+         overwriting", "reports a unique collision in merge instead of
+         dropping the row", "a dry run changes nothing", "handles an
+         archive whose tables are empty".
 
 ### SEC-EXP-02 — Import is explicit and bounded
 Status:  verified
@@ -548,7 +597,7 @@ Verify:  `npm test`
 Status:  verified
 Track:   TST
 Threat:  A security patch breaks an unrelated path.
-Control: `npx tsc --noEmit` and `npm test` (50 files, 554 tests at this
+Control: `npx tsc --noEmit` and `npm test` (52 files, 587 tests at this
          commit).
 Where:   `tests/`
 Verify:  Run both before every commit.

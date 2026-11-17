@@ -343,3 +343,68 @@ Full design: [`../spec/BYO_LLM.md`](../spec/BYO_LLM.md).
    parallel build workers each open the same SQLite file, so the connection sets
    `busy_timeout` before any DDL. Without it, two workers starting at once fail
    with `database is locked`.
+8. **Seed food ids are part of the archive contract.** `paneer`, `curd`, `egg`
+   and the rest in `src/lib/data/foods.ts` are referenced by `entries`,
+   `component_inputs` and `plan_entries`. Renaming or removing one breaks every
+   archive that refers to it, so a seed id may only change with a migration.
+
+---
+
+## 4. Archive contract (S11)
+
+`src/lib/archive/registry.ts` is the single list of what an export contains,
+what an import accepts and what a wipe deletes. Columns are read from the live
+schema at export time; the registry declares only the table, its class and any
+predicate. Adding a table without adding it here makes the round-trip test fail.
+
+| Class | Meaning |
+|---|---|
+| `user` | User content. Always exported and imported. |
+| `optional` | Exported only when the user opts in. Today: `ai_calls`. |
+
+Excluded on purpose:
+
+- `estimate_cache` — derived; rebuilding it costs one AI call.
+- `retention_factors` seed rows (`origin = 'seed'`) — code fixtures.
+- seed foods — `src/lib/data/foods.ts`, not a table.
+- `meta` — describes this installation; the manifest replaces it.
+- secrets — `data/secrets.json`, never in SQLite and never in an archive.
+
+### 4.1 `meta`
+
+```
+meta
+  key    TEXT PRIMARY KEY
+  value  TEXT NOT NULL
+```
+
+Allowlisted keys: `account_id` and `created_at`. `account_id` is opaque and is
+the only link to an online identity (D-048). An import never writes `meta`.
+
+### 4.2 `retention_factors.origin`
+
+`'seed'` rows ship with the app and are reconciled by content on every boot;
+`'user'` rows are content and travel in an archive. The seeder reconciles
+rather than "insert once if empty", so a repaired or upgraded seed is not
+mistaken for user data.
+
+### 4.3 Archive layout (format v1)
+
+```
+nutriplan-<timestamp>Z.zip
+  manifest.json          format, version, counts, columns, sha256 per file
+  data/<table>.ndjson    one JSON object per line, FK-safe order
+  files/evidence/<name>  referenced images
+  snapshot.sqlite        VACUUM INTO copy (optional; never imported)
+  README.txt
+```
+
+`data/` is the interchange format and the only thing the importer reads. The
+snapshot is a recovery copy for the same schema version. Both are covered by
+the manifest's SHA-256 list, and the importer refuses any entry the manifest
+does not list. See D-047.
+
+Import rules: one transaction, `PRAGMA foreign_key_check` before commit,
+required columns enforced, unknown columns dropped with a warning, unknown
+tables refused, image paths re-validated, settings restricted to an allowlist,
+and `merge` never overwrites a differing row — it reports a conflict.

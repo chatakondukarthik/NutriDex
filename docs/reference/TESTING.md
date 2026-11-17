@@ -1,7 +1,7 @@
 # NutriPlan — Testing
 
 **Type:** Reference (updated in the same commit as the code it describes)
-**Last verified:** 2026-11-17 — 50 files, 554 tests passing, `tsc --noEmit` clean.
+**Last verified:** 2026-11-17 — 52 files, 587 tests passing, `tsc --noEmit` clean.
 
 This is the tracker for how NutriPlan is tested: what is automated, what is
 manual, what each category is for, and what is still missing. It is a map, not
@@ -142,6 +142,12 @@ shell). Contrast is covered by the token review in R-003, not by axe.
 | D-012 | A successful transaction commits | Pass |
 | D-013 | An interrupted `entries` rebuild is finished on boot; an ambiguous both-tables state refuses to start | Pass |
 | D-014 | `BEGIN IMMEDIATE` takes the write lock; an async callback is rejected; the original error survives a rollback | Pass |
+| D-015 | Export contains every user table, referenced evidence and a manifest with a checksum per entry | Pass |
+| D-016 | Export → wipe → import restores identical content, compared by a per-table hash | Pass |
+| D-017 | A stored recipe snapshot survives the round trip byte-for-byte | Pass |
+| D-018 | Merge adds missing rows, keeps existing ones, and reports a differing row as a conflict instead of overwriting it | Pass |
+| D-019 | A dry run changes nothing; a table with zero rows imports without a malformed `INSERT` | Pass |
+| D-020 | Evidence images are restored with their original bytes | Pass |
 
 ### P — Performance
 
@@ -171,6 +177,8 @@ still catch a real regression. They are guards, not benchmarks.
 | S-011 | Data directory and files are `0700`/`0600`; atomic writes survive faults | `tests/private-files.test.ts`, `tests/private-files-faults.test.ts` | Pass |
 | S-012 | Graph, recipe, captured-food and import-mapping shapes are bounded | `tests/graph-validate.test.ts`, `tests/actions.test.ts`, `tests/csv.test.ts` | Pass |
 | S-013 | Migrations and transactions recover from an interrupted write | `tests/db-recovery.test.ts` | Pass |
+| S-014 | An imported archive is hostile input: tampered checksums, unlisted files, duplicate manifest paths, local/central header mismatches, unknown tables, traversal names, zip bombs, missing required columns, dangling parents, planted `origin`, refused settings and unsafe image paths are all refused or dropped | `tests/archive.test.ts` | Pass |
+| S-015 | An upload with no trustworthy `content-length` is abandoned at the byte ceiling, not buffered | `tests/http-body.test.ts` | Pass |
 
 S-005 remains a gap: there is no build-time assertion that a key cannot be
 imported into a client component. Today keys are read only by server modules
@@ -195,6 +203,7 @@ run by hand and the result recorded here with the date.
 | R-008 | Drag a recipe card: the preview is a rounded card, not a rectangle | Visual pass | Pass 2026-11-15 |
 | R-009 | Placed plan items are copyable and movable | Browser | Pass 2026-11-15 |
 | R-010 | Skeleton shimmer before content on a slow read | Throttled network | Pass 2026-11-15 |
+| R-011 | Restore an archive on a second machine with no account | Download on machine A, copy the ZIP, import on machine B, compare counts | Not run |
 
 ---
 

@@ -120,6 +120,13 @@ Entities: [`../reference/DATA-MODEL.md`](../reference/DATA-MODEL.md).
 | D-038 | Model quality is judged by a golden-set harness with an error budget, not by unit tests | Proposed | [below](#d-038--model-quality-is-judged-by-a-harness) |
 | D-039 | Status is never conveyed by colour alone; yellow/red overflow carries words and an icon | Proposed | [below](#d-039--status-is-never-conveyed-by-colour-alone) |
 
+### Portability and identity
+
+| ID | Decision | Status | Full record |
+|---|---|---|---|
+| D-047 | One ZIP, format v1: checksummed manifest, NDJSON as the only interchange format, evidence images, optional SQLite snapshot | Accepted | [below](#d-047--one-archive-two-representations) |
+| D-048 | Identity is optional and holds no content; `meta.account_id` is the seam, and the archive is the multi-device path | Accepted | [below](#d-048--identity-is-optional-and-holds-no-content) |
+
 ### Engineering
 
 | ID | Decision | Status | Full record |
@@ -889,6 +896,86 @@ Canvas editors are power tools; a phone or a keyboard user cannot drag.
 The flow editor offers a structured step list alongside the canvas; every
 capability (connect, tag, measure, split, estimate) is available in both.
 The canvas is never the only path to a correct recipe.
+
+---
+
+### D-047 — One archive, two representations
+
+**Status:** Accepted
+**Date:** 2026-11-17
+**Relates to:** SEC-EXP-01, D-001
+
+**Context**
+
+"Total export" can be satisfied three ways: a single JSON file, a raw
+SQLite snapshot, or a structured archive. Each is good at one thing and
+bad at the others — JSON is portable but loses images and streams badly;
+SQLite is exact but couples the file to this schema and is unsafe to
+import from an unknown version; a folder of files is inspectable but not a
+single thing a user can email themselves.
+
+**Decision**
+
+One ZIP, format version 1, with three parts and one job each:
+
+- `manifest.json` — format version, row counts, columns, SHA-256 per entry.
+  This is the contract; an importer validates it before reading data.
+- `data/<table>.ndjson` — the **interchange** format and the only thing
+  the importer reads. One JSON object per line, streamable, diff-friendly,
+  one corrupt row isolated to its line.
+- `files/evidence/*` — referenced images, so an archive is self-contained.
+- `snapshot.sqlite` — a **recovery** copy from `VACUUM INTO`, optional,
+  never read by the importer. It exists so a future bug in this code is
+  not the end of the user's data.
+
+Secrets never travel. Seed foods and seed retention factors stay in code
+(licensing and versioning). `estimate_cache` is derived and excluded. The
+AI activity log is opt-in.
+
+**Consequences**
+
+Import has exactly one code path, so it can be tested as one thing.
+Adding a table means editing `TABLES`; the round-trip test fails until it
+is added. The snapshot doubles archive size, which is acceptable for a
+personal diary and buys a second, independent recovery route.
+
+---
+
+### D-048 — Identity is optional and holds no content
+
+**Status:** Accepted
+**Date:** 2026-11-17
+**Relates to:** D-001, SEC-GOV-02
+
+**Context**
+
+Accounts were requested, but the product's promise is local ownership and
+the budget is near zero. Splitting content between "online user details"
+and "local data" would create a second source of truth, a hosted
+multi-tenant backend, and a health-data breach surface — and Supabase's
+free tier pauses after about a week of inactivity, which would make a
+required login an outage.
+
+**Decision**
+
+Two planes, split by role rather than by table:
+
+- **Content** — profile, diary, recipes, plans, captured foods, evidence —
+  lives only in the local SQLite file.
+- **Identity** — an opaque `account_id` and, if a provider is added, an
+  email in `auth.users`. Nothing else, ever.
+
+`meta.account_id` is the seam. There is no local `users` table and no
+`owner_id` column: in a single-tenant file they add joins and no security.
+The app is fully usable signed out, forever; an account is additive.
+Multi-device is served by the archive (D-047), and later by an encrypted
+archive in the user's own storage — not by our database.
+
+**Consequences**
+
+No sync in v1. Adding auth must not gate any feature, and a paused or
+deleted identity project must never make local data unreachable. The
+account can be removed without touching content.
 
 ---
 

@@ -82,6 +82,30 @@ What it does not settle: it estimates meals, not recipes. It has no block model,
 no pinned sub-ingredients, no yield basis, and no provenance that survives an
 edit. There is nothing to copy for the calculation.
 
+### 1.7 Portability and identity (2026-11-17)
+
+The apps that survive hand the user a file they can open without the app:
+Obsidian's folder, Joplin's archive, Actual's SQLite file. None of them put
+content in the identity provider.
+
+- **Split by plane, not by table.** Content stays local; an online account
+  holds an opaque id and an email at most. A table split creates two sources of
+  truth, sync conflicts, and a hosted health-data surface.
+- **A login does not protect the local file.** The local boundary is the OS
+  account, an optional passphrase, file modes and disk encryption.
+- **Supabase's free tier pauses after about a week of inactivity.** A required
+  login would therefore be an outage; the account must be optional.
+- **`VACUUM INTO` is a backup, not an interchange format.** NDJSON is what an
+  importer reads; the snapshot is a recovery copy.
+
+What it settles: D-047 and D-048, and the S11 implementation.
+
+What it does not settle: multi-device. The cheapest correct path is an
+encrypted archive in the user's own storage, and that waits until the archive
+has proven itself.
+
+Note: [`notes/2026-11-17-portability-and-identity.md`](notes/2026-11-17-portability-and-identity.md).
+
 ---
 
 ## 2. Open questions
@@ -298,6 +322,10 @@ with the reason, so they are not reopened by accident.
 | Should AI compute the totals? | No. AI interprets; the engine calculates (D-009). |
 | Should we parse cooking instructions into steps? | Not in v1. Store them as evidence (D-017). |
 | Should missing nutrients be zero-filled for a cleaner UI? | Never. `unknown` is a feature. |
+| Should content live in Supabase so accounts are useful? | No. Identity holds an opaque id and an email; content stays local (D-048). |
+| Should a login be required? | No. The free tier pauses after a week, so a required login would be an outage; the app must work signed out. |
+| Should the export be a raw SQLite file only? | No. It is opaque and version-coupled; NDJSON is the interchange, the snapshot is a recovery copy (D-047). |
+| Should we build sync now? | No. The archive is the sync mechanism until it has proven itself. |
 
 ---
 

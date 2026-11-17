@@ -106,6 +106,15 @@ const SCHEMA = `
     value TEXT NOT NULL
   );
 
+  -- Archive and identity metadata, one row per key. This is *not* user
+  -- content: the archive carries its own manifest, so these values never
+  -- travel inside an export. account_id is the only link to an online
+  -- identity, and it is opaque (never an email or a name).
+  CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS profile (
     id               TEXT PRIMARY KEY,
     sex              TEXT NOT NULL,
@@ -161,7 +170,10 @@ const SCHEMA = `
     nutrient   TEXT NOT NULL,
     factor     REAL NOT NULL,
     source     TEXT NOT NULL DEFAULT 'usda-r6',
-    notes      TEXT
+    notes      TEXT,
+    -- 'seed' rows ship with the app and are re-created on boot; only
+    -- 'user' rows are user content and travel in an export.
+    origin     TEXT NOT NULL DEFAULT 'user'
   );
   CREATE INDEX IF NOT EXISTS retention_factors_lookup_idx
     ON retention_factors (operation, nutrient);
@@ -261,10 +273,23 @@ function createDb(): DatabaseSync {
   const database = new DatabaseSync(dbPath);
   database.exec(SCHEMA);
   migrate(database);
+  recordCreatedAt(database);
   seedRetentionFactors(database);
   restrictDbFiles(dbPath);
 
   return database;
+}
+
+/**
+ * Record when this installation's database was created, once.
+ *
+ * The archive manifest reports it. Writing it at boot rather than at export
+ * keeps `GET /api/export` a pure read.
+ */
+function recordCreatedAt(database: DatabaseSync): void {
+  database
+    .prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('created_at', ?)")
+    .run(new Date().toISOString());
 }
 
 /**
@@ -296,6 +321,12 @@ function migrate(database: DatabaseSync): void {
   addColumn(database, "profile", "target_energy_kcal", "REAL");
   addColumn(database, "recipes", "archived_at", "TEXT");
   addColumn(database, "captured_food_nutrients", "note", "TEXT");
+  // Rows seeded before `origin` existed are all fixtures: the seeder was the
+  // only writer to this table. Mark them when the column is first added, and
+  // let `seedRetentionFactors` reconcile the rest on every boot.
+  if (addColumn(database, "retention_factors", "origin", "TEXT NOT NULL DEFAULT 'user'")) {
+    database.exec("UPDATE retention_factors SET origin = 'seed'");
+  }
   rebuildEntriesTable(database);
 }
 
@@ -429,24 +460,56 @@ function recoverEntriesRebuild(database: DatabaseSync, hasNewShape: boolean): vo
 }
 
 /**
- * Seed the retention-factor table once. Runs on every boot; inserts are
- * guarded by a lookup so it is idempotent. Wrapped in a transaction so a
- * crash mid-loop cannot leave a partial seed that the count check then
- * treats as complete.
+ * Reconcile the retention-factor seed on every boot.
+ *
+ * This used to be "insert once if the table is empty". That had two bugs:
+ * a user override could never coexist with a repaired seed, and a table
+ * that was seeded by an older build (with a different `source` string)
+ * looked like user content. Reconciling by content is idempotent: a missing
+ * fixture is inserted, a fixture that is present but not marked `seed` is
+ * marked, and a genuine override (different factor or source) is left alone.
  */
 function seedRetentionFactors(database: DatabaseSync): void {
-  const count = database
-    .prepare("SELECT COUNT(*) AS n FROM retention_factors")
-    .get() as unknown as { n: number };
-  if (count.n > 0) return;
-
-  const insert = database.prepare(
-    `INSERT INTO retention_factors (id, operation, qualifier, nutrient, factor, source, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  const find = database.prepare(
+    `SELECT id, origin FROM retention_factors
+     WHERE operation = ? AND nutrient = ?
+       AND IFNULL(qualifier, '') = IFNULL(?, '')
+       AND factor = ? AND source = ?`,
   );
+  // A user override for the same key wins over the fixture: do not insert
+  // the seed row alongside it, because the engine's lookup is last-row-wins
+  // and the fixture would silently shadow the override.
+  const findOverride = database.prepare(
+    `SELECT id FROM retention_factors
+     WHERE operation = ? AND nutrient = ?
+       AND IFNULL(qualifier, '') = IFNULL(?, '')
+       AND origin = 'user'`,
+  );
+  const insert = database.prepare(
+    `INSERT INTO retention_factors (id, operation, qualifier, nutrient, factor, source, notes, origin)
+     VALUES (?, ?, ?, ?, ?, ?, NULL, 'seed')`,
+  );
+  const mark = database.prepare("UPDATE retention_factors SET origin = 'seed' WHERE id = ?");
+
   database.exec("BEGIN IMMEDIATE");
   try {
     for (const seed of SEED_FACTORS) {
+      const existing = find.get(
+        seed.operation,
+        seed.nutrient,
+        seed.qualifier,
+        seed.factor,
+        seed.source,
+      ) as unknown as { id: string; origin: string } | undefined;
+
+      if (existing) {
+        if (existing.origin !== "seed") mark.run(existing.id);
+        continue;
+      }
+
+      const override = findOverride.get(seed.operation, seed.nutrient, seed.qualifier);
+      if (override) continue;
+
       insert.run(
         randomUUID(),
         seed.operation,
@@ -454,7 +517,6 @@ function seedRetentionFactors(database: DatabaseSync): void {
         seed.nutrient,
         seed.factor,
         seed.source,
-        null,
       );
     }
     database.exec("COMMIT");
@@ -481,6 +543,7 @@ const MIGRATION_TABLES = new Set([
   "recipes",
   "recipe_versions",
   "captured_food_nutrients",
+  "retention_factors",
 ]);
 const MIGRATION_COLUMNS = new Set([
   "body_fat_percent",
@@ -490,6 +553,7 @@ const MIGRATION_COLUMNS = new Set([
   "archived_at",
   "label",
   "note",
+  "origin",
 ]);
 
 function assertDdlIdentifier(name: string, allowed: ReadonlySet<string>): void {
@@ -503,7 +567,7 @@ function addColumn(
   table: string,
   column: string,
   definition: string,
-): void {
+): boolean {
   // Both interpolated call sites below are guarded: nothing reaches SQL
   // unless it is in the fixed migrate() lists above.
   assertDdlIdentifier(table, MIGRATION_TABLES);
@@ -513,9 +577,10 @@ function addColumn(
     name: string;
   }>;
 
-  if (columns.some((entry) => entry.name === column)) return;
+  if (columns.some((entry) => entry.name === column)) return false;
 
   database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  return true;
 }
 
 export const db: DatabaseSync =

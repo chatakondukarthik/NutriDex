@@ -20,6 +20,7 @@ pipeline; breadth comes later.
 | S6 — Ingredient capture | 2–3 weeks | A user can add their own food | Planned |
 | S7 — Bring-your-own LLM | 2 weeks | AI helps, and NutriPlan never holds the keys | Planned |
 | S8 — Status colour | 2–3 days | Over-target reads at a glance, and not by colour alone | Planned |
+| S11 — Portability | 3–4 days | The user can leave with everything | In progress (export + import) |
 
 ---
 
@@ -305,6 +306,36 @@ everything else tracked.
 **Open:** what "over" means for a `daily-anchor` versus a `weekly-limit`, and
 whether the thresholds are a percentage of target or a fixed margin. Both need
 a decision before the work starts.
+
+---
+
+## S11 — Portability
+
+The user owns the data, so the app must be able to hand over all of it and
+take it back without a server. See D-047 (archive format) and D-048 (identity
+plane).
+
+**Done when:**
+
+- [x] One archive contains every user-owned row, referenced evidence images,
+      and a checksummed manifest. Secrets are excluded; seed data stays in code.
+- [x] Export → wipe → import restores identical content, compared by a
+      per-table hash rather than row counts.
+- [x] The importer treats an archive as hostile input: traversal, zip bombs,
+      forged checksums, unknown tables, missing required columns, dangling
+      parents and unsafe image paths are all refused, and one transaction
+      means a failure changes nothing.
+- [x] Merge and replace are explicit. Merge never overwrites: a differing row
+      is reported as a conflict and left alone.
+- [x] The UI requires a dry run through the real importer before "Import"
+      enables, so "check" and "apply" cannot disagree.
+- [x] `meta` carries an opaque `account_id` and the database creation date;
+      no content is stored online.
+- [ ] Wire the optional identity plane (Supabase auth-only) behind a flag,
+      with the app fully usable signed out. (P3, optional — D-048)
+- [ ] Restore on a second machine unaided, as a manual run-through.
+
+**Non-goals:** sync, collaboration, and a hosted content database.
 
 ---
 
