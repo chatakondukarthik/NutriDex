@@ -112,7 +112,7 @@ depends on a hosted multi-user design the product does not have.
 | Sensitive data is not cached inappropriately | met | `cache-control: no-store` on gate responses |
 | Data is not leaked in error messages | met | `publicError` returns fixed sentences; details are logged |
 | Data can be exported | met | `SEC-EXP-01`: complete archive from `src/lib/archive/export.ts`; round-trip test in `tests/archive.test.ts` |
-| Data can be deleted | met | delete actions for entries, foods, recipes, versions |
+| Data can be deleted | met | `SEC-DAT-06`: category-scoped preview and delete in `src/lib/db/purge.ts`, refusal on dangling references, evidence cleanup after commit; `tests/purge.test.ts`, `tests/components/data-deletion.test.tsx` |
 
 ## V15 — Secure coding and architecture (L2)
 

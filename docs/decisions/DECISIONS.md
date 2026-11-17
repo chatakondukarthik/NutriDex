@@ -127,6 +127,7 @@ Entities: [`../reference/DATA-MODEL.md`](../reference/DATA-MODEL.md).
 |---|---|---|---|
 | D-047 | One ZIP, format v1: checksummed manifest, NDJSON as the only interchange format, evidence images, optional SQLite snapshot | Accepted | [below](#d-047--one-archive-two-representations) |
 | D-048 | Identity is optional and holds no content; `meta.account_id` is the seam, and the archive is the multi-device path | Accepted | [below](#d-048--identity-is-optional-and-holds-no-content) |
+| D-050 | Deletion is category-scoped, refuses dangling references instead of cascading, and preserves seed/app-managed rows | Accepted | [below](#d-050--deletion-is-category-scoped-and-refuses-dangling-references) |
 
 ### Engineering
 
@@ -1020,6 +1021,60 @@ the profile; an override is a deliberate exception the user can clear.
   tolerance and could contradict the colour.
 - Storing the thresholds in code: no way to answer "why is this amber?" from
   the UI, and no way to carry a preference to another machine.
+
+---
+
+### D-050 — Deletion is category-scoped and refuses dangling references
+
+**Status:** Accepted
+**Date:** 2026-11-18
+**Relates to:** D-047, SEC-DAT-06
+
+**Context**
+
+A local-first diary needs a way to remove data without an operator, a
+backup service or an undo. The rows are not independent: a captured food is
+referenced by diary, plan and recipe rows without a foreign key (seed foods
+live in code), and a recipe version is pinned by diary and plan rows with
+one. A naive "delete this table" control either leaves rows that render as
+"unknown food" or cascades into data the user did not select.
+
+**Decision**
+
+- The user selects from eight categories: diary, plans, recipes, foods,
+  defaults, profile, preferences and the AI log. The category id is the
+  allowlist; an unknown or empty selection rejects the whole request.
+- A preview counts the primary rows in each category and names the
+  categories that still reference it.
+- The purge re-checks those references inside `BEGIN IMMEDIATE` and refuses
+  when a referenced category was not selected. It does not cascade, and it
+  does not archive as a hidden substitute for deleting.
+- Children are deleted before parents in one transaction. Evidence files are
+  unlinked only after commit, confined to `data/evidence`, and a failure is
+  reported as a warning rather than hidden.
+- Seed foods, seed retention factors, `meta`, non-importable settings and AI
+  keys are never in a category. Deleting preferences restores shipped
+  retention factors immediately instead of waiting for the next boot.
+- The UI is two-step: select, then acknowledge "cannot be undone" before the
+  destructive button enables, with an archive download offered first.
+
+**Consequences**
+
+Deleting foods requires also deleting the diary, plan or recipe rows that
+use them, or removing those references first. That is deliberate friction:
+silent cascades are how a user loses a week they meant to keep. There is no
+tombstone and no undo; the archive is the recovery path. AI keys remain a
+separate control because they are credentials, not content.
+
+**Alternatives rejected**
+
+- Cascade deletes: one click would remove rows the preview never showed.
+- Archive-on-delete for referenced rows: the data would still exist, which
+  contradicts the request and hides it from the user.
+- Letting the client send table names or SQL: turns a Settings control into
+  an arbitrary-write endpoint.
+- Soft delete with timestamps: adds state and queries to every read for a
+  benefit only an undo UI would use.
 
 ---
 

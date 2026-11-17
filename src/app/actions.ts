@@ -1772,6 +1772,80 @@ export async function resetTargetRulesAction(): Promise<{ ok: boolean; rules: Ta
   return { ok: true, rules: DEFAULT_TARGET_RULES };
 }
 
+import {
+  getPurgePreview,
+  purgeData,
+  PURGE_CATEGORIES,
+  type PurgeBlocker,
+  type PurgeCategoryId,
+  type PurgePreview,
+} from "@/lib/db/purge";
+
+export type PurgeActionResult =
+  | {
+      ok: true;
+      deleted: Partial<Record<PurgeCategoryId, number>>;
+      filesRemoved: number;
+      warnings: string[];
+      preview: PurgePreview;
+    }
+  | {
+      ok: false;
+      message: string;
+      blocked?: PurgeCategoryId[];
+      blockers?: PurgeBlocker[];
+      preview: PurgePreview;
+    };
+
+/**
+ * Delete selected categories of user data.
+ *
+ * The category ids are the allowlist; `purgeData` rejects an unknown one
+ * instead of guessing. Everything else the action does is containment: a
+ * small rate limit so a stuck loop cannot hammer the disk, a shape check
+ * before the database is touched, and a fresh preview in every reply so the
+ * panel never shows counts from before the delete.
+ *
+ * There is no confirmation token here. The UI's two-step flow is a guard
+ * against a mis-click, not an authorisation: this app has one user, and the
+ * gate in `proxy.ts` decides whether the request reaches the app at all.
+ */
+export async function purgeDataAction(categories: string[]): Promise<PurgeActionResult> {
+  const { rateLimit } = await import("@/lib/security/rate-limit");
+  const budget = rateLimit("purge", 5, 60_000);
+  if (!budget.ok) {
+    return {
+      ok: false,
+      message: `Too many deletion attempts. Try again in ${budget.retryAfter ?? 60} second${
+        budget.retryAfter === 1 ? "" : "s"
+      }.`,
+      preview: getPurgePreview(),
+    };
+  }
+
+  if (!Array.isArray(categories) || categories.length > PURGE_CATEGORIES.length) {
+    return {
+      ok: false,
+      message: "That deletion request is not valid.",
+      preview: getPurgePreview(),
+    };
+  }
+
+  const result = purgeData(categories);
+  if (!result.ok) {
+    return { ...result, preview: getPurgePreview() };
+  }
+
+  revalidatePath("/");
+  revalidatePath("/plan");
+  revalidatePath("/recipes");
+  revalidatePath("/foods");
+  revalidatePath("/profile");
+  revalidatePath("/settings");
+
+  return { ...result, preview: getPurgePreview() };
+}
+
 export async function estimateFoodsAction(input?: {
   foodIds?: string[];
 }): Promise<{

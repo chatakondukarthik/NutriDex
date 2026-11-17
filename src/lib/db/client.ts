@@ -531,6 +531,18 @@ function seedRetentionFactors(database: DatabaseSync): void {
 }
 
 /**
+ * Reconcile the shipped retention factors after a user override is removed.
+ *
+ * A user override suppresses the fixture row for the same operation/nutrient
+ * at boot. Deleting the override would otherwise leave no factor at all until
+ * the next restart, which would silently change recipe results. The data purge
+ * calls this after its transaction commits; boot calls the same seeder.
+ */
+export function reseedRetentionFactors(): void {
+  seedRetentionFactors(db);
+}
+
+/**
  * The only identifiers `migrate()` may splice into DDL.
  *
  * `addColumn` interpolates `table` and `column` into `PRAGMA table_info`

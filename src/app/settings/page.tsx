@@ -3,8 +3,10 @@ import { ThemeSettingsPanel } from "@/components/theme-settings";
 import { AiSettingsPanel } from "@/components/ai-settings";
 import { AiInstructionsPanel } from "@/components/ai-instructions-panel";
 import { DataPortabilityPanel } from "@/components/data-portability";
+import { DataDeletionPanel } from "@/components/data-deletion";
 import { TargetSettingsPanel } from "@/components/target-settings";
 import { getMasterPrompt, getTargetRules } from "@/lib/db/settings";
+import { getPurgePreview } from "@/lib/db/purge";
 import { getProfile } from "@/lib/db/profile";
 import { targetsFor } from "@/lib/targets";
 import { aiStatus } from "@/lib/ai/client";
@@ -41,6 +43,9 @@ export default function SettingsPage() {
       </div>
       <div className="mt-6">
         <DataPortabilityPanel />
+      </div>
+      <div className="mt-6">
+        <DataDeletionPanel initialPreview={getPurgePreview()} />
       </div>
     </main>
   );

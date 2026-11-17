@@ -241,6 +241,28 @@ Verify:  Confirm the host volume is encrypted.
 Notes:   `node:sqlite` cannot use SQLCipher. App-level encryption would add
          a key-recovery problem for a single-user local app.
 
+### SEC-DAT-06 — Deletion is scoped and cannot dangle references
+Status:  verified
+Track:   DAT
+Threat:  A bulk-delete control either leaves rows that render as "unknown
+         food", cascades into data the user did not select, or lets a
+         crafted request delete arbitrary tables.
+Control: The caller sends category ids, never table names; unknown or empty
+         selections reject the whole request. The preview counts what
+         exists and names dependants, and the purge re-checks the same
+         references inside `BEGIN IMMEDIATE`. A referenced parent is
+         refused, not cascaded or archived. Seed foods, seed retention
+         factors, `meta`, non-importable settings and AI keys are outside
+         every category; deleting preferences restores shipped retention
+         factors immediately. Evidence files are removed after commit,
+         confined to `data/evidence`, and failures are reported as warnings.
+Where:   `src/lib/db/purge.ts`, `src/app/actions.ts` (`purgeDataAction`),
+         `src/components/data-deletion.tsx`
+Verify:  `tests/purge.test.ts` (counts, selective delete, blockers and
+         rollback, select-all survival, reseed, invalid input, traversal);
+         `tests/components/data-deletion.test.tsx` (selection, blocker,
+         acknowledgement, refusal, warnings).
+
 ### SEC-INP-01 — Server-action inputs are bounded
 Status:  verified
 Track:   INP
