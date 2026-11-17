@@ -9,6 +9,7 @@ import {
   removeEntryAction,
 } from "@/app/actions";
 import { NutrientBar } from "@/components/nutrient-bar";
+import { FirstRunGuide } from "@/components/first-run";
 import type { Entry } from "@/lib/db/entries";
 import { dayRollup } from "@/lib/day";
 import { searchFoods } from "@/lib/nutrition/food-search";
@@ -47,9 +48,20 @@ export interface DiaryProps {
   day: string;
   planned: PlannedItem[];
   plannedKcal: number;
+  /** Shows the first-run card when the profile has not been set. */
+  profileIsDefault?: boolean;
 }
 
-export function Diary({ foods, entries, targets, day, planned, plannedKcal, recipes }: DiaryProps) {
+export function Diary({
+  foods,
+  entries,
+  targets,
+  day,
+  planned,
+  plannedKcal,
+  recipes,
+  profileIsDefault = false,
+}: DiaryProps) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<"foods" | "recipes">("foods");
@@ -271,6 +283,12 @@ export function Diary({ foods, entries, targets, day, planned, plannedKcal, reci
             nutrient
           </p>
         </div>
+
+        <FirstRunGuide
+          profileIsDefault={profileIsDefault}
+          hasEntries={entries.length > 0}
+          hasPlanned={planned.length > 0}
+        />
 
         {planned.length > 0 && (
           <section className="mb-4 grid gap-3 sm:grid-cols-[1fr_1fr] rounded-2xl border border-line bg-surface p-4 shadow-card">

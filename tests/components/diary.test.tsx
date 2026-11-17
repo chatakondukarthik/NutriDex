@@ -204,3 +204,37 @@ describe("diary: merged logged list", () => {
     expect(screen.getByText("Deleted recipe")).toBeInTheDocument();
   });
 });
+
+describe("diary: first-run guidance", () => {
+  it("shows the three steps while the profile is still the default", () => {
+    setup({ profileIsDefault: true });
+
+    expect(screen.getByRole("heading", { name: "Start here" })).toBeInTheDocument();
+    expect(screen.getByText("Set your profile")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Set your numbers" })).toHaveAttribute(
+      "href",
+      "/profile",
+    );
+  });
+
+  it("marks steps that are already done and drops their action", () => {
+    setup({ profileIsDefault: false, entries: [FOOD_ENTRY] });
+
+    expect(screen.getByRole("heading", { name: "Start here" })).toBeInTheDocument();
+    // Profile and diary are done; only the plan step still offers a link.
+    expect(screen.queryByRole("link", { name: "Set your numbers" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Find a food" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open the plan" })).toHaveAttribute("href", "/plan");
+  });
+
+  it("disappears once the profile is set and there is a plan", () => {
+    setup({
+      profileIsDefault: false,
+      entries: [FOOD_ENTRY],
+      planned: [{ id: "p1", slot: "Lunch", name: "Dal", qty: "1 bowl", kcal: 210 }],
+      plannedKcal: 210,
+    });
+
+    expect(screen.queryByRole("heading", { name: "Start here" })).not.toBeInTheDocument();
+  });
+});

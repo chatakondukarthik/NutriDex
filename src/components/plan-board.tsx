@@ -44,6 +44,7 @@ import {
   type GuidanceRole,
   type Target,
 } from "@/lib/targets";
+import { FirstRunGuide } from "@/components/first-run";
 
 interface PlanBoardProps {
   week: string;
@@ -53,6 +54,8 @@ interface PlanBoardProps {
   entries: PlanEntry[];
   targets: Target[];
   profileIsDefault: boolean;
+  /** Whether the diary has any logged entry; used by the first-run card. */
+  hasDiaryEntries?: boolean;
 }
 
 /**
@@ -97,6 +100,7 @@ export function PlanBoard({
   entries: initialEntries,
   targets,
   profileIsDefault,
+  hasDiaryEntries = false,
 }: PlanBoardProps) {
   const [entries, setEntries] = useState<PlanEntry[]>(initialEntries);
   const router = useRouter();
@@ -775,15 +779,11 @@ export function PlanBoard({
           </div>
         </div>
 
-        {profileIsDefault && (
-          <p className="mb-3 rounded-xl border border-warn-line bg-warn-soft px-3 py-2 text-[11px] text-warn-ink">
-            Targets use the default profile (a 30-year-old woman, moderate activity).{" "}
-            <Link href="/profile" className="font-medium underline underline-offset-2">
-              Set your own numbers
-            </Link>
-            .
-          </p>
-        )}
+        <FirstRunGuide
+          profileIsDefault={profileIsDefault}
+          hasEntries={hasDiaryEntries}
+          hasPlanned={entries.length > 0}
+        />
 
         {error && (
           <p className="mb-3 rounded-xl border border-danger-line bg-danger-soft px-3 py-2 text-[11px] text-danger-ink">
