@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { addEntry, removeEntry, today } from "@/lib/db/entries";
+import { transaction } from "@/lib/db/client";
 import {
   addPlanEntry,
   listPlanEntries,
@@ -42,6 +43,36 @@ function fail(fallback: string, error: unknown, context: string): { ok: false; m
 
 /** Servings are counts, not weights — bound them like the plan path bounds grams. */
 const MAX_SERVINGS = 1000;
+
+/**
+ * The host a key is bound to.
+ *
+ * Only a caller-supplied `baseUrl` needs this: fixed provider endpoints use
+ * `getKey`. Returning `null` leaves the key unbound, which is correct for a
+ * fixed endpoint and fail-closed for a custom one (the key will not be sent).
+ */
+function hostFromUrl(raw: string | undefined | null): string | null {
+  const value = String(raw ?? "").trim();
+  if (!value) return null;
+  try {
+    return new URL(value).host.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * In-process throttle for actions that spend upstream quota or hold a socket.
+ *
+ * The daily AI cap is the primary cost brake; this stops a rapid loop from
+ * draining it in one second. Separate buckets per action so a burst of
+ * planning does not lock the user out of a connection test.
+ */
+async function aiThrottle(bucket: string, limit = 20, windowMs = 60_000): Promise<string | null> {
+  const { rateLimit } = await import("@/lib/security/rate-limit");
+  const budget = rateLimit(`ai:${bucket}`, limit, windowMs);
+  return budget.ok ? null : `Too many requests — try again in ${budget.retryAfter}s.`;
+}
 
 /**
  * Add a food to today's list.
@@ -300,7 +331,16 @@ export async function updatePlanEntryQuantityAction(
       if (patch.amount != null && !(Number.isFinite(patch.amount) && patch.amount > 0)) {
         return { ok: false, message: "Amount must be a positive number." };
       }
-      updatePlanEntryQuantity(id, { grams, amount: patch.amount ?? null, unit: patch.unit ?? null });
+      // The unit is display metadata, but it is still client input. Accept
+      // only a known unit or `portion:<label>`; a 1 MB string here would be
+      // stored and re-rendered on every plan read.
+      const unit = patch.unit ?? null;
+      if (unit != null) {
+        if (unit.length > 64 || !UNITS.some((u) => u.value === parseUnitKey(unit).unit)) {
+          return { ok: false, message: "Unsupported unit." };
+        }
+      }
+      updatePlanEntryQuantity(id, { grams, amount: patch.amount ?? null, unit });
     } else {
       const servings = Number(patch.servings);
       if (!Number.isFinite(servings) || servings <= 0) {
@@ -593,13 +633,13 @@ export async function saveAiConfigAction(input: {
       model,
       baseUrl: input.baseUrl?.trim() || undefined,
       fallbackProvider: (fallbackProvider || undefined) as any,
-      fallbackModel: input.fallbackModel?.trim() || undefined,
+      fallbackModel: input.fallbackModel?.trim().slice(0, 200) || undefined,
       fallbackBaseUrl: input.fallbackBaseUrl?.trim() || undefined,
       imageProvider: (imageProvider || undefined) as any,
-      imageModel: input.imageModel?.trim() || undefined,
+      imageModel: input.imageModel?.trim().slice(0, 200) || undefined,
       imageBaseUrl: input.imageBaseUrl?.trim() || undefined,
       imageFallbackProvider: (imageFallbackProvider || undefined) as any,
-      imageFallbackModel: input.imageFallbackModel?.trim() || undefined,
+      imageFallbackModel: input.imageFallbackModel?.trim().slice(0, 200) || undefined,
       imageFallbackBaseUrl: input.imageFallbackBaseUrl?.trim() || undefined,
       // Absent means "use the default"; an out-of-range number is clamped
       // again at read time, so a stale file cannot disable the brake.
@@ -607,7 +647,10 @@ export async function saveAiConfigAction(input: {
         input.dailyCallCap === undefined ? undefined : clampDailyCap(input.dailyCallCap),
     };
     if (input.key && input.key.trim()) {
-      setKey(provider, input.key.trim());
+      // Bind the key to the endpoint it was entered for. A later change to
+      // `baseUrl` then fails closed instead of posting the key to the new
+      // host (see `secrets.ts`).
+      setKey(provider, input.key.trim(), hostFromUrl(input.baseUrl));
     }
     writeAiConfig(config as any);
     revalidatePath("/settings");
@@ -627,11 +670,16 @@ export async function removeAiKeyAction(provider: string): Promise<AiConfigResul
   }
 }
 
-export async function setAiKeyAction(provider: string, key: string): Promise<AiConfigResult> {
+export async function setAiKeyAction(
+  provider: string,
+  key: string,
+  baseUrl?: string,
+): Promise<AiConfigResult> {
   try {
     // setKey throws when the key comes from the environment instead of the
-    // file — that used to escape as an unhandled 500.
-    setKey(provider, String(key ?? "").trim());
+    // file — that used to escape as an unhandled 500. `baseUrl` binds the
+    // key to the endpoint it was entered for (fallback/image roles).
+    setKey(provider, String(key ?? "").trim(), hostFromUrl(baseUrl));
     revalidatePath("/settings");
     return { ok: true };
   } catch (error) {
@@ -652,6 +700,8 @@ export async function setAiKeyAction(provider: string, key: string): Promise<AiC
  */
 export async function testAiConnectionAction(): Promise<AiConfigResult & { latencyMs?: number }> {
   try {
+    const limited = await aiThrottle("test", 10);
+    if (limited) return { ok: false, message: limited };
     const config = getAiConfig();
     if (!hasKey(config.provider)) return { ok: false, message: "No key configured." };
     const adapter = getAdapter(config.provider);
@@ -679,6 +729,8 @@ export async function testProviderAction(input: {
   baseUrl?: string;
 }): Promise<AiConfigResult & { latencyMs?: number }> {
   try {
+    const limited = await aiThrottle("test", 10);
+    if (limited) return { ok: false, message: limited };
     const secrets = await import("@/lib/ai/secrets");
     const adapters = await import("@/lib/ai/adapters");
     const { withAiBudget } = await import("@/lib/ai/client");
@@ -723,6 +775,8 @@ export async function testProviderAction(input: {
 
 export async function listAiModelsAction(): Promise<{ ok: boolean; models?: { id: string; label: string }[]; message?: string }> {
   try {
+    const limited = await aiThrottle("models", 10);
+    if (limited) return { ok: false, message: limited };
     const config = getAiConfig();
     if (!hasKey(config.provider)) return { ok: false, message: "No key configured." };
     const adapter = getAdapter(config.provider);
@@ -744,6 +798,44 @@ const MAX_TOTAL_IMAGE_BYTES = 12 * 1024 * 1024;
 /** Free text that becomes prompt tokens: cap it before it becomes spend. */
 const MAX_PROMPT_CHARS = 8_000;
 
+/** The image types every supported vision provider accepts. */
+const ALLOWED_IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "image/heic",
+  "image/heif",
+]);
+
+/**
+ * Identify an image from its leading bytes.
+ *
+ * A declared `mimeType` is client input; a `.exe` labelled `image/png` would
+ * otherwise be base64-posted to the provider and stored in an error path.
+ * Sniffing the header is cheap and makes the declared type a claim we check.
+ */
+function sniffImageType(base64: string): string | null {
+  let head: Buffer;
+  try {
+    head = Buffer.from(base64.slice(0, 32), "base64");
+  } catch {
+    return null;
+  }
+  if (head.length < 12) return null;
+  if (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return "image/jpeg";
+  if (head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47) return "image/png";
+  if (head.toString("ascii", 0, 3) === "GIF") return "image/gif";
+  if (head.toString("ascii", 0, 4) === "RIFF" && head.toString("ascii", 8, 12) === "WEBP") {
+    return "image/webp";
+  }
+  if (head.toString("ascii", 4, 8) === "ftyp") {
+    const brand = head.toString("ascii", 8, 12);
+    if (["heic", "heix", "hevc", "hevx", "mif1", "msf1"].includes(brand)) return "image/heic";
+  }
+  return null;
+}
+
 export async function extractFoodAction(input: {
   mode: "text" | "image";
   text?: string;
@@ -755,6 +847,8 @@ export async function extractFoodAction(input: {
     return { ok: false, message: "AI is turned off in Settings." };
   }
   try {
+    const limited = await aiThrottle("extract", 20);
+    if (limited) return { ok: false, message: limited };
     if (input.mode === "image") {
       const images = input.images ?? [];
       if (images.length > MAX_IMAGES) {
@@ -762,13 +856,25 @@ export async function extractFoodAction(input: {
       }
       let total = 0;
       for (const image of images) {
-        const bytes = Math.floor((image?.data?.length ?? 0) * 0.75);
+        const data = String(image?.data ?? "");
+        const mime = String(image?.mimeType ?? "").toLowerCase();
+        const bytes = Math.floor((data.length * 0.75));
         total += bytes;
         if (bytes > MAX_IMAGE_BYTES) {
           return { ok: false, message: "One of those images is over 5 MB." };
         }
-        if (!/^[\w.+-]+\/[\w.+-]+$/.test(image?.mimeType ?? "")) {
+        if (!ALLOWED_IMAGE_TYPES.has(mime)) {
           return { ok: false, message: "That image type is not supported." };
+        }
+        if (!/^[A-Za-z0-9+/]*={0,2}$/.test(data)) {
+          return { ok: false, message: "That image is not valid base64." };
+        }
+        const sniffed = sniffImageType(data);
+        const matches =
+          sniffed === mime ||
+          (sniffed === "image/heic" && (mime === "image/heic" || mime === "image/heif"));
+        if (!matches) {
+          return { ok: false, message: "That file is not the image type it claims to be." };
         }
       }
       if (total > MAX_TOTAL_IMAGE_BYTES) {
@@ -820,29 +926,34 @@ export async function copyPlanDayAction(
     const targetPlan = getOrCreatePlan(targetWeek);
     const entries = listPlanEntries(sourcePlan.id).filter((e) => e.day === sourceDay);
 
-    let count = 0;
-    for (const entry of entries) {
-      if (entry.foodId) {
-        addPlanEntry({
-          planId: targetPlan.id,
-          day: targetDay,
-          slot: entry.slot,
-          foodId: entry.foodId,
-          grams: entry.grams ?? 0,
-          amount: entry.amount ?? undefined,
-          unit: entry.unit ?? undefined,
-        });
-      } else if (entry.recipeVersionId) {
-        addPlanEntry({
-          planId: targetPlan.id,
-          day: targetDay,
-          slot: entry.slot,
-          recipeVersionId: entry.recipeVersionId,
-          servings: entry.servings ?? 1,
-        });
+    // One transaction: a failure halfway through used to leave the target
+    // day with a partial copy, which looks like data loss to the user.
+    const count = transaction(() => {
+      let copied = 0;
+      for (const entry of entries) {
+        if (entry.foodId) {
+          addPlanEntry({
+            planId: targetPlan.id,
+            day: targetDay,
+            slot: entry.slot,
+            foodId: entry.foodId,
+            grams: entry.grams ?? 0,
+            amount: entry.amount ?? undefined,
+            unit: entry.unit ?? undefined,
+          });
+        } else if (entry.recipeVersionId) {
+          addPlanEntry({
+            planId: targetPlan.id,
+            day: targetDay,
+            slot: entry.slot,
+            recipeVersionId: entry.recipeVersionId,
+            servings: entry.servings ?? 1,
+          });
+        }
+        copied++;
       }
-      count++;
-    }
+      return copied;
+    });
 
     revalidatePath("/plan");
     revalidatePath("/");
@@ -871,32 +982,36 @@ export async function copyPlanWeekAction(
     const targetPlan = getOrCreatePlan(targetWeekStart);
     const sourceEntries = listPlanEntries(sourcePlan.id);
 
-    let count = 0;
-    for (const entry of sourceEntries) {
-      const dayIndex = sourceDays.indexOf(entry.day);
-      if (dayIndex < 0) continue;
-      const targetDay = targetDays[dayIndex];
-      if (entry.foodId) {
-        addPlanEntry({
-          planId: targetPlan.id,
-          day: targetDay,
-          slot: entry.slot,
-          foodId: entry.foodId,
-          grams: entry.grams ?? 0,
-          amount: entry.amount ?? undefined,
-          unit: entry.unit ?? undefined,
-        });
-      } else if (entry.recipeVersionId) {
-        addPlanEntry({
-          planId: targetPlan.id,
-          day: targetDay,
-          slot: entry.slot,
-          recipeVersionId: entry.recipeVersionId,
-          servings: entry.servings ?? 1,
-        });
+    // One transaction so a mid-week failure cannot leave a partial copy.
+    const count = transaction(() => {
+      let copied = 0;
+      for (const entry of sourceEntries) {
+        const dayIndex = sourceDays.indexOf(entry.day);
+        if (dayIndex < 0) continue;
+        const targetDay = targetDays[dayIndex];
+        if (entry.foodId) {
+          addPlanEntry({
+            planId: targetPlan.id,
+            day: targetDay,
+            slot: entry.slot,
+            foodId: entry.foodId,
+            grams: entry.grams ?? 0,
+            amount: entry.amount ?? undefined,
+            unit: entry.unit ?? undefined,
+          });
+        } else if (entry.recipeVersionId) {
+          addPlanEntry({
+            planId: targetPlan.id,
+            day: targetDay,
+            slot: entry.slot,
+            recipeVersionId: entry.recipeVersionId,
+            servings: entry.servings ?? 1,
+          });
+        }
+        copied++;
       }
-      count++;
-    }
+      return copied;
+    });
 
     revalidatePath("/plan");
     revalidatePath("/");
@@ -1119,12 +1234,28 @@ export async function saveGraphAction(input: {
     if (input.mode !== undefined && input.mode !== "new-version" && input.mode !== "replace-current") {
       return { ok: false, message: "Unknown save mode." };
     }
+    const name = typeof input.name === "string" ? input.name.trim() : "";
+    if (!name) return { ok: false, message: "Give the recipe a name." };
+    if (name.length > 200) return { ok: false, message: "That recipe name is too long." };
+    const versionLabel =
+      typeof input.versionLabel === "string" ? input.versionLabel.trim() : null;
+    if (versionLabel && versionLabel.length > 120) {
+      return { ok: false, message: "That version label is too long." };
+    }
+    const instructions = typeof input.instructions === "string" ? input.instructions : "";
+    if (instructions.length > 20_000) {
+      return { ok: false, message: "Those instructions are too long to save." };
+    }
+    const servings = Number(input.servings);
+    if (!Number.isFinite(servings) || servings <= 0 || servings > MAX_SERVINGS) {
+      return { ok: false, message: "Servings must be a positive number." };
+    }
     const result = saveGraphDraft({
       recipeId: input.recipeId ?? null,
-      name: typeof input.name === "string" ? input.name : "",
-      versionLabel: input.versionLabel ?? null,
-      instructions: typeof input.instructions === "string" ? input.instructions : "",
-      servings: input.servings,
+      name,
+      versionLabel,
+      instructions,
+      servings,
       layout: input.layout,
       graph: input.graph,
       mode: input.mode,
@@ -1150,6 +1281,8 @@ export async function estimateNodeDeltasAction(input: {
   const { isAiEnabled, getAiConfig } = await import("@/lib/ai/client");
   if (!isAiEnabled()) return { ok: false, message: "AI is turned off in Settings." };
   try {
+    const limited = await aiThrottle("estimate", 30);
+    if (limited) return { ok: false, message: limited };
     if (!Array.isArray(input?.inputs) || input.inputs.length > 60) {
       return { ok: false, message: "That step has too many ingredients to estimate." };
     }
@@ -1192,6 +1325,8 @@ export async function previewRecipeFromPromptAction(
     return { ok: false, message: "Keep the request under 8,000 characters." };
   }
   try {
+    const limited = await aiThrottle("plan", 10);
+    if (limited) return { ok: false, message: limited };
     let existing;
     if (input.recipeId) {
       const { getVersion } = await import("@/lib/db/recipes");
@@ -1230,6 +1365,8 @@ export async function createRecipeFromPlanAction(
   },
 ): Promise<{ ok: boolean; recipeId?: string; message?: string }> {
   try {
+    const limited = await aiThrottle("materialize", 10);
+    if (limited) return { ok: false, message: limited };
     // The plan arrives from the client here, fully attacker-controlled:
     // validate its shape (operations, weights, servings, step count)
     // before it can become a stored graph.
@@ -1370,6 +1507,9 @@ export async function estimateFoodNutrientsAction(
     return { ok: false, message: "No AI key configured. Add one in Settings." };
   }
 
+  const limited = await aiThrottle("estimate-food", 20);
+  if (limited) return { ok: false, message: limited };
+
   const food = getFood(foodId);
   if (!food) return { ok: false, message: "That food no longer exists." };
   if (!food.source) {
@@ -1454,6 +1594,8 @@ export async function estimateFoodsAction(input?: {
 
   const { fillAllWithAi } = await import("@/lib/ai/estimate-food");
   try {
+    const limited = await aiThrottle("estimate-batch", 5);
+    if (limited) return { ok: false, message: limited };
     const result = await fillAllWithAi({ masterPrompt: getMasterPrompt(), foodIds: input?.foodIds });
     const failedNames = result.failed.length;
     revalidatePath("/foods");

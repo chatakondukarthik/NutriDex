@@ -2,18 +2,29 @@
  * Generic CSV importer.
  *
  * Reads a CSV (with header row) and yields rows as objects keyed by header.
- * Handles quoted fields and commas inside quotes. Not a full RFC 4180 parser
- * but good enough for food composition tables.
+ * Implements the parts of RFC 4180 that matter for food composition tables:
+ * quoted fields, escaped quotes (`""`), and newlines inside a quoted field.
+ *
+ * The previous version split on newlines first, so a quoted field containing
+ * a line break became two broken rows, and it had no row cap — a 20 MB paste
+ * could allocate millions of objects before the importer ever ran.
  */
-export function parseCsv(text: string): { headers: string[]; rows: Record<string, string>[] } {
-  const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
-  const nonEmpty = lines.filter((line) => line.trim() !== "");
-  if (nonEmpty.length === 0) return { headers: [], rows: [] };
 
-  const headers = splitCsvLine(nonEmpty[0]);
+/** Far above a real food table, low enough to bound memory. */
+const MAX_CSV_ROWS = 50_000;
+
+export function parseCsv(text: string): { headers: string[]; rows: Record<string, string>[] } {
+  const records = parseRecords(text);
+  if (records.length === 0) return { headers: [], rows: [] };
+
+  const headers = records[0].map((h) => h.trim());
+  if (records.length - 1 > MAX_CSV_ROWS) {
+    throw new Error(`That CSV has more than ${MAX_CSV_ROWS} rows — import it in smaller batches.`);
+  }
+
   const rows: Record<string, string>[] = [];
-  for (let i = 1; i < nonEmpty.length; i++) {
-    const values = splitCsvLine(nonEmpty[i]);
+  for (let i = 1; i < records.length; i++) {
+    const values = records[i];
     // Headers come from the file, so keys like "__proto__" or
     // "constructor" are attacker-controlled: a null-prototype row has no
     // inherited properties to shadow or pollute.
@@ -26,34 +37,69 @@ export function parseCsv(text: string): { headers: string[]; rows: Record<string
   return { headers, rows };
 }
 
-function splitCsvLine(line: string): string[] {
-  const result: string[] = [];
-  let current = "";
+/**
+ * Split the whole document into records.
+ *
+ * A record ends at an unquoted newline. `\r\n` and a bare `\r` both count.
+ * Blank lines are skipped. Empty records from a trailing newline are
+ * dropped so a normal file does not gain a phantom row.
+ */
+function parseRecords(text: string): string[][] {
+  const records: string[][] = [];
+  let record: string[] = [];
+  let field = "";
   let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
+  let fieldStarted = false;
+
+  const pushField = () => {
+    record.push(field);
+    field = "";
+    fieldStarted = false;
+  };
+
+  const pushRecord = () => {
+    pushField();
+    // Ignore a blank line (a single empty field, never quoted).
+    if (!(record.length === 1 && record[0] === "")) records.push(record);
+    record = [];
+  };
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+
     if (inQuotes) {
       if (ch === '"') {
-        if (line[i + 1] === '"') {
-          current += '"';
+        if (text[i + 1] === '"') {
+          field += '"';
           i++;
         } else {
           inQuotes = false;
         }
       } else {
-        current += ch;
+        field += ch;
       }
+      continue;
+    }
+
+    if (ch === '"') {
+      inQuotes = true;
+      fieldStarted = true;
+    } else if (ch === ",") {
+      pushField();
+    } else if (ch === "\n") {
+      pushRecord();
+    } else if (ch === "\r") {
+      // Consume the `\n` of a `\r\n` pair in the same record break.
+      if (text[i + 1] === "\n") i++;
+      pushRecord();
     } else {
-      if (ch === '"') {
-        inQuotes = true;
-      } else if (ch === ",") {
-        result.push(current);
-        current = "";
-      } else {
-        current += ch;
-      }
+      field += ch;
+      fieldStarted = true;
     }
   }
-  result.push(current);
-  return result;
+
+  // A file that does not end in a newline still has one final record.
+  if (fieldStarted || field !== "" || record.length > 0) pushRecord();
+
+  return records;
 }

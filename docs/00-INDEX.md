@@ -38,6 +38,16 @@ means writing a new record that supersedes it.
 
 Reference docs are updated in the same commit as the code they describe.
 
+## Security — local-first
+
+| Document | Question it answers |
+|---|---|
+| [`security/THREAT-MODEL.md`](security/THREAT-MODEL.md) | What are we protecting, from whom, and where are the boundaries? |
+| [`security/TRACKER.md`](security/TRACKER.md) | Which controls exist, which are gaps, and how is each verified? |
+| [`security/ASVS-MAPPING.md`](security/ASVS-MAPPING.md) | How does the app map to ASVS L1 (+ L2 for V3/V5/V11/V13/V14/V15)? |
+| [`security/RESIDUAL-RISKS.md`](security/RESIDUAL-RISKS.md) | What is deliberately accepted, and when does it expire? |
+| [`security/RUNBOOK.md`](security/RUNBOOK.md) | What do I do when a key leaks, the gate locks me out, or I need a backup? |
+
 ## Research — what we do not know yet
 
 | Document | Question it answers |

@@ -68,4 +68,19 @@ describe("estimateNodeDeltas", () => {
   it("parseEstimate throws when the model returns no JSON", () => {
     expect(() => estimate.parseEstimate("nope")).toThrow(/did not return JSON/);
   });
+
+  it("clamps hallucinated factors and truncates free text", () => {
+    const parsed = estimate.parseEstimate(
+      JSON.stringify({
+        factors: [
+          { nutrient: "VITC", factor: 1e9, reason: "r".repeat(2_000), confidence: "high" },
+          { nutrient: "NA", factor: -5, reason: "negative", confidence: "low" },
+        ],
+        notes: "n".repeat(5_000),
+      }),
+    );
+    expect(parsed.factors.map((f) => f.factor)).toEqual([2, 0]);
+    expect(parsed.factors[0].reason).toHaveLength(500);
+    expect(parsed.notes).toHaveLength(2_000);
+  });
 });

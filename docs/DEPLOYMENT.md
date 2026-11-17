@@ -26,22 +26,28 @@ The request gate in `src/proxy.ts` is a **safety net, not a login system**:
 | Mode | Who gets in | Use for |
 |---|---|---|
 | `local` (default) | requests whose `Host` is loopback | local development |
-| `hosts` | loopback + `NUTRIPLAN_ALLOWED_HOSTS` | a reverse proxy that preserves the public `Host` |
-| `token` | loopback + a matching `nutriplan_token` | a private share link, or a proxy that cannot preserve `Host` |
+| `hosts` | only hosts in `NUTRIPLAN_ALLOWED_HOSTS`; loopback is not implicitly trusted | a reverse proxy that preserves the public `Host` |
+| `token` | only a matching `nutriplan_token` header or cookie (never a query string) | a private share link, or a proxy that cannot preserve `Host` |
 | `off` | everyone | only when the network or proxy is the boundary |
 
 Things the gate does **not** do:
 
 - It does not verify identity. A caller who forges `Host: localhost` passes
   `local` mode. `Host` is a header the client controls.
-- It does not see through a proxy that rewrites `Host` to a loopback
-  upstream: every request then looks local, which bypasses `hosts` and
-  `token` modes. Preserve the public `Host`, or trust an overwritten
-  `X-Forwarded-Host` (below).
 - It does not replace TLS, proxy auth, a VPN or a firewall.
 - `NUTRIPLAN_TRUST_PROXY=1` makes it believe `X-Forwarded-Host`. Only set that
   when a proxy you control **overwrites** the header. Left unset, forwarded
   headers are ignored precisely so a caller cannot claim to be loopback.
+
+Three failure modes the earlier version had are now closed:
+
+- Loopback is trusted **only** in `local` mode. In `hosts` and `token` mode a
+  loopback `Host` is a claim, not a fact, so a proxy that rewrites `Host` to
+  its `127.0.0.1:3000` upstream cannot turn the gate into a no-op.
+- `0.0.0.0` is no longer treated as loopback. It is a bind address, never a
+  destination a browser or proxy addresses.
+- The token is accepted only from a header or cookie. The query-string form
+  leaked into browser history, referrers and access logs.
 
 **A public deployment should therefore have at least one real boundary in
 front of it**: TLS plus proxy-level auth (basic auth, OIDC, mTLS), a VPN, or

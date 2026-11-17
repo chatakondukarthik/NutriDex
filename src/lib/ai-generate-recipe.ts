@@ -78,9 +78,15 @@ const OPERATIONS = new Set([
 
 const MAX_PLAN_STEPS = 30;
 const MAX_PLAN_INPUTS = 60;
+/** Across the whole plan: each unique name can cost a USDA search. */
+const MAX_UNIQUE_INGREDIENTS = 60;
 /** Mirrors the recipe validator's servings ceiling. */
 const MAX_PLAN_SERVINGS = 100;
 const MAX_GRAMS_PER_INPUT = 100_000;
+const MAX_PLAN_NAME = 200;
+const MAX_STEP_NAME = 120;
+const MAX_FOOD_NAME = 200;
+const MAX_PLAN_INSTRUCTIONS = 20_000;
 
 export function validateRecipePlan(
   raw: unknown,
@@ -93,12 +99,18 @@ export function validateRecipePlan(
   if (typeof plan.name !== "string" || !plan.name.trim()) {
     return { ok: false, message: "The plan needs a recipe name." };
   }
+  if (plan.name.length > MAX_PLAN_NAME) {
+    return { ok: false, message: "That recipe name is too long." };
+  }
   const servings = Number(plan.servings);
   if (!Number.isFinite(servings) || servings <= 0 || servings > MAX_PLAN_SERVINGS) {
     return { ok: false, message: `Servings must be between 1 and ${MAX_PLAN_SERVINGS}.` };
   }
   if (plan.instructions !== undefined && typeof plan.instructions !== "string") {
     return { ok: false, message: "The plan's instructions were malformed." };
+  }
+  if (typeof plan.instructions === "string" && plan.instructions.length > MAX_PLAN_INSTRUCTIONS) {
+    return { ok: false, message: "The plan's instructions are too long." };
   }
   if (!Array.isArray(plan.steps) || plan.steps.length === 0) {
     return { ok: false, message: "The plan did not contain any steps." };
@@ -107,12 +119,17 @@ export function validateRecipePlan(
     return { ok: false, message: `That plan has too many steps (limit ${MAX_PLAN_STEPS}).` };
   }
 
+  const uniqueIngredients = new Set<string>();
+
   for (const [index, step] of plan.steps.entries()) {
     if (!step || typeof step !== "object") {
       return { ok: false, message: `Step ${index + 1} was malformed.` };
     }
     if (typeof step.name !== "string" || !step.name.trim()) {
       return { ok: false, message: `Step ${index + 1} needs a name.` };
+    }
+    if (step.name.length > MAX_STEP_NAME) {
+      return { ok: false, message: `Step ${index + 1} has too long a name.` };
     }
     if (typeof step.operation !== "string" || !OPERATIONS.has(step.operation)) {
       return { ok: false, message: `Step ${index + 1} uses an unknown operation.` };
@@ -127,6 +144,10 @@ export function validateRecipePlan(
       if (typeof input.foodName !== "string" || !input.foodName.trim()) {
         return { ok: false, message: `An ingredient in step ${index + 1} has no name.` };
       }
+      if (input.foodName.length > MAX_FOOD_NAME) {
+        return { ok: false, message: `An ingredient name in step ${index + 1} is too long.` };
+      }
+      uniqueIngredients.add(input.foodName.trim().toLowerCase());
       const grams = Number(input.grams);
       if (!Number.isFinite(grams) || grams <= 0 || grams > MAX_GRAMS_PER_INPUT) {
         return {
@@ -148,6 +169,13 @@ export function validateRecipePlan(
         (d): d is number => Number.isInteger(d) && d >= 0 && d < index,
       );
     }
+  }
+
+  if (uniqueIngredients.size > MAX_UNIQUE_INGREDIENTS) {
+    return {
+      ok: false,
+      message: `That plan has too many different ingredients (limit ${MAX_UNIQUE_INGREDIENTS}).`,
+    };
   }
 
   return {

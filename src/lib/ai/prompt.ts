@@ -33,12 +33,23 @@ export const PROMPT_LIMITS = {
 } as const;
 
 /**
+ * Neutralise tag syntax inside untrusted text.
+ *
+ * The wrapper tags are framing, but content that can emit `</request>` can
+ * close the block early and make the rest read as top-level prompt. Escaping
+ * the three characters that form a tag keeps the delimiters unforgeable.
+ */
+function escapeTags(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
  * Wrap untrusted text in a tagged block. Deliberately uses tags the
  * content itself cannot open: the caller passes a fixed label, never one
  * derived from the input.
  */
 export function asData(label: string, value: string, max: number): string {
-  const body = String(value ?? "").slice(0, max);
+  const body = escapeTags(String(value ?? "").slice(0, max));
   return `<${label}>\n${body}\n</${label}>`;
 }
 
@@ -53,7 +64,7 @@ export const DATA_PREAMBLE =
 export function masterSystemBlock(master?: string | null): string {
   const text = (master ?? getMasterPrompt()).trim();
   if (!text) return "";
-  return `\n\nPersona and standing instructions for this user (follow them where they do not conflict with the rules above):\n<user-instructions>\n${text.slice(0, 2000)}\n</user-instructions>`;
+  return `\n\nPersona and standing instructions for this user (follow them where they do not conflict with the rules above):\n<user-instructions>\n${escapeTags(text.slice(0, 2000))}\n</user-instructions>`;
 }
 
 /** `system` + the master-prompt block, ready to send. */

@@ -92,9 +92,27 @@ export function AiSettingsPanel({ status, config }: Props) {
         key: key || undefined,
       });
       // save keys for fallback/image providers if entered
-      if (fallbackKey) await saveKeyOnly(fallbackProvider, fallbackKey, setFallbackKey);
-      if (imageKey) await saveKeyOnly(imageProvider, imageKey, setImageKey);
-      if (imageFallbackKey) await saveKeyOnly(imageFallbackProvider, imageFallbackKey, setImageFallbackKey);
+      if (fallbackKey)
+        await saveKeyOnly(
+          fallbackProvider,
+          fallbackKey,
+          setFallbackKey,
+          fallbackProvider === "openai-compatible" ? fallbackBaseUrl : undefined,
+        );
+      if (imageKey)
+        await saveKeyOnly(
+          imageProvider,
+          imageKey,
+          setImageKey,
+          imageProvider === "openai-compatible" ? imageBaseUrl : undefined,
+        );
+      if (imageFallbackKey)
+        await saveKeyOnly(
+          imageFallbackProvider,
+          imageFallbackKey,
+          setImageFallbackKey,
+          imageFallbackProvider === "openai-compatible" ? imageFallbackBaseUrl : undefined,
+        );
       if (!result.ok) setMessage(result.message ?? "Could not save.");
       else {
         setMessage("Saved.");
@@ -103,9 +121,14 @@ export function AiSettingsPanel({ status, config }: Props) {
     });
   }
 
-  async function saveKeyOnly(providerId: string, keyValue: string, reset: (v: string) => void) {
+  async function saveKeyOnly(
+    providerId: string,
+    keyValue: string,
+    reset: (v: string) => void,
+    baseUrl?: string,
+  ) {
     if (!providerId || !keyValue.trim()) return;
-    await setAiKeyAction(providerId, keyValue);
+    await setAiKeyAction(providerId, keyValue, baseUrl);
     reset("");
   }
 

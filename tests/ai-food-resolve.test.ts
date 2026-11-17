@@ -112,6 +112,69 @@ describe("planUniqueFoodNames", () => {
     const p = plan(["Paneer", "paneer", "Onion", " PANEER ", "onion"]);
     expect(planUniqueFoodNames(p)).toEqual(["Paneer", "Onion"]);
   });
+
+  it("stops at 60 unique names so USDA fan-out is bounded", () => {
+    const p = plan(Array.from({ length: 70 }, (_, i) => `food ${i}`));
+    expect(planUniqueFoodNames(p)).toHaveLength(60);
+  });
+});
+
+describe("validateRecipePlan caps", () => {
+  async function validate(raw: unknown) {
+    const { validateRecipePlan } = await import("@/lib/ai-generate-recipe");
+    return validateRecipePlan(raw);
+  }
+
+  const validPlan = {
+    name: "Test dish",
+    servings: 2,
+    instructions: "",
+    steps: [
+      {
+        name: "Mix",
+        operation: "mix",
+        inputs: [
+          { foodName: "Paneer", grams: 100 },
+          { foodName: "Onion", grams: 50 },
+        ],
+      },
+    ],
+  };
+
+  it("rejects a plan with more than 60 unique ingredients", async () => {
+    const tooMany = {
+      ...validPlan,
+      steps: [
+        {
+          name: "Mix",
+          operation: "mix",
+          inputs: Array.from({ length: 61 }, (_, i) => ({ foodName: `food ${i}`, grams: 100 })),
+        },
+      ],
+    };
+    expect((await validate(tooMany)).ok).toBe(false);
+  });
+
+  it("rejects an oversized ingredient name and instructions", async () => {
+    const longName = {
+      ...validPlan,
+      steps: [
+        {
+          name: "Mix",
+          operation: "mix",
+          inputs: [{ foodName: "x".repeat(201), grams: 1 }],
+        },
+      ],
+    };
+    expect((await validate(longName)).ok).toBe(false);
+
+    const longInstructions = { ...validPlan, instructions: "x".repeat(20_001) };
+    expect((await validate(longInstructions)).ok).toBe(false);
+  });
+
+  it("accepts a normal plan", async () => {
+    expect((await validate(validPlan)).ok).toBe(true);
+  });
 });
 
 describe("resolvePlanFoods (persist: false — preview)", () => {

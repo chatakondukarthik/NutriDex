@@ -135,16 +135,19 @@ export function parseEstimate(raw: string): NodeEstimate {
       const nutrient = String((f as any).nutrient);
       if (!(NUTRIENT_CODES as readonly string[]).includes(nutrient)) continue;
       const factor = Number((f as any).factor);
-      if (!Number.isFinite(factor) || factor < 0) continue;
+      if (!Number.isFinite(factor)) continue;
+      // The model can return any number. A factor is a retention/change
+      // multiplier: 0 (destroyed) to 2 (doubled) is the plausible range, and
+      // clamping keeps a hallucinated 1e9 from producing an absurd total.
       factors.push({
         nutrient: nutrient as NutrientCode,
-        factor,
-        reason: String((f as any).reason ?? ""),
+        factor: Math.min(2, Math.max(0, factor)),
+        reason: String((f as any).reason ?? "").slice(0, 500),
         confidence: ["low", "medium", "high"].includes(String((f as any).confidence))
           ? ((f as any).confidence as "low" | "medium" | "high")
           : "low",
       });
     }
   }
-  return { factors, notes: typeof obj.notes === "string" ? obj.notes : "" };
+  return { factors, notes: typeof obj.notes === "string" ? obj.notes.slice(0, 2_000) : "" };
 }

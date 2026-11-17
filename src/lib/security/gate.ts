@@ -8,14 +8,20 @@
  * Threat model, stated once: this app has no authentication by design (one
  * implicit local user). The gate is not an auth system. It is a fail-closed
  * default so that "start the dev server" does not publish every recipe,
- * food and the stored AI key to the LAN. Deployment is expected to put the
- * app behind a reverse proxy and choose an explicit mode.
+ * food and the stored AI key to the LAN, and so a proxy that rewrites `Host`
+ * to its loopback upstream cannot make the gate decorative.
  */
 
 export type GateMode = "local" | "token" | "hosts" | "off";
 
-/** Hosts that mean "this machine". `0.0.0.0` is the bind-address form. */
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0", "ip6-localhost"]);
+/**
+ * Hosts that mean "this machine".
+ *
+ * `0.0.0.0` is deliberately absent: it is a *bind address*, never a
+ * destination a browser or a proxy addresses. Treating it as loopback let a
+ * caller send `Host: 0.0.0.0` and be trusted.
+ */
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "ip6-localhost"]);
 
 /**
  * The hostname a request was addressed to, without its port.
@@ -139,9 +145,13 @@ export interface GateDecision {
  * The decision itself.
  *
  * `effectiveHost` prefers `X-Forwarded-Host` only under `trustProxy`.
- * Otherwise `Host` is authoritative — a forged `Host: localhost` is still
- * possible (it is a header), which is exactly why this is documented as a
- * convenience gate and not authentication.
+ * Otherwise `Host` is authoritative.
+ *
+ * A loopback `Host` is only trusted in `local` mode. In `hosts` and `token`
+ * mode it is a *claim*, not a fact: a reverse proxy that forwards its
+ * upstream (`127.0.0.1:3000`) would otherwise turn the gate into a no-op for
+ * every request on the internet. That is the failure mode this function used
+ * to have.
  */
 export function decideGate(input: GateInput): GateDecision {
   if (input.mode === "off") return { allow: true, via: "off" };
@@ -149,7 +159,11 @@ export function decideGate(input: GateInput): GateDecision {
   const effectiveHost =
     input.trustProxy && input.forwardedHost ? input.forwardedHost : input.host;
 
-  if (isLoopbackHost(effectiveHost)) return { allow: true, via: "loopback" };
+  if (input.mode === "local") {
+    return isLoopbackHost(effectiveHost)
+      ? { allow: true, via: "loopback" }
+      : { allow: false, via: "blocked" };
+  }
 
   if (input.mode === "token") {
     return tokenMatches(input.providedToken, input.expectedToken)
@@ -157,14 +171,10 @@ export function decideGate(input: GateInput): GateDecision {
       : { allow: false, via: "blocked" };
   }
 
-  if (input.mode === "hosts") {
-    return hostMatches(effectiveHost ?? "", input.allowedHosts)
-      ? { allow: true, via: "host" }
-      : { allow: false, via: "blocked" };
-  }
-
-  // `local`: only the machine itself.
-  return { allow: false, via: "blocked" };
+  // `hosts`: the allowlist is the only way in, loopback included.
+  return hostMatches(effectiveHost ?? "", input.allowedHosts)
+    ? { allow: true, via: "host" }
+    : { allow: false, via: "blocked" };
 }
 
 export function trustProxyEnabled(env: Record<string, string | undefined> = process.env): boolean {

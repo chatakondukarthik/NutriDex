@@ -23,6 +23,9 @@ let weekStart: typeof import("@/lib/plan")["weekStart"];
 beforeAll(async () => {
   dir = mkdtempSync(path.join(tmpdir(), "nutriplan-actions-"));
   vi.stubEnv("NUTRIPLAN_DB_PATH", path.join(dir, "test.sqlite"));
+  // Keep AI config and secrets out of the repo's real `data/` directory so a
+  // developer's settings cannot change what these tests see.
+  vi.stubEnv("NUTRIPLAN_DATA_DIR", dir);
   actions = await import("@/app/actions");
   entries = await import("@/lib/db/entries");
   plan = await import("@/lib/db/plan");
@@ -301,5 +304,144 @@ describe("updatePlanEntryQuantityAction", () => {
     expect((await actions.updatePlanEntryQuantityAction(added.entry.id, { grams: 150 })).ok).toBe(
       true,
     );
+  });
+
+  it("rejects an unknown or oversized unit string", async () => {
+    const added = await actions.addPlanEntryAction({
+      week: WEEK,
+      day: DAY,
+      slot: "lunch",
+      foodId: "paneer",
+      grams: 100,
+    });
+    if (!added.ok || !added.entry) throw new Error("setup failed");
+
+    expect(
+      (await actions.updatePlanEntryQuantityAction(added.entry.id, { grams: 100, unit: "bogus" }))
+        .ok,
+    ).toBe(false);
+    expect(
+      (
+        await actions.updatePlanEntryQuantityAction(added.entry.id, {
+          grams: 100,
+          unit: "g".repeat(65),
+        })
+      ).ok,
+    ).toBe(false);
+    expect(
+      (
+        await actions.updatePlanEntryQuantityAction(added.entry.id, {
+          grams: 100,
+          unit: "portion:1 katori",
+        })
+      ).ok,
+    ).toBe(true);
+  });
+});
+
+describe("extractFoodAction image validation", () => {  it("rejects a file whose bytes do not match its declared type", async () => {
+    const result = await actions.extractFoodAction({
+      mode: "image",
+      images: [
+        {
+          mimeType: "image/png",
+          data: Buffer.from("not a png at all").toString("base64"),
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/not the image type/);
+  });
+
+  it("rejects an unsupported declared type even when the bytes are an image", async () => {
+    // A valid JPEG magic number, mislabelled as SVG.
+    const jpeg = Buffer.from([
+      0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01,
+    ]).toString("base64");
+    const result = await actions.extractFoodAction({
+      mode: "image",
+      images: [{ mimeType: "image/svg+xml", data: jpeg }],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/not supported/);
+  });
+
+  it("rejects data that is not base64", async () => {
+    const result = await actions.extractFoodAction({
+      mode: "image",
+      images: [{ mimeType: "image/png", data: "<svg>not base64</svg>" }],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/not valid base64/);
+  });
+});
+
+describe("copyPlanDayAction", () => {
+  const TARGET = "2026-11-12"; // Thursday of the same week
+
+  function insertSourceEntry(id: string, position: number, grams: number | null) {
+    const source = plan.getOrCreatePlan(weekStart(WEEK));
+    db.prepare(
+      `INSERT INTO plan_entries
+         (id, plan_id, day, slot, position, food_id, grams, amount, unit, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, source.id, DAY, "lunch", position, "paneer", grams, 1, "g", new Date().toISOString());
+  }
+
+  it("copies every entry of the day", async () => {
+    insertSourceEntry("copy-a", 0, 100);
+    insertSourceEntry("copy-b", 1, 50);
+
+    const result = await actions.copyPlanDayAction(DAY, TARGET);
+    expect(result.ok).toBe(true);
+    expect(result.count).toBe(2);
+    expect(entriesInWeek(TARGET).filter((e) => e.day === TARGET)).toHaveLength(2);
+  });
+
+  it("rolls back the whole copy when one row fails", async () => {
+    // A food entry with no grams is rejected by addPlanEntry. It is the
+    // second row, so a non-transactional copy would leave the first behind.
+    insertSourceEntry("copy-good", 0, 100);
+    insertSourceEntry("copy-bad", 1, null);
+
+    const result = await actions.copyPlanDayAction(DAY, TARGET);
+    expect(result.ok).toBe(false);
+    expect(entriesInWeek(TARGET).filter((e) => e.day === TARGET)).toHaveLength(0);
+  });
+});
+
+describe("saveGraphAction caps", () => {
+  const base = {
+    name: "Test recipe",
+    instructions: "",
+    servings: 2,
+    graph: { nodes: [], edges: [] },
+  };
+
+  function save(overrides: Record<string, unknown>) {
+    return actions.saveGraphAction({ ...base, ...overrides } as never);
+  }
+
+  it("rejects too many nodes or edges", async () => {
+    expect((await save({ graph: { nodes: new Array(301).fill({}), edges: [] } })).ok).toBe(false);
+    expect((await save({ graph: { nodes: [], edges: new Array(601).fill({}) } })).ok).toBe(false);
+  });
+
+  it("rejects too many layout keys", async () => {
+    const layout = Object.fromEntries(
+      Array.from({ length: 601 }, (_, i) => [`n${i}`, { x: 0, y: 0 }]),
+    );
+    expect((await save({ layout })).ok).toBe(false);
+  });
+
+  it("rejects oversized names, labels and instructions", async () => {
+    expect((await save({ name: "x".repeat(201) })).ok).toBe(false);
+    expect((await save({ versionLabel: "x".repeat(121) })).ok).toBe(false);
+    expect((await save({ instructions: "x".repeat(20_001) })).ok).toBe(false);
+  });
+
+  it("rejects an impossible serving count and an unknown save mode", async () => {
+    expect((await save({ servings: 1_001 })).ok).toBe(false);
+    expect((await save({ mode: "overwrite" })).ok).toBe(false);
   });
 });

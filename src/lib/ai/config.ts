@@ -1,6 +1,6 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
-import path from "node:path";
+import { readFileSync, existsSync } from "node:fs";
 import { dataFile } from "@/lib/data-dir";
+import { atomicWritePrivateFile } from "@/lib/security/private-files";
 import type { AiConfig } from "./types";
 
 const CONFIG_PATH = dataFile("ai-config.json");
@@ -15,8 +15,9 @@ export function readAiConfig(): AiConfig | null {
 }
 
 export function writeAiConfig(config: AiConfig): void {
-  mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
-  writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+  // Atomic and `0600`: a crash mid-write used to truncate the file, and the
+  // default umask left it world-readable next to the database.
+  atomicWritePrivateFile(CONFIG_PATH, JSON.stringify(config, null, 2));
 }
 
 export function defaultAiConfig(): AiConfig {

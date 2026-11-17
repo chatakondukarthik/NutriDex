@@ -1,5 +1,5 @@
 import type { AiConfig, ImagePart, ModelInfo, ModelRequest, ModelResponse, ProviderAdapter } from "./types";
-import { getKey } from "./secrets";
+import { getKey, getKeyForHost } from "./secrets";
 import { assertOutboundUrl } from "@/lib/security/urls";
 import { redact } from "@/lib/security/errors";
 
@@ -47,7 +47,16 @@ async function readCapped(res: Response, maxBytes: number): Promise<string> {
 }
 
 async function fetchJson(url: string, init: RequestInit, timeoutMs: number): Promise<any> {
-  const res = await fetch(url, { ...init, signal: timeoutSignal(timeoutMs) });
+  // `redirect: "error"` is load-bearing, not tidiness: `fetch` follows
+  // redirects by default, and the SSRF guard validates only the URL it was
+  // given. A public endpoint could 302 to `169.254.169.254` or to an
+  // attacker host and carry the Authorization header there. A redirect is
+  // never legitimate for these APIs, so refuse it.
+  const res = await fetch(url, {
+    ...init,
+    redirect: "error",
+    signal: timeoutSignal(timeoutMs),
+  });
   const text = await readCapped(res, MAX_RESPONSE_BYTES);
   if (!res.ok) {
     // Provider bodies reach the client through test/estimate errors, so
@@ -155,13 +164,38 @@ async function safeBaseUrl(raw: string | undefined, fallback: string): Promise<s
   return assertOutboundUrl(raw);
 }
 
+/**
+ * Key lookup for a caller-supplied endpoint.
+ *
+ * A fixed provider endpoint (`api.openai.com`) uses `getKey`. A custom
+ * `baseUrl` is different: the key is released only if it was entered for
+ * that exact host. Repointing the base URL at another host therefore fails
+ * closed with "re-enter the key" instead of silently posting the stored key
+ * to the new destination.
+ */
+function keyForEndpoint(provider: string, base: string, custom: boolean): string | null {
+  if (!custom) return getKey(provider);
+  return getKeyForHost(provider, new URL(base).host);
+}
+
+function requireKey(key: string | null, label: string, base: string, custom: boolean): string {
+  if (key) return key;
+  if (custom) {
+    throw new Error(
+      `No ${label} key is bound to ${new URL(base).host}. ` +
+        `Re-enter the key in Settings to use this endpoint.`,
+    );
+  }
+  throw new Error(`No ${label} key configured.`);
+}
+
 const openai: ProviderAdapter = {
   id: "openai",
   label: "OpenAI",
   async complete(config, request) {
-    const key = getKey("openai");
-    if (!key) throw new Error("No OpenAI key configured.");
+    const custom = !!config.baseUrl;
     const base = await safeBaseUrl(config.baseUrl, "https://api.openai.com/v1");
+    const key = requireKey(keyForEndpoint("openai", base, custom), "OpenAI", base, custom);
     const url = `${base}/chat/completions`;
     const content: any[] = [];
     if (request.images?.length) {
@@ -199,9 +233,9 @@ const openai: ProviderAdapter = {
     };
   },
   async listModels(config) {
-    const key = getKey("openai");
-    if (!key) throw new Error("No OpenAI key configured.");
+    const custom = !!config.baseUrl;
     const base = await safeBaseUrl(config.baseUrl, "https://api.openai.com/v1");
+    const key = requireKey(keyForEndpoint("openai", base, custom), "OpenAI", base, custom);
     const json = await fetchJson(
       `${base}/models`,
       { method: "GET", headers: { Authorization: `Bearer ${key}` } },
@@ -290,10 +324,14 @@ const openaiCompatible: ProviderAdapter = {
   id: "openai-compatible",
   label: "OpenAI-compatible",
   async complete(config, request) {
-    const key = getKey("openai-compatible");
-    if (!key) throw new Error("No key configured for the OpenAI-compatible provider.");
     if (!config.baseUrl) throw new Error("A base URL is required for an OpenAI-compatible provider.");
     const base = await safeBaseUrl(config.baseUrl, "");
+    const key = requireKey(
+      keyForEndpoint("openai-compatible", base, true),
+      "OpenAI-compatible",
+      base,
+      true,
+    );
     const url = `${base}/chat/completions`;
     const content: any[] = [];
     if (request.images?.length) {
@@ -330,9 +368,13 @@ const openaiCompatible: ProviderAdapter = {
   },
   async listModels(config) {
     if (!config.baseUrl) throw new Error("A base URL is required.");
-    const key = getKey("openai-compatible");
-    if (!key) throw new Error("No key configured for the OpenAI-compatible provider.");
     const base = await safeBaseUrl(config.baseUrl, "");
+    const key = requireKey(
+      keyForEndpoint("openai-compatible", base, true),
+      "OpenAI-compatible",
+      base,
+      true,
+    );
     const json = await fetchJson(
       `${base}/models`,
       { method: "GET", headers: { Authorization: `Bearer ${key}` } },

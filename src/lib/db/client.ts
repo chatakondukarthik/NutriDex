@@ -1,8 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { dataFile } from "@/lib/data-dir";
+import { dataFile, ensureDataDir } from "@/lib/data-dir";
+import { ensurePrivateDir, restrictFile } from "@/lib/security/private-files";
 import { SEED_FACTORS } from "@/lib/nutrition/retention-seed";
 
 /**
@@ -243,14 +243,30 @@ const SCHEMA = `
 
 function createDb(): DatabaseSync {
   const dbPath = resolveDbPath();
-  mkdirSync(path.dirname(dbPath), { recursive: true });
+  // `NUTRIPLAN_DB_PATH` may point outside the data dir (tests do this), so
+  // create and tighten that parent explicitly as well.
+  ensurePrivateDir(path.dirname(dbPath));
+  ensureDataDir();
 
   const database = new DatabaseSync(dbPath);
   database.exec(SCHEMA);
   migrate(database);
   seedRetentionFactors(database);
+  restrictDbFiles(dbPath);
 
   return database;
+}
+
+/**
+ * The main file and its WAL sidecars are created by SQLite, not by us, so
+ * they inherit the umask. Tighten them after the first write has created
+ * them. `-wal`/`-shm` may not exist yet on a brand-new database; the next
+ * boot catches them.
+ */
+function restrictDbFiles(dbPath: string): void {
+  restrictFile(dbPath);
+  restrictFile(`${dbPath}-wal`);
+  restrictFile(`${dbPath}-shm`);
 }
 
 /**

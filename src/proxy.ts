@@ -17,10 +17,12 @@
  * ## Modes (`NUTRIPLAN_GATE`, or inferred — see `resolveGateMode`)
  *
  *   local  (default) — only requests addressed to a loopback host.
- *   hosts            — loopback plus `NUTRIPLAN_ALLOWED_HOSTS`; the mode
- *                      for a deployment behind a reverse proxy.
- *   token            — loopback plus `nutriplan_token` (header, cookie or
- *                      query) matching `NUTRIPLAN_TOKEN`.
+ *   hosts            — only hosts in `NUTRIPLAN_ALLOWED_HOSTS`; loopback
+ *                      is not implicitly trusted, so a proxy that rewrites
+ *                      `Host` to its upstream cannot bypass the allowlist.
+ *   token            — only a valid `nutriplan_token` (header or cookie)
+ *                      matching `NUTRIPLAN_TOKEN`. The query-string form is
+ *                      rejected because URLs leak into history and logs.
  *   off              — no gate.
  *
  * Fail-closed: a misconfigured deployment is unreachable, not open.
@@ -123,6 +125,41 @@ function blockedResponse(): NextResponse {
   );
 }
 
+/**
+ * Reject a state-changing request that did not come from this origin.
+ *
+ * Next's server-action origin check is the primary CSRF defence, but it
+ * allows a request with **no** `Origin` header. Any website in the user's
+ * browser can still make it issue a cross-site POST to `127.0.0.1`, and the
+ * browser always attaches `Origin` or `Sec-Fetch-Site`. Checking both here
+ * closes that gap for every mutation, including any future Route Handler
+ * that Next would not cover.
+ *
+ * A non-browser client (curl, a test) sends neither header and is still
+ * subject to the gate and token rules.
+ */
+function isCrossSiteMutation(request: NextRequest, effectiveHost: string): boolean {
+  const method = request.method.toUpperCase();
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return false;
+
+  const site = request.headers.get("sec-fetch-site");
+  if (site && site !== "same-origin" && site !== "none") return true;
+
+  const origin = request.headers.get("origin");
+  if (!origin) return false;
+
+  try {
+    // Compare the full authority, including the port: `http://host:1234` and
+    // `http://host:5678` are different origins, and stripping the port here
+    // would let a service on another local port drive the app.
+    const originHost = new URL(origin).host.toLowerCase();
+    const requestHost = String(effectiveHost ?? "").trim().toLowerCase();
+    return originHost !== requestHost;
+  } catch {
+    return true;
+  }
+}
+
 export function proxy(request: NextRequest) {
   // Health checks come from a load balancer or orchestrator that is not a
   // browser and has no session. The route returns only `{ ok }`.
@@ -133,28 +170,43 @@ export function proxy(request: NextRequest) {
   const mode = resolveGateMode();
   announceMode(mode);
 
+  const trustProxy = trustProxyEnabled();
+  const host = request.headers.get("host");
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  const effectiveHost = trustProxy && forwardedHost ? forwardedHost : host;
+
   const providedToken =
     request.headers.get("nutriplan_token") ??
-    request.cookies.get("nutriplan_token")?.value ??
-    request.nextUrl.searchParams.get("nutriplan_token");
+    request.cookies.get("nutriplan_token")?.value;
 
   const decision = decideGate({
     mode,
-    host: request.headers.get("host"),
-    forwardedHost: request.headers.get("x-forwarded-host"),
-    trustProxy: trustProxyEnabled(),
+    host,
+    forwardedHost,
+    trustProxy,
     providedToken,
     expectedToken: process.env.NUTRIPLAN_TOKEN,
     allowedHosts: parseAllowedHosts(process.env.NUTRIPLAN_ALLOWED_HOSTS),
   });
 
   if (!decision.allow) return blockedResponse();
+  if (isCrossSiteMutation(request, effectiveHost ?? "")) return blockedResponse();
 
   const headers = new Headers(request.headers);
+  if (!trustProxy) {
+    // Forwarded headers are client-writable, and Next's server-action origin
+    // check trusts `X-Forwarded-Host`. A caller could satisfy that check by
+    // sending one. Strip them unless the operator states a proxy rewrites
+    // them; `Host` is then the only authority.
+    headers.delete("x-forwarded-host");
+    headers.delete("x-forwarded-proto");
+    headers.delete("x-forwarded-for");
+  }
+
   if (isDev) {
     // Static policy from next.config.ts also applies; this keeps dev
     // identical to the previous behaviour while prod gets a nonce.
-    return NextResponse.next();
+    return NextResponse.next({ request: { headers } });
   }
 
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");

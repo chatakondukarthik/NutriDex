@@ -1,4 +1,5 @@
 import path from "node:path";
+import { ensurePrivateDir } from "@/lib/security/private-files";
 
 /**
  * One place that decides where writable state lives: the SQLite file, the
@@ -17,4 +18,15 @@ export function dataDir(): string {
 
 export function dataFile(name: string): string {
   return path.join(dataDir(), name);
+}
+
+/**
+ * Resolve the data directory and make it owner-only before anything is
+ * written into it. Called by the database and the two JSON stores on boot;
+ * idempotent and cheap.
+ */
+export function ensureDataDir(): string {
+  const dir = dataDir();
+  ensurePrivateDir(dir);
+  return dir;
 }

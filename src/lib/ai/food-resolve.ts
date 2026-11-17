@@ -136,8 +136,15 @@ export function planUniqueFoodNames(plan: { steps: Array<{ inputs: Array<{ foodN
   const seen = new Map<string, string>();
   for (const step of plan.steps) {
     for (const input of step.inputs) {
-      const key = input.foodName.trim().toLowerCase();
-      if (!seen.has(key)) seen.set(key, input.foodName.trim());
+      const name = String(input.foodName ?? "").trim().slice(0, 200);
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (!seen.has(key)) {
+        seen.set(key, name);
+        // One USDA search per unique name; a plan with hundreds of names
+        // would fan out into hundreds of outbound requests.
+        if (seen.size >= 60) return [...seen.values()];
+      }
     }
   }
   return [...seen.values()];

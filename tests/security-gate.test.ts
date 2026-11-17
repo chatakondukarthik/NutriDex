@@ -51,6 +51,13 @@ describe("isLoopbackHost", () => {
       expect(isLoopbackHost(host), host).toBe(false);
     }
   });
+
+  it("rejects 0.0.0.0, which is a bind address and not a destination", () => {
+    // A caller could send `Host: 0.0.0.0`; treating it as loopback would
+    // let it through the local gate.
+    expect(isLoopbackHost("0.0.0.0")).toBe(false);
+    expect(isLoopbackHost("0.0.0.0:3000")).toBe(false);
+  });
 });
 
 describe("tokenMatches", () => {
@@ -140,18 +147,28 @@ describe("decideGate", () => {
     expect(decideGate(base).allow).toBe(false);
   });
 
-  it("hosts: only the allowlist", () => {
+  it("hosts: only the allowlist, loopback included", () => {
     const hosts = { ...base, mode: "hosts" as const, allowedHosts: ["app.example.com"] };
     expect(decideGate(hosts).via).toBe("host");
     expect(decideGate({ ...hosts, host: "other.example" }).allow).toBe(false);
-    expect(decideGate({ ...hosts, host: "localhost:3000" }).via).toBe("loopback");
+    // A proxy that rewrites Host to its loopback upstream must not bypass
+    // the allowlist: loopback is a claim in this mode, not a fact.
+    expect(decideGate({ ...hosts, host: "localhost:3000" }).allow).toBe(false);
+    // It is reachable when the operator explicitly allows it.
+    expect(
+      decideGate({ ...hosts, host: "localhost:3000", allowedHosts: ["localhost"] }).via,
+    ).toBe("host");
   });
 
-  it("token: exact match only", () => {
+  it("token: exact match only, loopback included", () => {
     const token = { ...base, mode: "token" as const, expectedToken: "s3cret" };
     expect(decideGate({ ...token, providedToken: "s3cret" }).via).toBe("token");
     expect(decideGate({ ...token, providedToken: "wrong" }).allow).toBe(false);
     expect(decideGate({ ...token, providedToken: null }).allow).toBe(false);
+    // Loopback does not shortcut the token check.
+    expect(
+      decideGate({ ...token, host: "localhost:3000", providedToken: null }).allow,
+    ).toBe(false);
   });
 
   it("ignores a forged X-Forwarded-Host unless the operator trusts a proxy", () => {
