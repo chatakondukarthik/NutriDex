@@ -17,6 +17,32 @@ const PROVIDERS = [
   { id: "openai-compatible", label: "OpenAI-compatible (Groq, Together, Ollama, …)" },
 ];
 
+/** Plain-language headings for the error categories the actions return. */
+const FAILURE_LABELS: Record<string, string> = {
+  http: "Provider rejected the request",
+  timeout: "Provider timed out",
+  network: "Network error",
+  config: "Configuration problem",
+  unknown: "Unexpected error",
+};
+
+interface Failure {
+  kind: string;
+  message: string;
+  detail?: string;
+}
+
+function failureText(failure: Failure): string {
+  return [
+    "NutriPlan AI error",
+    `type: ${failure.kind}`,
+    `message: ${failure.message}`,
+    failure.detail ? `detail: ${failure.detail}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 interface Props {
   status: {
     enabled: boolean;
@@ -66,13 +92,46 @@ export function AiSettingsPanel({ status, config }: Props) {
 
   const [cap, setCap] = useState(String(status.dailyCap));
   const [message, setMessage] = useState<string | null>(null);
+  const [failure, setFailure] = useState<Failure | null>(null);
+  const [errorCopied, setErrorCopied] = useState(false);
   const [models, setModels] = useState<{ id: string; label: string }[] | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   const isCompatible = provider === "openai-compatible";
 
+  function showFailure(
+    result: { message?: string; kind?: string; detail?: string },
+    fallback: string,
+  ) {
+    setMessage(null);
+    setErrorCopied(false);
+    setFailure({
+      kind: result.kind ?? "unknown",
+      message: result.message ?? fallback,
+      detail: result.detail,
+    });
+  }
+
+  function showSuccess(text: string) {
+    setFailure(null);
+    setErrorCopied(false);
+    setMessage(text);
+  }
+
+  async function writeClipboard(text: string): Promise<boolean> {
+    try {
+      if (!navigator.clipboard?.writeText) return false;
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   function save() {
     setMessage(null);
+    setFailure(null);
     startTransition(async () => {
       const result = await saveAiConfigAction({
         enabled,
@@ -113,9 +172,9 @@ export function AiSettingsPanel({ status, config }: Props) {
           setImageFallbackKey,
           imageFallbackProvider === "openai-compatible" ? imageFallbackBaseUrl : undefined,
         );
-      if (!result.ok) setMessage(result.message ?? "Could not save.");
+      if (!result.ok) showFailure(result, "Could not save.");
       else {
-        setMessage("Saved.");
+        showSuccess("Saved.");
         setKey("");
       }
     });
@@ -134,40 +193,82 @@ export function AiSettingsPanel({ status, config }: Props) {
 
   function testPrimary() {
     setMessage(null);
+    // A typed-but-unsaved key cannot be used: the test reads the stored key.
+    // Say so instead of failing with a confusing "no key" error.
+    if (key.trim()) {
+      showFailure(
+        {
+          kind: "config",
+          message: "Save the key first, then test the connection.",
+        },
+        "Connection failed.",
+      );
+      return;
+    }
+    setFailure(null);
     startTransition(async () => {
-      const result = await testAiConnectionAction();
-      if (!result.ok) setMessage(result.message ?? "Connection failed.");
-      else setMessage(`Connected in ${result.latencyMs} ms.`);
+      const result = await testAiConnectionAction({
+        provider,
+        model,
+        baseUrl: isCompatible ? baseUrl : undefined,
+      });
+      if (!result.ok) showFailure(result, "Connection failed.");
+      else showSuccess(`Connected in ${result.latencyMs} ms.`);
     });
   }
 
   function testProvider(providerId: string, modelId: string, baseUrlValue?: string) {
     setMessage(null);
+    setFailure(null);
     startTransition(async () => {
       const result = await testProviderAction({ provider: providerId, model: modelId, baseUrl: baseUrlValue });
-      if (!result.ok) setMessage(result.message ?? "Connection failed.");
-      else setMessage(`Connected in ${result.latencyMs} ms.`);
+      if (!result.ok) showFailure(result, "Connection failed.");
+      else showSuccess(`Connected in ${result.latencyMs} ms.`);
     });
   }
 
   function removeKey(providerId: string) {
     setMessage(null);
+    setFailure(null);
     startTransition(async () => {
       await removeAiKeyAction(providerId);
-      setMessage("Key removed.");
+      showSuccess("Key removed.");
     });
   }
 
   function refreshModels() {
     setMessage(null);
+    setFailure(null);
     startTransition(async () => {
-      const result = await listAiModelsAction();
-      if (!result.ok) setMessage(result.message ?? "Could not list models.");
+      const result = await listAiModelsAction({
+        provider,
+        baseUrl: isCompatible ? baseUrl : undefined,
+      });
+      if (!result.ok) showFailure(result, "Could not list models.");
       else {
         setModels(result.models ?? []);
-        setMessage(`Found ${result.models?.length ?? 0} models.`);
+        showSuccess(`Found ${result.models?.length ?? 0} models.`);
       }
     });
+  }
+
+  async function copyModelId(id: string) {
+    if (!(await writeClipboard(id))) {
+      setMessage("Could not copy automatically — select the model ID and copy it.");
+      return;
+    }
+    setCopied(id);
+    window.setTimeout(() => setCopied((current) => (current === id ? null : current)), 1500);
+  }
+
+  async function copyFailure() {
+    if (!failure) return;
+    if (!(await writeClipboard(failureText(failure)))) {
+      setMessage("Could not copy automatically — select the error text and copy it.");
+      return;
+    }
+    setErrorCopied(true);
+    window.setTimeout(() => setErrorCopied(false), 1500);
   }
 
   return (
@@ -201,8 +302,9 @@ export function AiSettingsPanel({ status, config }: Props) {
               </select>
             </label>
             <label className="flex flex-col gap-1 text-xs">
-              <span className="font-medium">Model</span>
-              <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="e.g. gemini-2.0-flash" className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm" />
+              <span className="font-medium">Model <span className="font-normal text-muted">(exact ID)</span></span>
+              <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="e.g. gemini-flash-latest" className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm" />
+              <span className="text-[10px] text-muted">Use the exact model ID, not the display name.</span>
             </label>
             {isCompatible && (
               <label className="flex flex-col gap-1 text-xs sm:col-span-2">
@@ -291,11 +393,63 @@ export function AiSettingsPanel({ status, config }: Props) {
 
           {message && <p className="mt-2 text-xs text-muted">{message}</p>}
 
+          {failure && (
+            <div role="alert" className="mt-2 rounded-md border border-line bg-bg p-2 text-xs">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-medium text-warn">
+                    {FAILURE_LABELS[failure.kind] ?? "Error"}
+                    <span className="ml-1 font-normal text-muted">({failure.kind})</span>
+                  </p>
+                  <p className="mt-0.5">{failure.message}</p>
+                  {failure.detail && (
+                    <p className="mt-1 break-all font-mono text-[10px] text-muted">
+                      {failure.detail}
+                    </p>
+                  )}
+                  <p className="mt-1 text-[10px] text-muted">
+                    Safe to share — keys are redacted.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={copyFailure}
+                  className="shrink-0 rounded border border-line px-2 py-0.5 text-[10px] font-medium hover:bg-surface"
+                >
+                  {errorCopied ? "Copied" : "Copy error"}
+                </button>
+              </div>
+            </div>
+          )}
+
           {models && models.length > 0 && (
-            <div className="mt-3 max-h-40 overflow-auto rounded-md border border-line bg-bg p-2 text-xs">
-              {models.slice(0, 60).map((m) => (
-                <button key={m.id} type="button" onClick={() => setModel(m.id)} className="block w-full truncate rounded px-1 py-0.5 text-left hover:bg-surface">{m.label}</button>
-              ))}
+            <div className="mt-3 rounded-md border border-line bg-bg p-2 text-xs">
+              <p className="px-1 pb-1 text-[11px] text-muted">
+                Click a row to use that model. The monospace line is the exact ID.
+              </p>
+              <div className="max-h-56 overflow-auto">
+                {models.slice(0, 60).map((m) => (
+                  <div key={m.id} className="flex items-center gap-2 rounded px-1 py-0.5 hover:bg-surface">
+                    <button
+                      type="button"
+                      onClick={() => setModel(m.id)}
+                      className="min-w-0 flex-1 rounded text-left"
+                      aria-label={`Use model ${m.id}`}
+                    >
+                      <span className="block truncate font-medium">{m.label}</span>
+                      <span className="block truncate font-mono text-[10px] text-muted">{m.id}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => copyModelId(m.id)}
+                      className="shrink-0 rounded border border-line px-1.5 py-0.5 text-[10px] font-medium hover:bg-bg"
+                      aria-label={`Copy model ID ${m.id}`}
+                    >
+                      {copied === m.id ? "Copied" : "Copy ID"}
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </>

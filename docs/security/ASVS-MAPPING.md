@@ -122,7 +122,7 @@ depends on a hosted multi-user design the product does not have.
 | Security controls are centralized | met | gate, URL validation, private files, rate limits, secrets |
 | Dependencies are current | met | `next@16.4.6`; clean `npm audit` (`SEC-SUP-01`) |
 | No known vulnerable components | met | `npm audit` clean at time of writing |
-| Security tests exist | met | 675 tests, including gate, origin, URL, key-binding, client-bundle boundary, file-fault, graph-validation, archive round-trip and DB-recovery suites |
+| Security tests exist | met | 691 tests, including gate, origin, URL, key-binding, client-bundle boundary, file-fault, graph-validation, archive round-trip and DB-recovery suites |
 
 ## V16 — Security logging and error handling
 

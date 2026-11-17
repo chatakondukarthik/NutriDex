@@ -460,6 +460,7 @@ import { getAiConfig, aiStatus } from "@/lib/ai/client";
 import { readAiConfig, writeAiConfig } from "@/lib/ai/config";
 import { getKey, setKey, hasKey } from "@/lib/ai/secrets";
 import { getAdapter } from "@/lib/ai/adapters";
+import { aiFailure, aiConfigFailure, type AiFailureKind } from "@/lib/ai/errors";
 
 export interface SaveFoodResult {
   ok: boolean;
@@ -580,6 +581,10 @@ export async function archiveCapturedFoodAction(id: string): Promise<SaveFoodRes
 export interface AiConfigResult {
   ok: boolean;
   message?: string;
+  /** Category for a failed test/list call, shown in Settings. */
+  kind?: AiFailureKind;
+  /** Redacted one-line diagnostic the user can copy and share. */
+  detail?: string;
 }
 
 /**
@@ -740,13 +745,62 @@ export async function setAiKeyAction(
  * daily cap decorative. `getAdapter` moved inside the try too: an unknown
  * provider used to throw before the handler.
  */
-export async function testAiConnectionAction(): Promise<AiConfigResult & { latencyMs?: number }> {
+export async function testAiConnectionAction(input?: {
+  provider?: string;
+  model?: string;
+  baseUrl?: string;
+}): Promise<AiConfigResult & { latencyMs?: number }> {
+  let provider = "";
+  let model = "";
+  let baseUrl: string | undefined;
+  const context = () => ({
+    action: "testAiConnectionAction",
+    provider,
+    model,
+    baseUrl,
+  });
   try {
     const limited = await aiThrottle("test", 10);
     if (limited) return { ok: false, message: limited };
-    const config = getAiConfig();
-    if (!hasKey(config.provider)) return { ok: false, message: "No key configured." };
-    const adapter = getAdapter(config.provider);
+    const saved = getAiConfig();
+    provider = String(input?.provider ?? saved.provider ?? "").trim();
+    // The panel may have unsaved edits. Test what is on screen, not only what
+    // was last saved, so "Test primary" answers the question the user is
+    // actually asking. The key still comes from storage — a typed-but-unsaved
+    // key is not used until Save writes it.
+    const { ADAPTERS } = await import("@/lib/ai/adapters");
+    if (!ADAPTERS[provider as keyof typeof ADAPTERS]) {
+      return { ok: false, ...aiConfigFailure("Unknown provider.", context()) };
+    }
+    if (!hasKey(provider)) {
+      return {
+        ok: false,
+        ...aiConfigFailure(
+          "No key saved for that provider. Save the key first, then test.",
+          context(),
+        ),
+      };
+    }
+
+    const savedBaseUrl = provider === saved.provider ? saved.baseUrl : undefined;
+    baseUrl = input?.baseUrl?.trim() || savedBaseUrl || undefined;
+    if (baseUrl) {
+      const { validateOutboundUrl } = await import("@/lib/security/urls");
+      const verdict = await validateOutboundUrl(baseUrl);
+      if (!verdict.ok) {
+        return { ok: false, ...aiConfigFailure(verdict.reason || "That base URL is not allowed.", context()) };
+      }
+    }
+
+    model = String(input?.model ?? (provider === saved.provider ? saved.model : ""))
+      .trim()
+      .slice(0, 200);
+    if (!model) {
+      return { ok: false, ...aiConfigFailure("Pick a model first.", context()) };
+    }
+
+    const config = { ...saved, provider, model, baseUrl } as any;
+    const adapter = getAdapter(provider as any);
     const { withAiBudget } = await import("@/lib/ai/client");
     const start = Date.now();
     await withAiBudget("text", () =>
@@ -761,7 +815,7 @@ export async function testAiConnectionAction(): Promise<AiConfigResult & { laten
     );
     return { ok: true, latencyMs: Date.now() - start };
   } catch (error) {
-    return { ok: false, message: publicError("Connection failed.", error, "testAiConnectionAction") };
+    return { ok: false, ...aiFailure("Connection failed.", error, context()) };
   }
 }
 
@@ -770,6 +824,15 @@ export async function testProviderAction(input: {
   model: string;
   baseUrl?: string;
 }): Promise<AiConfigResult & { latencyMs?: number }> {
+  let provider = "";
+  let model = "";
+  let baseUrl: string | undefined;
+  const context = () => ({
+    action: "testProviderAction",
+    provider,
+    model,
+    baseUrl,
+  });
   try {
     const limited = await aiThrottle("test", 10);
     if (limited) return { ok: false, message: limited };
@@ -777,26 +840,28 @@ export async function testProviderAction(input: {
     const adapters = await import("@/lib/ai/adapters");
     const { withAiBudget } = await import("@/lib/ai/client");
 
-    const provider = String(input.provider ?? "").trim();
-    if (!adapters.ADAPTERS[provider]) return { ok: false, message: "Unknown provider." };
+    provider = String(input.provider ?? "").trim();
+    if (!adapters.ADAPTERS[provider]) {
+      return { ok: false, ...aiConfigFailure("Unknown provider.", context()) };
+    }
     if (!secrets.hasKey(provider)) {
-      return { ok: false, message: "No key configured for that provider." };
+      return {
+        ok: false,
+        ...aiConfigFailure("No key configured for that provider.", context()),
+      };
     }
 
-    const baseUrl = input.baseUrl?.trim() || undefined;
+    baseUrl = input.baseUrl?.trim() || undefined;
     if (baseUrl) {
       // This URL never touches the config file — it goes straight to the
       // adapter, so it is validated here as well as at save time.
       const { validateOutboundUrl } = await import("@/lib/security/urls");
       const verdict = await validateOutboundUrl(baseUrl);
-      if (!verdict.ok) return { ok: false, message: verdict.reason };
+      if (!verdict.ok) return { ok: false, ...aiConfigFailure(verdict.reason || "That base URL is not allowed.", context()) };
     }
 
-    const config = {
-      provider,
-      model: String(input.model ?? "").trim().slice(0, 200),
-      baseUrl,
-    } as any;
+    model = String(input.model ?? "").trim().slice(0, 200);
+    const config = { provider, model, baseUrl } as any;
     const adapter = adapters.getAdapter(provider);
     const start = Date.now();
     await withAiBudget("text", () =>
@@ -811,24 +876,47 @@ export async function testProviderAction(input: {
     );
     return { ok: true, latencyMs: Date.now() - start };
   } catch (error) {
-    return { ok: false, message: publicError("Connection failed.", error, "testProviderAction") };
+    return { ok: false, ...aiFailure("Connection failed.", error, context()) };
   }
 }
 
-export async function listAiModelsAction(): Promise<{ ok: boolean; models?: { id: string; label: string }[]; message?: string }> {
+export async function listAiModelsAction(input?: {
+  provider?: string;
+  baseUrl?: string;
+}): Promise<{ ok: boolean; models?: { id: string; label: string }[]; message?: string; kind?: AiFailureKind; detail?: string }> {
+  let provider = "";
+  let baseUrl: string | undefined;
+  const context = () => ({ action: "listAiModelsAction", provider, baseUrl });
   try {
     const limited = await aiThrottle("models", 10);
     if (limited) return { ok: false, message: limited };
-    const config = getAiConfig();
-    if (!hasKey(config.provider)) return { ok: false, message: "No key configured." };
-    const adapter = getAdapter(config.provider);
+    const saved = getAiConfig();
+    provider = String(input?.provider ?? saved.provider ?? "").trim();
+    const { ADAPTERS } = await import("@/lib/ai/adapters");
+    if (!ADAPTERS[provider as keyof typeof ADAPTERS]) {
+      return { ok: false, ...aiConfigFailure("Unknown provider.", context()) };
+    }
+    if (!hasKey(provider)) {
+      return {
+        ok: false,
+        ...aiConfigFailure("No key saved for that provider. Save the key first.", context()),
+      };
+    }
+    const savedBaseUrl = provider === saved.provider ? saved.baseUrl : undefined;
+    baseUrl = input?.baseUrl?.trim() || savedBaseUrl || undefined;
+    if (baseUrl) {
+      const { validateOutboundUrl } = await import("@/lib/security/urls");
+      const verdict = await validateOutboundUrl(baseUrl);
+      if (!verdict.ok) return { ok: false, ...aiConfigFailure(verdict.reason || "That base URL is not allowed.", context()) };
+    }
+    const adapter = getAdapter(provider as any);
     const { withAiBudget } = await import("@/lib/ai/client");
     const models = await withAiBudget("text", () =>
-      adapter.listModels({ ...config, baseUrl: config.baseUrl }),
+      adapter.listModels({ ...saved, provider, baseUrl } as any),
     );
     return { ok: true, models: models.map((m) => ({ id: m.id, label: m.label })) };
   } catch (error) {
-    return { ok: false, message: publicError("Could not list models.", error, "listAiModelsAction") };
+    return { ok: false, ...aiFailure("Could not list models.", error, context()) };
   }
 }
 

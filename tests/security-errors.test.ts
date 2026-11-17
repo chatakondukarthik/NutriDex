@@ -90,6 +90,21 @@ describe("publicError", () => {
       spy.mockRestore();
     }
   });
+
+  it("uses a redacted publicMessage when the error opts in", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const error = Object.assign(new Error("HTTP 503: overloaded sk-abcdefghijklmno"), {
+        publicMessage: "Provider returned HTTP 503: overloaded sk-abcdefghijklmno",
+      });
+      const message = publicError("Connection failed.", error, "testAiConnectionAction");
+      expect(message).toContain("HTTP 503");
+      expect(message).toContain("overloaded");
+      expect(message).not.toMatch(/sk-abcdefghijklmno/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
 
 describe("ownMessage", () => {

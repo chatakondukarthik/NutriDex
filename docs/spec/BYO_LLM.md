@@ -211,6 +211,11 @@ A single local user is not a denial-of-service risk, but a runaway loop is.
 - **A call log** in the database: provider, model, capability, tokens, latency,
   status, error. This is the transparency the settings card shows and the data
   the eval harness reads.
+- **A failed test or model list is diagnosable without the key.** Settings shows
+  the provider's HTTP status and its own explanation (redacted and bounded), a
+  category (`http`, `timeout`, `network`, `config`), and a copy button for one
+  line containing the action, provider, model, host and message. Redaction
+  happens before that line is built, so it is safe to send to a developer.
 
 ---
 

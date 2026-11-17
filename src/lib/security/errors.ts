@@ -52,6 +52,18 @@ export class UserFacingError extends Error {
 }
 
 /**
+ * Errors that have already decided how they may be shown. The AI layer uses
+ * this for provider HTTP failures: the status and the provider's own
+ * explanation are more useful than "Connection failed.", and the message is
+ * redacted and bounded where it is built.
+ */
+function publicMessageOf(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+  const value = (error as { publicMessage?: unknown }).publicMessage;
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+/**
  * The message a user should see. `fallback` is a fixed sentence written at
  * the call site — never derived from the error.
  *
@@ -62,6 +74,8 @@ export function publicError(fallback: string, error: unknown, context?: string):
   const prefix = context ? `[${context}] ` : "";
   console.error(`${prefix}${redact(detail)}`);
   if (error instanceof UserFacingError) return redact(detail);
+  const opted = publicMessageOf(error);
+  if (opted) return redact(opted);
   return fallback;
 }
 

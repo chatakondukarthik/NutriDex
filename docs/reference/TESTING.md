@@ -1,7 +1,7 @@
 # NutriPlan — Testing
 
 **Type:** Reference (updated in the same commit as the code it describes)
-**Last verified:** 2026-11-18 — 64 files, 675 tests passing, `tsc --noEmit` clean.
+**Last verified:** 2026-11-18 — 66 files, 691 tests passing, `tsc --noEmit` clean.
 
 This is the tracker for how NutriPlan is tested: what is automated, what is
 manual, what each category is for, and what is still missing. It is a map, not
@@ -204,6 +204,7 @@ still catch a real regression. They are guards, not benchmarks.
 | S-013 | Migrations and transactions recover from an interrupted write | `tests/db-recovery.test.ts` | Pass |
 | S-014 | An imported archive is hostile input: tampered checksums, unlisted files, duplicate manifest paths, local/central header mismatches, unknown tables, traversal names, zip bombs, missing required columns, a row count the manifest does not match, duplicate or undeclared columns, dangling parents, planted `origin`, refused settings and unsafe image paths are all refused or dropped | `tests/archive.test.ts` | Pass |
 | S-015 | An upload with no trustworthy `content-length` is abandoned at the byte ceiling, not buffered | `tests/http-body.test.ts` | Pass |
+| S-016 | AI test/list failures expose the provider status and its redacted explanation, a category, and a copyable diagnostic line; keys never reach any of them | `tests/ai-provider-errors.test.ts`, `tests/components/ai-settings.test.tsx` | Pass |
 
 S-005 is closed by `tests/bundle-boundary.test.ts`: it starts at every
 `"use client"` module, follows the imports the bundler will follow, stops at

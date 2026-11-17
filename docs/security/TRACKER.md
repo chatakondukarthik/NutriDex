@@ -618,7 +618,7 @@ Verify:  `npm test`
 Status:  verified
 Track:   TST
 Threat:  A security patch breaks an unrelated path.
-Control: `npx tsc --noEmit` and `npm test` (64 files, 675 tests at this
+Control: `npx tsc --noEmit` and `npm test` (66 files, 691 tests at this
          commit).
 Where:   `tests/`
 Verify:  Run both before every commit.

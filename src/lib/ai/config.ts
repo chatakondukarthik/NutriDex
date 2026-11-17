@@ -22,5 +22,9 @@ export function writeAiConfig(config: AiConfig): void {
 }
 
 export function defaultAiConfig(): AiConfig {
-  return { enabled: true, provider: "gemini", model: "gemini-2.0-flash", dailyCallCap: 200 };
+  // `gemini-flash-latest` is Google's moving alias for the current Flash
+  // model. The old pinned `gemini-2.0-flash` now returns 404, which made a
+  // fresh install's first connection test fail before the user changed
+  // anything. The Settings list shows exact IDs, so pinning remains easy.
+  return { enabled: true, provider: "gemini", model: "gemini-flash-latest", dailyCallCap: 200 };
 }

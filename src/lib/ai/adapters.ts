@@ -2,6 +2,7 @@ import type { AiConfig, ImagePart, ModelInfo, ModelRequest, ModelResponse, Provi
 import { getKey, getKeyForHost } from "./secrets";
 import { assertOutboundUrl } from "@/lib/security/urls";
 import { redact, UserFacingError } from "@/lib/security/errors";
+import { ProviderHttpError, ProviderNetworkError, ProviderTimeoutError } from "./errors";
 
 const TIMEOUT_DEFAULT = 30_000;
 
@@ -46,22 +47,51 @@ async function readCapped(res: Response, maxBytes: number): Promise<string> {
   return new TextDecoder().decode(merged);
 }
 
+/**
+ * Pull the provider's own explanation out of an error body.
+ *
+ * Gemini, OpenAI and Anthropic all use `{ error: { message } }`; a few
+ * compatible servers put a bare `message` at the top level. Anything else
+ * (an HTML error page from a proxy, say) falls back to the raw body, which
+ * `ProviderHttpError` redacts and truncates.
+ */
+function providerDetail(text: string): string {
+  try {
+    const json = JSON.parse(text);
+    const message = json?.error?.message ?? json?.message ?? json?.error;
+    if (typeof message === "string") return message;
+  } catch {
+    // Not JSON.
+  }
+  return text;
+}
+
 async function fetchJson(url: string, init: RequestInit, timeoutMs: number): Promise<any> {
   // `redirect: "error"` is load-bearing, not tidiness: `fetch` follows
   // redirects by default, and the SSRF guard validates only the URL it was
   // given. A public endpoint could 302 to `169.254.169.254` or to an
   // attacker host and carry the Authorization header there. A redirect is
   // never legitimate for these APIs, so refuse it.
-  const res = await fetch(url, {
-    ...init,
-    redirect: "error",
-    signal: timeoutSignal(timeoutMs),
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...init,
+      redirect: "error",
+      signal: timeoutSignal(timeoutMs),
+    });
+  } catch (error) {
+    // `AbortSignal.timeout` rejects with a DOMException named TimeoutError.
+    // Everything else is DNS/TLS/connection failure or a refused redirect.
+    if ((error as { name?: string })?.name === "TimeoutError") {
+      throw new ProviderTimeoutError(timeoutMs);
+    }
+    throw new ProviderNetworkError();
+  }
   const text = await readCapped(res, MAX_RESPONSE_BYTES);
   if (!res.ok) {
     // Provider bodies reach the client through test/estimate errors, so
     // they are redacted and truncated here rather than trusted upstream.
-    throw new Error(`HTTP ${res.status}: ${redact(text).slice(0, 400)}`);
+    throw new ProviderHttpError(res.status, providerDetail(text));
   }
   try {
     return JSON.parse(text);
@@ -93,7 +123,7 @@ const gemini: ProviderAdapter = {
   async complete(config, request) {
     const key = getKey("gemini");
     if (!key) throw new Error("No Gemini key configured.");
-    const model = config.model || "gemini-2.0-flash";
+    const model = config.model || "gemini-flash-latest";
     // The key travels as a header, never in the query string: URLs end up
     // in proxy/CDN/access logs and in any error that echoes the request.
     const url = `${GEMINI_BASE}/models/${encodeURIComponent(model)}:generateContent`;
@@ -143,12 +173,15 @@ const gemini: ProviderAdapter = {
     const models = (json?.models ?? []) as any[];
     return models
       .filter((m) => (m.supportedGenerationMethods ?? []).includes("generateContent"))
-      .map((m) => ({
-        id: (m.name as string).replace(/^models\//, ""),
-        label: m.displayName ?? m.name,
-        capabilities: ["text", "json", ...(m.description?.toLowerCase().includes("vision") ? ["vision"] : [])] as ModelInfo["capabilities"],
-        contextTokens: m.inputTokenLimit,
-      }));
+      .map((m) => {
+        const id = (m.name as string).replace(/^models\//, "");
+        return {
+          id,
+          label: m.displayName ?? id,
+          capabilities: ["text", "json", ...(m.description?.toLowerCase().includes("vision") ? ["vision"] : [])] as ModelInfo["capabilities"],
+          contextTokens: m.inputTokenLimit,
+        };
+      });
   },
 };
 
