@@ -2,6 +2,8 @@ import { Diary } from "@/components/diary";
 import { listFoods } from "@/lib/db/foods";
 import { listEntries, today } from "@/lib/db/entries";
 import { getProfile } from "@/lib/db/profile";
+import { getTargetRules } from "@/lib/db/settings";
+import { isDefaultProfile } from "@/lib/profile";
 import { targetsFor } from "@/lib/targets";
 import { getPlan, listPlanEntries } from "@/lib/db/plan";
 import { listRecipeOptions } from "@/lib/db/recipes";
@@ -17,7 +19,8 @@ export default async function HomePage({
   const { day: requested } = await searchParams;
   const day = requested && /^\d{4}-\d{2}-\d{2}$/.test(requested) ? requested : today();
   const entries = listEntries(day);
-  const targets = targetsFor(getProfile());
+  const profile = getProfile();
+  const targets = targetsFor(profile, getTargetRules());
   const foods = listFoods();
 
   // Planned for this day, so the Diary reflects the plan live.
@@ -47,5 +50,5 @@ export default async function HomePage({
   });
   const plannedKcal = planned.reduce((sum, item) => sum + (item.kcal ?? 0), 0);
 
-  return <Diary foods={foods} recipes={allRecipes} entries={entries} targets={targets} day={day} planned={planned} plannedKcal={plannedKcal} />;
+  return <Diary foods={foods} recipes={allRecipes} entries={entries} targets={targets} day={day} planned={planned} plannedKcal={plannedKcal} profileIsDefault={isDefaultProfile(profile)} />;
 }

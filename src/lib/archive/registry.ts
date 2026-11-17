@@ -32,7 +32,7 @@ export type TableSpec = {
  * a future setting that changes behaviour must not be plantable by a file
  * the user was handed.
  */
-export const IMPORTABLE_SETTINGS = new Set(["ai_master_prompt"]);
+export const IMPORTABLE_SETTINGS = new Set(["ai_master_prompt", "target_rules"]);
 
 /**
  * The `app_settings` predicate, derived from the allowlist so export and

@@ -1561,7 +1561,8 @@ export async function makeCurrentRecipeVersionAction(input: {
 
 import { fillEstimatedCapturedFood } from "@/lib/db/foods";
 import { listFoods } from "@/lib/db/foods";
-import { getMasterPrompt, setMasterPrompt, resetMasterPrompt } from "@/lib/db/settings";
+import { getMasterPrompt, setMasterPrompt, resetMasterPrompt, setTargetRules, resetTargetRules } from "@/lib/db/settings";
+import { DEFAULT_TARGET_RULES, type TargetRules } from "@/lib/targets";
 import { DEFAULT_MASTER_PROMPT } from "@/lib/ai/master-prompt";
 import { estimateNutrients } from "@/lib/ai/estimate-food";
 
@@ -1647,6 +1648,40 @@ export async function resetMasterPromptAction(): Promise<{ ok: boolean }> {
   resetMasterPrompt();
   revalidatePath("/settings");
   return { ok: true };
+}
+
+/**
+ * Save the colour thresholds and per-nutrient overrides.
+ *
+ * The payload is user content, so it is parsed rather than trusted:
+ * unknown nutrient codes are dropped, percentages are clamped, and red is
+ * kept at or above amber. Returning the normalized rules lets the panel
+ * show what was actually stored instead of what was typed.
+ */
+export async function saveTargetRulesAction(
+  input: unknown,
+): Promise<{ ok: boolean; message?: string; rules?: TargetRules }> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { ok: false, message: "Those thresholds are not valid." };
+  }
+
+  const rules = setTargetRules(input);
+  revalidatePath("/");
+  revalidatePath("/plan");
+  revalidatePath("/profile");
+  revalidatePath("/settings");
+  revalidatePath("/about");
+  return { ok: true, rules };
+}
+
+export async function resetTargetRulesAction(): Promise<{ ok: boolean; rules: TargetRules }> {
+  resetTargetRules();
+  revalidatePath("/");
+  revalidatePath("/plan");
+  revalidatePath("/profile");
+  revalidatePath("/settings");
+  revalidatePath("/about");
+  return { ok: true, rules: DEFAULT_TARGET_RULES };
 }
 
 export async function estimateFoodsAction(input?: {

@@ -23,9 +23,11 @@ import {
 } from "@/lib/profile";
 import {
   GUIDANCE_GROUPS,
+  DEFAULT_TARGET_RULES,
   targetsFor,
   targetsInRole,
   type Target,
+  type TargetRules,
 } from "@/lib/targets";
 import { NUTRIENTS } from "@/lib/nutrition/types";
 
@@ -78,7 +80,13 @@ function draftFrom(profile: Profile): Draft {
  * is the only thing that writes. The live preview is a preview, never the
  * authority.
  */
-export function ProfileEditor({ profile }: { profile: Profile }) {
+export function ProfileEditor({
+  profile,
+  rules = DEFAULT_TARGET_RULES,
+}: {
+  profile: Profile;
+  rules?: TargetRules;
+}) {
   const [state, action, pending] = useActionState(saveProfileAction, INITIAL);
   const [draft, setDraft] = useState<Draft>(() => draftFrom(profile));
   const [showMath, setShowMath] = useState(false);
@@ -103,7 +111,7 @@ export function ProfileEditor({ profile }: { profile: Profile }) {
 
   const live = parsed.ok ? parsed.profile : null;
   const breakdown = live ? energyBreakdown(live) : null;
-  const targets = live ? targetsFor(live) : [];
+  const targets = live ? targetsFor(live, rules) : [];
   const weeks = live ? projectionWeeks(live) : null;
   const dirty = JSON.stringify(draftFrom(profile)) !== JSON.stringify(draft);
 

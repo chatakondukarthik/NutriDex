@@ -1,5 +1,5 @@
 import { combine, type NutrientCoverage, type Rollup } from "@/lib/nutrition/engine";
-import { NUTRIENTS, type NutrientCode } from "@/lib/nutrition/types";
+import { NUTRIENTS, NUTRIENT_CODES, type NutrientCode } from "@/lib/nutrition/types";
 import { energyBreakdown, type Profile } from "@/lib/profile";
 
 /**
@@ -37,6 +37,91 @@ import { energyBreakdown, type Profile } from "@/lib/profile";
 
 export type GuidanceRole = "daily-anchor" | "weekly-minimum" | "weekly-limit";
 
+/**
+ * How a bar reads a ratio, and how much deviation still counts as on target.
+ *
+ * The defaults are the behaviour the app shipped with: amber as soon as an
+ * amount passes the target, red at 20% over, and a ±10% verdict tolerance
+ * (±15% for sugar, whose label values are less precise). They are stored as
+ * fractions so the assessment and the bar cannot disagree, and a user can
+ * move them in Settings without touching code.
+ */
+export interface TargetRules {
+  /** Fraction over target where amber starts. 0 means "as soon as it is over". */
+  amberOver: number;
+  /** Fraction over target where red starts. Must be at least `amberOver`. */
+  redAt: number;
+  /** Fraction of the target that still counts as met, below or above. */
+  tolerance: number;
+  /** Sugar gets its own, wider tolerance by default. */
+  sugarTolerance: number;
+  /** User-set daily reference values. A missing code uses the profile value. */
+  overrides: Partial<Record<NutrientCode, number>>;
+}
+
+export const DEFAULT_TARGET_RULES: TargetRules = {
+  amberOver: 0,
+  redAt: 0.2,
+  tolerance: 0.1,
+  sugarTolerance: 0.15,
+  overrides: {},
+};
+
+const MAX_TARGET_OVERRIDE = 100_000;
+
+/**
+ * Read a stored or submitted rule set without trusting it.
+ *
+ * Settings are user content and an archive may restore them, so this is a
+ * parser: unknown nutrient codes are dropped, non-finite values fall back to
+ * the default, and percentages are clamped to a range the UI can explain.
+ */
+export function normalizeTargetRules(raw: unknown): TargetRules {
+  const input = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const fraction = (value: unknown, fallback: number, min: number, max: number): number => {
+    const n = typeof value === "number" ? value : Number(value);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
+  };
+
+  const amberOver = fraction(input.amberOver, DEFAULT_TARGET_RULES.amberOver, 0, 1);
+  const redAt = Math.max(
+    amberOver,
+    fraction(input.redAt, DEFAULT_TARGET_RULES.redAt, 0, 2),
+  );
+  const tolerance = fraction(input.tolerance, DEFAULT_TARGET_RULES.tolerance, 0, 0.5);
+  const sugarTolerance = fraction(
+    input.sugarTolerance,
+    DEFAULT_TARGET_RULES.sugarTolerance,
+    0,
+    0.5,
+  );
+
+  const overrides: Partial<Record<NutrientCode, number>> = {};
+  const rawOverrides =
+    input.overrides && typeof input.overrides === "object"
+      ? (input.overrides as Record<string, unknown>)
+      : {};
+  for (const [code, value] of Object.entries(rawOverrides)) {
+    if (!(NUTRIENT_CODES as readonly string[]).includes(code)) continue;
+    const n = typeof value === "number" ? value : Number(value);
+    if (!Number.isFinite(n) || n <= 0 || n > MAX_TARGET_OVERRIDE) continue;
+    overrides[code as NutrientCode] = n;
+  }
+
+  return { amberOver, redAt, tolerance, sugarTolerance, overrides };
+}
+
+export function isDefaultTargetRules(rules: TargetRules): boolean {
+  return (
+    rules.amberOver === DEFAULT_TARGET_RULES.amberOver &&
+    rules.redAt === DEFAULT_TARGET_RULES.redAt &&
+    rules.tolerance === DEFAULT_TARGET_RULES.tolerance &&
+    rules.sugarTolerance === DEFAULT_TARGET_RULES.sugarTolerance &&
+    Object.keys(rules.overrides).length === 0
+  );
+}
+
 export interface Target {
   code: NutrientCode;
   /** Reference amount for one day. */
@@ -46,6 +131,10 @@ export interface Target {
   role: GuidanceRole;
   /** How far from the reference still counts as on target, as a fraction. */
   tolerance: number;
+  /** Fraction over target where the bar turns amber. */
+  amberOver: number;
+  /** Fraction over target where the bar turns red. */
+  redAt: number;
 }
 
 export interface GuidanceGroup {
@@ -100,23 +189,21 @@ const ROLE_BY_CODE: Record<NutrientCode, GuidanceRole> = {
   VITB6: "weekly-minimum",
 };
 
-const TOLERANCE: Partial<Record<NutrientCode, number>> = {
-  ENERC_KCAL: 0.1,
-  PROCNT: 0.1,
-  FAT: 0.1,
-  SUGAR: 0.15,
-  NA: 0.1,
-};
-
 /**
  * Build the daily target set for a profile.
  *
  * Direction comes from the nutrient vocabulary, so a nutrient cannot be a
  * limit in one screen and a minimum in another. The role comes from the
  * table above for the same reason.
+ *
+ * `rules` are the user's status thresholds and optional per-nutrient
+ * overrides. The profile still supplies the recommended value, so clearing
+ * an override returns to the recommendation rather than to a hardcoded
+ * number.
  */
-export function targetsFor(profile: Profile): Target[] {
+export function targetsFor(profile: Profile, rules: TargetRules = DEFAULT_TARGET_RULES): Target[] {
   const breakdown = energyBreakdown(profile);
+  const normalized = normalizeTargetRules(rules);
 
   const values: Record<NutrientCode, number> = {
     ENERC_KCAL: profile.targetEnergyKcal ?? breakdown.target,
@@ -144,11 +231,15 @@ export function targetsFor(profile: Profile): Target[] {
 
   return (Object.keys(values) as NutrientCode[]).map((code) => ({
     code,
-    value: values[code],
+    value: normalized.overrides[code] ?? values[code],
     direction: NUTRIENTS[code].direction,
     period: "day" as const,
     role: ROLE_BY_CODE[code],
-    tolerance: TOLERANCE[code] ?? 0.1,
+    // Sugar keeps its own, wider default because label values are less
+    // precise; every other nutrient follows the general tolerance.
+    tolerance: code === "SUGAR" ? normalized.sugarTolerance : normalized.tolerance,
+    amberOver: normalized.amberOver,
+    redAt: normalized.redAt,
   }));
 }
 
@@ -173,6 +264,9 @@ export interface Assessment {
   /** `actual / target`, or null when unknown. */
   ratio: number | null;
   coverage: NutrientCoverage;
+  /** Fractions over target where the bar turns amber and red. */
+  amberOver: number;
+  redAt: number;
 }
 
 /** The reference amount for a period. Weeks are seven days, by definition. */
@@ -202,6 +296,8 @@ export function assessDay(rollup: Rollup, targets: Target[]): Assessment[] {
         target: reference,
         ratio: null,
         coverage,
+        amberOver: target.amberOver,
+        redAt: target.redAt,
       };
     }
 
@@ -226,6 +322,8 @@ export function assessDay(rollup: Rollup, targets: Target[]): Assessment[] {
       target: reference,
       ratio,
       coverage,
+      amberOver: target.amberOver,
+      redAt: target.redAt,
     };
   });
 }
@@ -255,6 +353,8 @@ export function assessWeek(rollups: Rollup[], targets: Target[]): Assessment[] {
         target: reference,
         ratio: null,
         coverage,
+        amberOver: target.amberOver,
+        redAt: target.redAt,
       };
     }
 
@@ -279,6 +379,8 @@ export function assessWeek(rollups: Rollup[], targets: Target[]): Assessment[] {
       target: reference,
       ratio,
       coverage,
+      amberOver: target.amberOver,
+      redAt: target.redAt,
     };
   });
 }

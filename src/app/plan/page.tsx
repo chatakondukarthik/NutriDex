@@ -1,8 +1,9 @@
 import { PlanBoard } from "@/components/plan-board";
 import { listFoods } from "@/lib/db/foods";
-import { today } from "@/lib/db/entries";
+import { today, listEntries } from "@/lib/db/entries";
 import { getPlan, listPlanEntries } from "@/lib/db/plan";
 import { getProfile } from "@/lib/db/profile";
+import { getTargetRules } from "@/lib/db/settings";
 import { listRecipeOptions } from "@/lib/db/recipes";
 import { weekStart } from "@/lib/plan";
 import { isDefaultProfile } from "@/lib/profile";
@@ -38,8 +39,9 @@ export default async function PlanPage({ searchParams }: PlanPageProps) {
       foods={listFoods()}
       recipes={listRecipeOptions()}
       entries={entries}
-      targets={targetsFor(profile)}
+      targets={targetsFor(profile, getTargetRules())}
       profileIsDefault={isDefaultProfile(profile)}
+      hasDiaryEntries={listEntries(today()).length > 0}
     />
   );
 }

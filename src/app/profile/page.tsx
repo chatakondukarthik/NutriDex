@@ -1,5 +1,6 @@
 import { ProfileEditor } from "@/components/profile-editor";
 import { getProfile } from "@/lib/db/profile";
+import { getTargetRules } from "@/lib/db/settings";
 import { isDefaultProfile } from "@/lib/profile";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,7 @@ export default function ProfilePage() {
         </p>
       )}
 
-      <ProfileEditor profile={profile} />
+      <ProfileEditor profile={profile} rules={getTargetRules()} />
 
       <footer className="mt-5">
         <p className="text-[11px] leading-relaxed text-faint">

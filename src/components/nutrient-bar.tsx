@@ -3,7 +3,12 @@
 import { fmt } from "@/lib/format";
 import type { Rollup } from "@/lib/nutrition/engine";
 import { NUTRIENTS, type NutrientCode } from "@/lib/nutrition/types";
-import type { Assessment, AssessmentStatus, Target } from "@/lib/targets";
+import {
+  DEFAULT_TARGET_RULES,
+  type Assessment,
+  type AssessmentStatus,
+  type Target,
+} from "@/lib/targets";
 
 /**
  * One nutrient against one reference amount.
@@ -35,12 +40,16 @@ export function NutrientBar(props: NutrientBarProps) {
           reference: props.assessment.target,
           status: props.assessment.status,
           coverage: props.assessment.coverage,
+          amberOver: props.assessment.amberOver,
+          redAt: props.assessment.redAt,
         }
       : {
           actual: props.result.totals[code],
           reference: props.target?.value ?? null,
           status: localStatus(props.result.totals[code], props.target),
           coverage: props.result.coverage[code],
+          amberOver: props.target?.amberOver ?? DEFAULT_TARGET_RULES.amberOver,
+          redAt: props.target?.redAt ?? DEFAULT_TARGET_RULES.redAt,
         };
 
   const unknown = view.actual == null;
@@ -54,7 +63,9 @@ export function NutrientBar(props: NutrientBarProps) {
 
   // Overflow escalation: going over a target is fine for weekly-minimums,
   // but for everything else (and for all nutrients once you are clearly
-  // past it) the bar escalates yellow -> red. See docs/research Q-011.
+  // past it) the bar escalates yellow -> red. The two cut-offs come from
+  // the user's rules, so the bar and the verdict cannot disagree. See
+  // docs/research Q-011.
   const ratio =
     view.reference != null && view.actual != null && view.reference > 0
       ? view.actual / view.reference
@@ -62,9 +73,9 @@ export function NutrientBar(props: NutrientBarProps) {
   const overflow: "none" | "warn" | "danger" =
     unknown || view.reference == null
       ? "none"
-      : ratio >= 1.2
+      : ratio >= 1 + view.redAt
         ? "danger"
-        : ratio > 1
+        : ratio > 1 + view.amberOver
           ? "warn"
           : "none";
 

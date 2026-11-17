@@ -89,6 +89,46 @@ export default function AboutPage() {
         </Section>
 
         <Section
+          title="When a bar changes colour"
+          lead="The colours are a reading aid, not a grade. The exact rules are below, and you can change them."
+        >
+          <dl className="space-y-3">
+            <Row term="Amber">
+              An amount that is past the target. Out of the box that is “as soon as it is over”,
+              which is why a weekly limit turns amber before it is a problem.
+            </Row>
+            <Row term="Red">
+              An amount at or past 20% over the target. This is the only “clearly past it”
+              signal; there is no red for a shortfall.
+            </Row>
+            <Row term="On target">
+              Within ±10% of the reference, either side. Sugars use ±15% because a label value
+              is less precise than a weighed ingredient.
+            </Row>
+            <Row term="Day versus week">
+              Energy and protein are judged day by day. Every other nutrient is judged on the
+              week total, so a low-fibre Tuesday is grey rather than red. A weekly limit turns
+              amber only when the week is over.
+            </Row>
+            <Row term="Overrides">
+              A per-nutrient value replaces the profile recommendation for every day, and the
+              week total becomes seven times that value. Clearing it returns to the
+              recommendation.
+            </Row>
+          </dl>
+
+          <p className="mt-4 text-xs leading-relaxed text-muted">
+            All of these are editable in{" "}
+            <Link href="/settings" className="font-medium text-accent underline underline-offset-2">
+              Settings → Status colours and targets
+            </Link>
+            . Red is kept at or above amber, percentages are clamped to a range the screen can
+            explain, and a restored archive carries the same values. The thresholds change the
+            colour and the verdict, never the recommended amount itself.
+          </p>
+        </Section>
+
+        <Section
           title="Where the food data comes from"
           lead="The seed dataset exists to prove the engine works. It is not yet the verified production dataset."
         >
