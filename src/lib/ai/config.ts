@@ -1,8 +1,9 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
+import { dataFile } from "@/lib/data-dir";
 import type { AiConfig } from "./types";
 
-const CONFIG_PATH = path.join(process.cwd(), "data", "ai-config.json");
+const CONFIG_PATH = dataFile("ai-config.json");
 
 export function readAiConfig(): AiConfig | null {
   if (!existsSync(CONFIG_PATH)) return null;

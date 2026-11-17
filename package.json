@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "postbuild": "node scripts/check-standalone.mjs",
     "start": "next start",
     "test": "vitest run",
     "test:watch": "vitest",

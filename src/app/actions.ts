@@ -15,13 +15,14 @@ import { saveProfile } from "@/lib/db/profile";
 import { getRecipe, getVersion } from "@/lib/db/recipes";
 import { getFood } from "@/lib/db/foods";
 import { resolveDefaultAmount, getFoodDefaultPin, setFoodDefaultPin } from "@/lib/db/defaults";
-import { toGrams, parseUnitKey, MAX_GRAMS, type Unit } from "@/lib/nutrition/units";
+import { toGrams, parseUnitKey, MAX_GRAMS, UNITS, type Unit } from "@/lib/nutrition/units";
 import { SLOTS, weekDays, weekStart, type PlanEntry, type Slot } from "@/lib/plan";
 import { parseProfile } from "@/lib/profile";
 import { saveRecipeDraft, type RecipeDraft } from "@/lib/recipes";
 import { builderFromVersion } from "@/lib/recipe-draft";
 import { builderToDraft } from "@/lib/recipe-draft";
 import type { CapturedFoodInput } from "@/lib/captured-food";
+import { publicError } from "@/lib/security/errors";
 
 export interface AddResult {
   ok: boolean;
@@ -29,6 +30,18 @@ export interface AddResult {
 }
 
 const VALID_UNITS: Unit[] = ["g", "kg", "ml", "l", "portion"];
+
+/**
+ * Every catch in this file returns a fixed sentence, never `error.message`:
+ * raw messages carry file paths, SQL and — in the AI layer — provider
+ * response bodies. The detail is logged server-side instead.
+ */
+function fail(fallback: string, error: unknown, context: string): { ok: false; message: string } {
+  return { ok: false, message: publicError(fallback, error, context) };
+}
+
+/** Servings are counts, not weights — bound them like the plan path bounds grams. */
+const MAX_SERVINGS = 1000;
 
 /**
  * Add a food to today's list.
@@ -113,7 +126,7 @@ export async function saveRecipeAction(draft: RecipeDraft): Promise<SaveRecipeRe
   } catch (error) {
     return {
       ok: false,
-      message: error instanceof Error ? error.message : "Could not save the recipe.",
+      message: publicError("Could not save the recipe.", error),
     };
   }
 }
@@ -263,7 +276,7 @@ export async function addPlanEntryAction(input: {
   } catch (error) {
     return {
       ok: false,
-      message: error instanceof Error ? error.message : "Could not add that item.",
+      message: publicError("Could not add that item.", error),
     };
   }
 }
@@ -299,7 +312,7 @@ export async function updatePlanEntryQuantityAction(
   } catch (error) {
     return {
       ok: false,
-      message: error instanceof Error ? error.message : "Could not update that item.",
+      message: publicError("Could not update that item.", error),
     };
   }
 }
@@ -341,7 +354,7 @@ export async function movePlanEntryAction(input: {
   } catch (error) {
     return {
       ok: false,
-      message: error instanceof Error ? error.message : "Could not move that item.",
+      message: publicError("Could not move that item.", error),
     };
   }
 }
@@ -447,7 +460,7 @@ export async function defaultAmountAction(foodId: string): Promise<{
     if (!resolved) return { ok: false, message: "That food does not exist." };
     return { ok: true, amount: resolved.amount, unit: resolved.unit, source: resolved.source };
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : "Could not resolve a default." };
+    return { ok: false, message: publicError("Could not resolve a default.", error) };
   }
 }
 
@@ -480,15 +493,22 @@ export async function saveFoodDefaultAction(
       if (!Number.isFinite(pin.amount) || pin.amount <= 0) {
         return { ok: false, message: "Default amount must be a positive number." };
       }
-      if (typeof pin.unit !== "string" || pin.unit.length === 0) {
-        return { ok: false, message: "Pick a default unit." };
+      if (pin.amount > 100_000) {
+        return { ok: false, message: "That default amount is too large." };
+      }
+      // Units are a closed vocabulary — an unknown one used to be stored
+      // happily and then silently fail conversion at read time. The pin may
+      // hold any unit the converter knows, so check the full set.
+      const knownUnits: string[] = UNITS.map((u) => u.value);
+      if (!knownUnits.includes(pin.unit)) {
+        return { ok: false, message: "Unsupported unit." };
       }
     }
     setFoodDefaultPin(foodId, pin);
     revalidatePath("/foods");
     return { ok: true, foodId };
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : "Could not save the default." };
+    return { ok: false, message: publicError("Could not save the default.", error) };
   }
 }
 
@@ -504,6 +524,14 @@ export interface AiConfigResult {
   message?: string;
 }
 
+/**
+ * Persist the AI config.
+ *
+ * Three things a caller used to control freely: the four `baseUrl` fields
+ * (which later receive the stored API key as a Bearer header), the provider
+ * ids (which select which key is sent), and `dailyCallCap` (the only cost
+ * brake). All three are validated here rather than stored and trusted.
+ */
 export async function saveAiConfigAction(input: {
   enabled?: boolean;
   provider: string;
@@ -521,60 +549,127 @@ export async function saveAiConfigAction(input: {
   dailyCallCap?: number;
   key?: string;
 }): Promise<AiConfigResult> {
-  const config = {
-    enabled: input.enabled !== false,
-    provider: input.provider as any,
-    model: input.model.trim(),
-    baseUrl: input.baseUrl?.trim() || undefined,
-    fallbackProvider: (input.fallbackProvider || undefined) as any,
-    fallbackModel: input.fallbackModel?.trim() || undefined,
-    fallbackBaseUrl: input.fallbackBaseUrl?.trim() || undefined,
-    imageProvider: (input.imageProvider || undefined) as any,
-    imageModel: input.imageModel?.trim() || undefined,
-    imageBaseUrl: input.imageBaseUrl?.trim() || undefined,
-    imageFallbackProvider: (input.imageFallbackProvider || undefined) as any,
-    imageFallbackModel: input.imageFallbackModel?.trim() || undefined,
-    imageFallbackBaseUrl: input.imageFallbackBaseUrl?.trim() || undefined,
-    dailyCallCap: input.dailyCallCap,
-  };
-  if (!config.model) return { ok: false, message: "Pick a model." };
-  if (input.key && input.key.trim()) {
-    setKey(input.provider, input.key);
+  try {
+    const { ADAPTERS } = await import("@/lib/ai/adapters");
+    const { validateOutboundUrl } = await import("@/lib/security/urls");
+    const { effectiveDailyCap, clampDailyCap } = await import("@/lib/ai/client");
+    const known = Object.keys(ADAPTERS);
+
+    const provider = String(input.provider ?? "").trim();
+    if (!known.includes(provider)) return { ok: false, message: "Unknown provider." };
+    const fallbackProvider = input.fallbackProvider?.trim();
+    if (fallbackProvider && !known.includes(fallbackProvider)) {
+      return { ok: false, message: "Unknown fallback provider." };
+    }
+    const imageProvider = input.imageProvider?.trim();
+    if (imageProvider && !known.includes(imageProvider)) {
+      return { ok: false, message: "Unknown image provider." };
+    }
+    const imageFallbackProvider = input.imageFallbackProvider?.trim();
+    if (imageFallbackProvider && !known.includes(imageFallbackProvider)) {
+      return { ok: false, message: "Unknown image provider." };
+    }
+
+    // Reject bad endpoints on save so the mistake surfaces in the form,
+    // and re-check in the adapters so a hand-edited config is caught too.
+    const baseUrls: Array<[string, string | undefined]> = [
+      ["Base URL", input.baseUrl],
+      ["Fallback base URL", input.fallbackBaseUrl],
+      ["Image base URL", input.imageBaseUrl],
+      ["Image fallback base URL", input.imageFallbackBaseUrl],
+    ];
+    for (const [label, value] of baseUrls) {
+      if (!value?.trim()) continue;
+      const verdict = await validateOutboundUrl(value.trim());
+      if (!verdict.ok) return { ok: false, message: `${label}: ${verdict.reason}` };
+    }
+
+    const model = String(input.model ?? "").trim().slice(0, 200);
+    if (!model) return { ok: false, message: "Pick a model." };
+
+    const config = {
+      enabled: input.enabled !== false,
+      provider,
+      model,
+      baseUrl: input.baseUrl?.trim() || undefined,
+      fallbackProvider: (fallbackProvider || undefined) as any,
+      fallbackModel: input.fallbackModel?.trim() || undefined,
+      fallbackBaseUrl: input.fallbackBaseUrl?.trim() || undefined,
+      imageProvider: (imageProvider || undefined) as any,
+      imageModel: input.imageModel?.trim() || undefined,
+      imageBaseUrl: input.imageBaseUrl?.trim() || undefined,
+      imageFallbackProvider: (imageFallbackProvider || undefined) as any,
+      imageFallbackModel: input.imageFallbackModel?.trim() || undefined,
+      imageFallbackBaseUrl: input.imageFallbackBaseUrl?.trim() || undefined,
+      // Absent means "use the default"; an out-of-range number is clamped
+      // again at read time, so a stale file cannot disable the brake.
+      dailyCallCap:
+        input.dailyCallCap === undefined ? undefined : clampDailyCap(input.dailyCallCap),
+    };
+    if (input.key && input.key.trim()) {
+      setKey(provider, input.key.trim());
+    }
+    writeAiConfig(config as any);
+    revalidatePath("/settings");
+    return { ok: true };
+  } catch (error) {
+    return fail("Could not save the AI settings.", error, "saveAiConfigAction");
   }
-  writeAiConfig(config as any);
-  revalidatePath("/settings");
-  return { ok: true };
 }
 
 export async function removeAiKeyAction(provider: string): Promise<AiConfigResult> {
-  setKey(provider, null);
-  revalidatePath("/settings");
-  return { ok: true };
+  try {
+    setKey(provider, null);
+    revalidatePath("/settings");
+    return { ok: true };
+  } catch (error) {
+    return fail("Could not remove the key.", error, "removeAiKeyAction");
+  }
 }
 
 export async function setAiKeyAction(provider: string, key: string): Promise<AiConfigResult> {
-  setKey(provider, key);
-  revalidatePath("/settings");
-  return { ok: true };
+  try {
+    // setKey throws when the key comes from the environment instead of the
+    // file — that used to escape as an unhandled 500.
+    setKey(provider, String(key ?? "").trim());
+    revalidatePath("/settings");
+    return { ok: true };
+  } catch (error) {
+    return fail(
+      "That key could not be stored — it may be set through an environment variable.",
+      error,
+      "setAiKeyAction",
+    );
+  }
 }
 
+/**
+ * The three actions below hit the provider outside `complete()`, so they
+ * must pass through `withAiBudget` themselves — otherwise "test
+ * connection" and "list models" were free, unlimited calls that made the
+ * daily cap decorative. `getAdapter` moved inside the try too: an unknown
+ * provider used to throw before the handler.
+ */
 export async function testAiConnectionAction(): Promise<AiConfigResult & { latencyMs?: number }> {
-  const config = getAiConfig();
-  if (!hasKey(config.provider)) return { ok: false, message: "No key configured." };
-  const adapter = getAdapter(config.provider);
-  const start = Date.now();
   try {
-    await adapter.complete(config, {
-      capability: "text",
-      system: "Reply with the single word: ok",
-      prompt: "ping",
-      temperature: 0,
-      maxTokens: 8,
-      timeoutMs: 20_000,
-    });
+    const config = getAiConfig();
+    if (!hasKey(config.provider)) return { ok: false, message: "No key configured." };
+    const adapter = getAdapter(config.provider);
+    const { withAiBudget } = await import("@/lib/ai/client");
+    const start = Date.now();
+    await withAiBudget("text", () =>
+      adapter.complete(config, {
+        capability: "text",
+        system: "Reply with the single word: ok",
+        prompt: "ping",
+        temperature: 0,
+        maxTokens: 8,
+        timeoutMs: 20_000,
+      }),
+    );
     return { ok: true, latencyMs: Date.now() - start };
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : "Connection failed." };
+    return { ok: false, message: publicError("Connection failed.", error, "testAiConnectionAction") };
   }
 }
 
@@ -583,44 +678,71 @@ export async function testProviderAction(input: {
   model: string;
   baseUrl?: string;
 }): Promise<AiConfigResult & { latencyMs?: number }> {
-  const secrets = await import("@/lib/ai/secrets");
-  const adapters = await import("@/lib/ai/adapters");
-  if (!secrets.hasKey(input.provider)) {
-    return { ok: false, message: "No key configured for that provider." };
-  }
-  const config = {
-    provider: input.provider as any,
-    model: input.model,
-    baseUrl: input.baseUrl,
-  } as any;
-  const adapter = adapters.getAdapter(input.provider);
-  const start = Date.now();
   try {
-    await adapter.complete(config, {
-      capability: "text",
-      system: "Reply with the single word: ok",
-      prompt: "ping",
-      temperature: 0,
-      maxTokens: 8,
-      timeoutMs: 20_000,
-    });
+    const secrets = await import("@/lib/ai/secrets");
+    const adapters = await import("@/lib/ai/adapters");
+    const { withAiBudget } = await import("@/lib/ai/client");
+
+    const provider = String(input.provider ?? "").trim();
+    if (!adapters.ADAPTERS[provider]) return { ok: false, message: "Unknown provider." };
+    if (!secrets.hasKey(provider)) {
+      return { ok: false, message: "No key configured for that provider." };
+    }
+
+    const baseUrl = input.baseUrl?.trim() || undefined;
+    if (baseUrl) {
+      // This URL never touches the config file — it goes straight to the
+      // adapter, so it is validated here as well as at save time.
+      const { validateOutboundUrl } = await import("@/lib/security/urls");
+      const verdict = await validateOutboundUrl(baseUrl);
+      if (!verdict.ok) return { ok: false, message: verdict.reason };
+    }
+
+    const config = {
+      provider,
+      model: String(input.model ?? "").trim().slice(0, 200),
+      baseUrl,
+    } as any;
+    const adapter = adapters.getAdapter(provider);
+    const start = Date.now();
+    await withAiBudget("text", () =>
+      adapter.complete(config, {
+        capability: "text",
+        system: "Reply with the single word: ok",
+        prompt: "ping",
+        temperature: 0,
+        maxTokens: 8,
+        timeoutMs: 20_000,
+      }),
+    );
     return { ok: true, latencyMs: Date.now() - start };
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : "Connection failed." };
+    return { ok: false, message: publicError("Connection failed.", error, "testProviderAction") };
   }
 }
 
 export async function listAiModelsAction(): Promise<{ ok: boolean; models?: { id: string; label: string }[]; message?: string }> {
-  const config = getAiConfig();
-  if (!hasKey(config.provider)) return { ok: false, message: "No key configured." };
-  const adapter = getAdapter(config.provider);
   try {
-    const models = await adapter.listModels({ ...config, baseUrl: config.baseUrl });
+    const config = getAiConfig();
+    if (!hasKey(config.provider)) return { ok: false, message: "No key configured." };
+    const adapter = getAdapter(config.provider);
+    const { withAiBudget } = await import("@/lib/ai/client");
+    const models = await withAiBudget("text", () =>
+      adapter.listModels({ ...config, baseUrl: config.baseUrl }),
+    );
     return { ok: true, models: models.map((m) => ({ id: m.id, label: m.label })) };
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : "Could not list models." };
+    return { ok: false, message: publicError("Could not list models.", error, "listAiModelsAction") };
   }
 }
+
+/** BYO_LLM §8: max 10 images, 5 MB each — enforced server-side, not just in the file picker. */
+const MAX_IMAGES = 10;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+/** Aggregate budget across one request: 10 × 5 MB would be a 50 MB post. */
+const MAX_TOTAL_IMAGE_BYTES = 12 * 1024 * 1024;
+/** Free text that becomes prompt tokens: cap it before it becomes spend. */
+const MAX_PROMPT_CHARS = 8_000;
 
 export async function extractFoodAction(input: {
   mode: "text" | "image";
@@ -633,13 +755,33 @@ export async function extractFoodAction(input: {
     return { ok: false, message: "AI is turned off in Settings." };
   }
   try {
-    const proposal =
-      input.mode === "image"
-        ? await extractFoodFromImage(input.images ?? [], input.note)
-        : await extractFoodFromText(input.text ?? "");
+    if (input.mode === "image") {
+      const images = input.images ?? [];
+      if (images.length > MAX_IMAGES) {
+        return { ok: false, message: `Attach at most ${MAX_IMAGES} images.` };
+      }
+      let total = 0;
+      for (const image of images) {
+        const bytes = Math.floor((image?.data?.length ?? 0) * 0.75);
+        total += bytes;
+        if (bytes > MAX_IMAGE_BYTES) {
+          return { ok: false, message: "One of those images is over 5 MB." };
+        }
+        if (!/^[\w.+-]+\/[\w.+-]+$/.test(image?.mimeType ?? "")) {
+          return { ok: false, message: "That image type is not supported." };
+        }
+      }
+      if (total > MAX_TOTAL_IMAGE_BYTES) {
+        return { ok: false, message: "Those images add up to more than 12 MB — attach fewer." };
+      }
+      const proposal = await extractFoodFromImage(images, input.note?.slice(0, MAX_PROMPT_CHARS));
+      return { ok: true, proposal };
+    }
+    const text = (input.text ?? "").slice(0, MAX_PROMPT_CHARS);
+    const proposal = await extractFoodFromText(text);
     return { ok: true, proposal };
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : "Extraction failed." };
+    return { ok: false, message: publicError("Extraction failed.", error, "extractFoodAction") };
   }
 }
 
@@ -662,42 +804,52 @@ export async function copyPlanDayAction(
   targetDay: string,
 ): Promise<{ ok: boolean; message?: string; count?: number }> {
   const { weekStart, weekDays } = await import("@/lib/plan");
-  const sourceWeek = weekStart(sourceDay);
-  const targetWeek = weekStart(targetDay);
-  if (!weekDays(sourceWeek).includes(sourceDay)) return { ok: false, message: "Invalid source day." };
-  if (!weekDays(targetWeek).includes(targetDay)) return { ok: false, message: "Invalid target day." };
-
-  const sourcePlan = getOrCreatePlan(sourceWeek);
-  const targetPlan = getOrCreatePlan(targetWeek);
-  const entries = listPlanEntries(sourcePlan.id).filter((e) => e.day === sourceDay);
-
-  let count = 0;
-  for (const entry of entries) {
-    if (entry.foodId) {
-      addPlanEntry({
-        planId: targetPlan.id,
-        day: targetDay,
-        slot: entry.slot,
-        foodId: entry.foodId,
-        grams: entry.grams ?? 0,
-        amount: entry.amount ?? undefined,
-        unit: entry.unit ?? undefined,
-      });
-    } else if (entry.recipeVersionId) {
-      addPlanEntry({
-        planId: targetPlan.id,
-        day: targetDay,
-        slot: entry.slot,
-        recipeVersionId: entry.recipeVersionId,
-        servings: entry.servings ?? 1,
-      });
-    }
-    count++;
+  // `weekStart("abc")` → Invalid Date → `toISOString()` throws RangeError
+  // out of the action. Validate the shape before any date math (the add
+  // and move actions already do this via isDay).
+  if (!isDay(sourceDay) || !isDay(targetDay)) {
+    return { ok: false, message: "That date is not valid." };
   }
+  try {
+    const sourceWeek = weekStart(sourceDay);
+    const targetWeek = weekStart(targetDay);
+    if (!weekDays(sourceWeek).includes(sourceDay)) return { ok: false, message: "Invalid source day." };
+    if (!weekDays(targetWeek).includes(targetDay)) return { ok: false, message: "Invalid target day." };
 
-  revalidatePath("/plan");
-  revalidatePath("/");
-  return { ok: true, count };
+    const sourcePlan = getOrCreatePlan(sourceWeek);
+    const targetPlan = getOrCreatePlan(targetWeek);
+    const entries = listPlanEntries(sourcePlan.id).filter((e) => e.day === sourceDay);
+
+    let count = 0;
+    for (const entry of entries) {
+      if (entry.foodId) {
+        addPlanEntry({
+          planId: targetPlan.id,
+          day: targetDay,
+          slot: entry.slot,
+          foodId: entry.foodId,
+          grams: entry.grams ?? 0,
+          amount: entry.amount ?? undefined,
+          unit: entry.unit ?? undefined,
+        });
+      } else if (entry.recipeVersionId) {
+        addPlanEntry({
+          planId: targetPlan.id,
+          day: targetDay,
+          slot: entry.slot,
+          recipeVersionId: entry.recipeVersionId,
+          servings: entry.servings ?? 1,
+        });
+      }
+      count++;
+    }
+
+    revalidatePath("/plan");
+    revalidatePath("/");
+    return { ok: true, count };
+  } catch (error) {
+    return { ...fail("Could not copy that day.", error, "copyPlanDayAction") };
+  }
 }
 
 export async function copyPlanWeekAction(
@@ -705,46 +857,53 @@ export async function copyPlanWeekAction(
   targetWeekStart: string,
 ): Promise<{ ok: boolean; message?: string; count?: number }> {
   const { weekDays } = await import("@/lib/plan");
-  const sourceDays = weekDays(sourceWeekStart);
-  const targetDays = weekDays(targetWeekStart);
-  if (sourceDays.length !== 7 || targetDays.length !== 7) {
-    return { ok: false, message: "Invalid week." };
+  if (!isDay(sourceWeekStart) || !isDay(targetWeekStart)) {
+    return { ok: false, message: "That date is not valid." };
   }
-
-  const sourcePlan = getOrCreatePlan(sourceWeekStart);
-  const targetPlan = getOrCreatePlan(targetWeekStart);
-  const sourceEntries = listPlanEntries(sourcePlan.id);
-
-  let count = 0;
-  for (const entry of sourceEntries) {
-    const dayIndex = sourceDays.indexOf(entry.day);
-    if (dayIndex < 0) continue;
-    const targetDay = targetDays[dayIndex];
-    if (entry.foodId) {
-      addPlanEntry({
-        planId: targetPlan.id,
-        day: targetDay,
-        slot: entry.slot,
-        foodId: entry.foodId,
-        grams: entry.grams ?? 0,
-        amount: entry.amount ?? undefined,
-        unit: entry.unit ?? undefined,
-      });
-    } else if (entry.recipeVersionId) {
-      addPlanEntry({
-        planId: targetPlan.id,
-        day: targetDay,
-        slot: entry.slot,
-        recipeVersionId: entry.recipeVersionId,
-        servings: entry.servings ?? 1,
-      });
+  try {
+    const sourceDays = weekDays(sourceWeekStart);
+    const targetDays = weekDays(targetWeekStart);
+    if (sourceDays.length !== 7 || targetDays.length !== 7) {
+      return { ok: false, message: "Invalid week." };
     }
-    count++;
-  }
 
-  revalidatePath("/plan");
-  revalidatePath("/");
-  return { ok: true, count };
+    const sourcePlan = getOrCreatePlan(sourceWeekStart);
+    const targetPlan = getOrCreatePlan(targetWeekStart);
+    const sourceEntries = listPlanEntries(sourcePlan.id);
+
+    let count = 0;
+    for (const entry of sourceEntries) {
+      const dayIndex = sourceDays.indexOf(entry.day);
+      if (dayIndex < 0) continue;
+      const targetDay = targetDays[dayIndex];
+      if (entry.foodId) {
+        addPlanEntry({
+          planId: targetPlan.id,
+          day: targetDay,
+          slot: entry.slot,
+          foodId: entry.foodId,
+          grams: entry.grams ?? 0,
+          amount: entry.amount ?? undefined,
+          unit: entry.unit ?? undefined,
+        });
+      } else if (entry.recipeVersionId) {
+        addPlanEntry({
+          planId: targetPlan.id,
+          day: targetDay,
+          slot: entry.slot,
+          recipeVersionId: entry.recipeVersionId,
+          servings: entry.servings ?? 1,
+        });
+      }
+      count++;
+    }
+
+    revalidatePath("/plan");
+    revalidatePath("/");
+    return { ok: true, count };
+  } catch (error) {
+    return { ...fail("Could not copy that week.", error, "copyPlanWeekAction") };
+  }
 }
 
 export async function promoteFoodToRecipeAction(foodId: string): Promise<{ ok: boolean; recipeId?: string; message?: string }> {
@@ -791,11 +950,18 @@ export async function lookupBarcodeAction(barcode: string): Promise<{
   message?: string;
 }> {
   try {
+    const { rateLimit } = await import("@/lib/security/rate-limit");
+    // Each of these costs an upstream call and can stall a socket for 10 s;
+    // without a window, a loop eats the shared DEMO_KEY quota.
+    const budget = rateLimit("off:barcode", 30, 60_000);
+    if (!budget.ok) {
+      return { ok: false, message: `Too many lookups — try again in ${budget.retryAfter}s.` };
+    }
     const product = await lookupBarcode(barcode);
     if (!product) return { ok: false, message: "Not found in Open Food Facts. Try a different barcode or add it manually." };
     return { ok: true, proposal: offToInput(product) };
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : "Lookup failed." };
+    return { ...fail("Lookup failed.", error, "lookupBarcodeAction") };
   }
 }
 
@@ -807,7 +973,12 @@ export async function searchUsdaAction(query: string): Promise<{
   message?: string;
 }> {
   try {
-    const foods = await searchUsda(query);
+    const { rateLimit } = await import("@/lib/security/rate-limit");
+    const budget = rateLimit("usda:search", 30, 60_000);
+    if (!budget.ok) {
+      return { ok: false, message: `Too many searches — try again in ${budget.retryAfter}s.` };
+    }
+    const foods = await searchUsda(String(query ?? "").slice(0, 200));
     return {
       ok: true,
       results: foods.map((f) => ({
@@ -818,34 +989,75 @@ export async function searchUsdaAction(query: string): Promise<{
       })),
     };
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : "Search failed." };
+    return { ...fail("Search failed.", error, "searchUsdaAction") };
   }
 }
 
 export async function importUsdaAction(fdcId: number): Promise<{ ok: boolean; proposal?: any; message?: string }> {
   try {
+    // Interpolated into `https://api.nal.usda.gov/fdc/v1/food/${fdcId}`:
+    // the host is fixed, but a string-typed value could reshape the path
+    // and query. Only a positive integer is a food id.
+    const id = Number(fdcId);
+    if (!Number.isInteger(id) || id <= 0 || id > 2_147_483_647) {
+      return { ok: false, message: "That food id is not valid." };
+    }
+    const { rateLimit } = await import("@/lib/security/rate-limit");
+    const budget = rateLimit("usda:import", 30, 60_000);
+    if (!budget.ok) {
+      return { ok: false, message: `Too many imports — try again in ${budget.retryAfter}s.` };
+    }
     const { getUsdaFood, usdaToInput } = await import("@/lib/food-sources/usda");
-    const food = await getUsdaFood(fdcId);
+    const food = await getUsdaFood(id);
     if (!food) return { ok: false, message: "That food could not be loaded." };
     return { ok: true, proposal: usdaToInput(food) };
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : "Import failed." };
+    return { ...fail("Import failed.", error, "importUsdaAction") };
   }
 }
 
+/** Pasted CSV used to arrive unbounded — only the framework's 1 MB cap applied. */
+const MAX_IMPORT_CSV_CHARS = 400_000;
+const MAX_IMPORT_ERRORS = 50;
 
 export async function importInndbAction(
   csvText: string,
   mappingJson?: string,
 ): Promise<{ ok: boolean; imported?: number; skipped?: number; errors?: { row: number; name: string; message: string }[]; message?: string }> {
   try {
+    if (typeof csvText !== "string" || csvText.length === 0) {
+      return { ok: false, message: "Paste a CSV to import." };
+    }
+    if (csvText.length > MAX_IMPORT_CSV_CHARS) {
+      return { ok: false, message: "That CSV is too large — import it in smaller batches." };
+    }
     const { importInndb, DEFAULT_INNDB_MAPPING } = await import("@/lib/importer/inndb");
-    const mapping = mappingJson ? JSON.parse(mappingJson) : DEFAULT_INNDB_MAPPING;
+    let mapping: import("@/lib/importer/inndb").InndbMapping = DEFAULT_INNDB_MAPPING;
+    if (mappingJson) {
+      if (mappingJson.length > 10_000) {
+        return { ok: false, message: "That column mapping is too large." };
+      }
+      const parsed = JSON.parse(mappingJson);
+      // Shape-check before it drives column lookups: unknown keys are
+      // ignored downstream, but the name field must be a usable string.
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return { ok: false, message: "That column mapping is not valid." };
+      }
+      if (parsed.name !== undefined && typeof parsed.name !== "string") {
+        return { ok: false, message: "That column mapping is not valid." };
+      }
+      mapping = parsed as import("@/lib/importer/inndb").InndbMapping;
+    }
     const result = importInndb(csvText, mapping);
     revalidatePath("/foods");
-    return { ok: true, imported: result.imported, skipped: result.skipped, errors: result.errors };
+    return {
+      ok: true,
+      imported: result.imported,
+      skipped: result.skipped,
+      errors: result.errors.slice(0, MAX_IMPORT_ERRORS),
+    };
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : "Import failed." };
+    return { ...fail("Import failed.", error, "importInndbAction") };
   }
 }
 
@@ -874,6 +1086,15 @@ export async function deleteCapturedFoodAction(foodId: string): Promise<{ ok: bo
 import { saveGraphDraft } from "@/lib/recipes-v2";
 import type { Graph } from "@/lib/nutrition/graph";
 
+/**
+ * A graph arrives from the client as JSON with no size limit beyond the
+ * framework body cap — 1 MB of nodes means a full recompute plus a
+ * multi-megabyte snapshot write. Cap the shape, not just the bytes.
+ */
+const MAX_GRAPH_NODES = 300;
+const MAX_GRAPH_EDGES = 600;
+const MAX_LAYOUT_KEYS = 600;
+
 export async function saveGraphAction(input: {
   recipeId?: string | null;
   name: string;
@@ -885,21 +1106,37 @@ export async function saveGraphAction(input: {
   mode?: "new-version" | "replace-current";
   replaceVersionId?: string | null;
 }): Promise<{ ok: boolean; recipeId?: string; message?: string }> {
-  const result = saveGraphDraft({
-    recipeId: input.recipeId ?? null,
-    name: input.name,
-    versionLabel: input.versionLabel ?? null,
-    instructions: input.instructions,
-    servings: input.servings,
-    layout: input.layout,
-    graph: input.graph,
-    mode: input.mode,
-    replaceVersionId: input.replaceVersionId ?? null,
-  });
-  if (!result.ok) return { ok: false, message: result.message };
-  revalidatePath("/recipes");
-  revalidatePath(`/recipes/${result.recipeId}`);
-  return { ok: true, recipeId: result.recipeId };
+  try {
+    if (!input?.graph || !Array.isArray(input.graph.nodes) || !Array.isArray(input.graph.edges)) {
+      return { ok: false, message: "That recipe graph is not valid." };
+    }
+    if (input.graph.nodes.length > MAX_GRAPH_NODES || input.graph.edges.length > MAX_GRAPH_EDGES) {
+      return { ok: false, message: "That recipe is too large to save." };
+    }
+    if (input.layout && Object.keys(input.layout).length > MAX_LAYOUT_KEYS) {
+      return { ok: false, message: "That layout is too large." };
+    }
+    if (input.mode !== undefined && input.mode !== "new-version" && input.mode !== "replace-current") {
+      return { ok: false, message: "Unknown save mode." };
+    }
+    const result = saveGraphDraft({
+      recipeId: input.recipeId ?? null,
+      name: typeof input.name === "string" ? input.name : "",
+      versionLabel: input.versionLabel ?? null,
+      instructions: typeof input.instructions === "string" ? input.instructions : "",
+      servings: input.servings,
+      layout: input.layout,
+      graph: input.graph,
+      mode: input.mode,
+      replaceVersionId: input.replaceVersionId ?? null,
+    });
+    if (!result.ok) return { ok: false, message: result.message };
+    revalidatePath("/recipes");
+    revalidatePath(`/recipes/${result.recipeId}`);
+    return { ok: true, recipeId: result.recipeId };
+  } catch (error) {
+    return { ...fail("Could not save that recipe.", error, "saveGraphAction") };
+  }
 }
 
 import { estimateNodeDeltas, type NodeEstimate } from "@/lib/ai/estimate";
@@ -913,6 +1150,12 @@ export async function estimateNodeDeltasAction(input: {
   const { isAiEnabled, getAiConfig } = await import("@/lib/ai/client");
   if (!isAiEnabled()) return { ok: false, message: "AI is turned off in Settings." };
   try {
+    if (!Array.isArray(input?.inputs) || input.inputs.length > 60) {
+      return { ok: false, message: "That step has too many ingredients to estimate." };
+    }
+    if (typeof input.operation !== "string" || input.operation.length > 60) {
+      return { ok: false, message: "That step name is not valid." };
+    }
     const config = getAiConfig();
     if (!(await import("@/lib/ai/secrets")).hasKey(config.provider)) {
       return { ok: false, message: "No key configured. Add one in Settings." };
@@ -920,7 +1163,7 @@ export async function estimateNodeDeltasAction(input: {
     const estimate = await estimateNodeDeltas(input);
     return { ok: true, estimate };
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : "Estimation failed." };
+    return { ...fail("Estimation failed.", error, "estimateNodeDeltasAction") };
   }
 }
 
@@ -932,7 +1175,7 @@ export async function convertAllRecipesToV2Action(): Promise<{ ok: boolean; conv
     revalidatePath("/recipes");
     return { ok: true, ...result };
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : "Conversion failed." };
+    return { ok: false, message: publicError("Conversion failed.", error) };
   }
 }
 
@@ -942,6 +1185,12 @@ import { resolvePlanFoods, type PlanFoodResolution } from "@/lib/ai/food-resolve
 export async function previewRecipeFromPromptAction(
   input: { prompt: string; recipeId?: string | null },
 ): Promise<{ ok: boolean; plan?: RecipePlan; resolutions?: PlanFoodResolution[]; message?: string }> {
+  if (typeof input?.prompt !== "string" || !input.prompt.trim()) {
+    return { ok: false, message: "Ask for a dish first." };
+  }
+  if (input.prompt.length > 8_000) {
+    return { ok: false, message: "Keep the request under 8,000 characters." };
+  }
   try {
     let existing;
     if (input.recipeId) {
@@ -966,7 +1215,7 @@ export async function previewRecipeFromPromptAction(
   } catch (error) {
     return {
       ok: false,
-      message: error instanceof Error ? error.message : "Could not plan that recipe.",
+      message: publicError("Could not plan that recipe.", error, "previewRecipeFromPromptAction"),
     };
   }
 }
@@ -981,7 +1230,24 @@ export async function createRecipeFromPlanAction(
   },
 ): Promise<{ ok: boolean; recipeId?: string; message?: string }> {
   try {
-    const base = input as RecipePlan;
+    // The plan arrives from the client here, fully attacker-controlled:
+    // validate its shape (operations, weights, servings, step count)
+    // before it can become a stored graph.
+    const { validateRecipePlan } = await import("@/lib/ai-generate-recipe");
+    const valid = validateRecipePlan(input);
+    if (!valid.ok) return { ok: false, message: valid.message };
+
+    if (input.mode !== undefined && input.mode !== "new-version" && input.mode !== "replace-current") {
+      return { ok: false, message: "Unknown save mode." };
+    }
+    if (input.recipeId != null && typeof input.recipeId !== "string") {
+      return { ok: false, message: "That recipe id is not valid." };
+    }
+    if (input.replaceVersionId != null && typeof input.replaceVersionId !== "string") {
+      return { ok: false, message: "That version id is not valid." };
+    }
+
+    const base = valid.plan;
     const saved = await materializeRecipe(base, input.recipeId ?? undefined, {
       mode: input.mode,
       replaceVersionId: input.replaceVersionId ?? null,
@@ -1011,7 +1277,7 @@ export async function createRecipeFromPlanAction(
   } catch (error) {
     return {
       ok: false,
-      message: error instanceof Error ? error.message : "Could not create the recipe.",
+      message: publicError("Could not create the recipe.", error),
     };
   }
 }
@@ -1030,11 +1296,14 @@ export async function addRecipeEntryAction(input: {
   if (!Number.isFinite(servings) || servings <= 0) {
     return { ok: false, message: "Servings must be a positive number." };
   }
+  if (servings > MAX_SERVINGS) {
+    return { ok: false, message: `Servings must be ${MAX_SERVINGS} or fewer.` };
+  }
 
   // Grams are a convenience for display (per-serving input mass).
   const snapshot = version.snapshot as unknown as { inputGrams?: number };
   const perServing = input.servings === 0 ? 1 : snapshot.inputGrams ? snapshot.inputGrams / version.servings : 0;
-  const totalGrams = perServing * servings;
+  const totalGrams = Number.isFinite(perServing * servings) ? perServing * servings : 0;
 
   addRecipeDiaryEntry({
     recipeVersionId: input.recipeVersionId,
@@ -1143,7 +1412,7 @@ export async function estimateFoodNutrientsAction(
   } catch (error) {
     return {
       ok: false,
-      message: error instanceof Error ? error.message : "The estimate failed.",
+      message: publicError("The estimate failed.", error),
     };
   }
 }
@@ -1202,7 +1471,7 @@ export async function estimateFoodsAction(input?: {
   } catch (error) {
     return {
       ok: false,
-      message: error instanceof Error ? error.message : "The batch estimate failed.",
+      message: publicError("The batch estimate failed.", error),
     };
   }
 }

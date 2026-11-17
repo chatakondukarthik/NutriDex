@@ -99,6 +99,25 @@ function optionalPositive(
   return null;
 }
 
+/** Bounds `image_path`: it is stored verbatim and later rendered. */
+const MAX_IMAGE_PATH = 500;
+
+/**
+ * Only a bounded `https:` URL may reach `image_path`. It ends up in an
+ * `<img src>`, so a `javascript:`/`data:` URL (XSS) or a megabyte-long
+ * string is dropped to null rather than trimmed, following how the other
+ * optional fields fall back to null.
+ */
+function safeImagePath(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed.length > MAX_IMAGE_PATH) return null;
+  try {
+    return new URL(trimmed).protocol === "https:" ? trimmed : null;
+  } catch {
+    return null; // not a URL at all
+  }
+}
+
 export function prepareCapturedFood(input: CapturedFoodInput): PrepareCapturedResult {
   const name = input.name.trim();
   if (!name) return { ok: false, message: "Give the food a name." };
@@ -141,8 +160,10 @@ export function prepareCapturedFood(input: CapturedFoodInput): PrepareCapturedRe
   }
 
   const portions = (input.portions ?? []).map((portion) => {
-    const label = portion.label.trim();
-    const source = portion.source?.trim() || null;
+    // Bounded like every other stored string: these are free-text fields
+    // and an unbounded paste would bloat the portion rows.
+    const label = portion.label.trim().slice(0, 80);
+    const source = portion.source?.trim().slice(0, 64) || null;
     return { label, grams: portion.grams, source };
   });
 
@@ -197,16 +218,19 @@ export function prepareCapturedFood(input: CapturedFoodInput): PrepareCapturedRe
     food: {
       name,
       aliases,
-      category: input.category?.trim() || "Custom",
+      // The three free-text fields below carry third-party payloads
+      // (USDA/OFF) and pasted text alike, so each is bounded to keep the
+      // stored row and the CSV/JSON exports a sane size.
+      category: (input.category?.trim() || "Custom").slice(0, 80),
       kind,
       state,
       densityGPerMl: input.densityGPerMl ?? null,
       basis,
       servingSizeG: input.servingSizeG ?? null,
       servingsPerPack: input.servingsPerPack ?? null,
-      source: input.source?.trim() || "manual",
-      sourceCode: input.sourceCode?.trim() || null,
-      imagePath: input.imagePath?.trim() || null,
+      source: (input.source?.trim() || "manual").slice(0, 200),
+      sourceCode: input.sourceCode?.trim().slice(0, 64) || null,
+      imagePath: safeImagePath(input.imagePath),
       confidence: input.confidence ?? null,
       nutrients,
       portions,

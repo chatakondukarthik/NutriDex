@@ -1,0 +1,60 @@
+# NutriPlan — single-service compose file.
+#
+# The port is published on loopback on purpose. A reverse proxy on the host
+# (nginx/Caddy) terminates TLS and reaches the app at 127.0.0.1:3000; the
+# container itself is not exposed to the network. To run the proxy as a
+# container instead, remove the `127.0.0.1:` prefix and put both services on
+# an internal network — then the published port is still only reachable from
+# that network's host unless you also change the binding.
+#
+#   cp .env.example .env      # fill in the gate mode and any AI keys
+#   docker compose up -d --build
+#
+# `NUTRIPLAN_ALLOWED_ORIGINS` is a build-time value (Next bakes config into
+# the build). Set it in `.env` before `--build` if your proxy forwards its
+# own upstream host instead of the public one.
+
+services:
+  nutriplan:
+    build:
+      context: .
+      args:
+        NUTRIPLAN_ALLOWED_ORIGINS: ${NUTRIPLAN_ALLOWED_ORIGINS:-}
+    image: nutriplan:local
+    restart: unless-stopped
+    env_file:
+      # Optional: a fresh clone has no `.env` and should still boot into
+      # `local` gate mode rather than fail to start.
+      - path: .env
+        required: false
+    environment:
+      # Keep these consistent with the image defaults; declared here so a
+      # reader can see where state lives.
+      NUTRIPLAN_DATA_DIR: /data
+      NODE_ENV: production
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - nutriplan-data:/data
+    # The image's HEALTHCHECK covers readiness; compose also gates startup.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    # Defence in depth: the container needs no new privileges and only writes
+    # to its data volume.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  nutriplan-data:

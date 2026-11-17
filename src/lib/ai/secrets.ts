@@ -1,13 +1,17 @@
 import { readFileSync, writeFileSync, existsSync, chmodSync, mkdirSync } from "node:fs";
 import path from "node:path";
+import { dataFile } from "@/lib/data-dir";
 
 /**
  * Keys live in `data/secrets.json` (mode 0600) or in env vars
  * `NUTRIPLAN_AI_<PROVIDER>_KEY`. Env wins, but both set is an error.
+ *
+ * For a deployment, prefer the env vars: nothing secret then lives on the
+ * writable volume, and the key never appears in a file backup.
  */
 
 function secretsPath(): string {
-  return path.join(process.cwd(), "data", "secrets.json");
+  return dataFile("secrets.json");
 }
 
 export function envKeyFor(provider: string): string {

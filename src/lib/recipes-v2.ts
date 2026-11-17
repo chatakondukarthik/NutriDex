@@ -141,12 +141,19 @@ export function saveGraphDraft(draft: GraphDraft): SaveGraphResult {
   };
 
   try {
-    if (draft.mode === "replace-current" && draft.replaceVersionId) {
-      if (draft.recipeId) {
-        const owner = getVersionOwner(draft.replaceVersionId);
-        if (owner !== draft.recipeId) {
-          return { ok: false, message: "That version does not belong to this recipe." };
-        }
+    if (draft.mode === "replace-current") {
+      // Without `recipeId` the ownership check below never ran, so any
+      // caller could rewrite any recipe's version in place by naming its
+      // id — defeating the immutability that plans and the diary pin to.
+      if (!draft.replaceVersionId) {
+        return { ok: false, message: "Choose which version to replace." };
+      }
+      if (!draft.recipeId) {
+        return { ok: false, message: "Open the recipe you want to replace a version in." };
+      }
+      const owner = getVersionOwner(draft.replaceVersionId);
+      if (owner !== draft.recipeId) {
+        return { ok: false, message: "That version does not belong to this recipe." };
       }
       const replaced = replaceVersion(draft.replaceVersionId, version);
       if (!replaced.ok) return { ok: false, message: replaced.message };

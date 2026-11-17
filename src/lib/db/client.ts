@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
+import { dataFile } from "@/lib/data-dir";
 import { SEED_FACTORS } from "@/lib/nutrition/retention-seed";
 
 /**
@@ -15,10 +16,8 @@ const globalForDb = globalThis as unknown as { __nutriplanDb?: DatabaseSync };
 
 function resolveDbPath(): string {
   // NUTRIPLAN_DB_PATH exists so tests can point at a throwaway file.
-  return (
-    process.env.NUTRIPLAN_DB_PATH ??
-    path.join(process.cwd(), "data", "nutriplan.sqlite")
-  );
+  // Otherwise the file lives under NUTRIPLAN_DATA_DIR (or ./data).
+  return process.env.NUTRIPLAN_DB_PATH ?? dataFile("nutriplan.sqlite");
 }
 
 const SCHEMA = `
@@ -337,12 +336,47 @@ function seedRetentionFactors(database: DatabaseSync): void {
   }
 }
 
+/**
+ * The only identifiers `migrate()` may splice into DDL.
+ *
+ * `addColumn` interpolates `table` and `column` into `PRAGMA table_info`
+ * and `ALTER TABLE`, so both must be a plain SQL identifier AND a name
+ * this file's own migration list knows — syntactically valid alone is not
+ * enough, and `definition` stays a string literal at each call site.
+ */
+const MIGRATION_TABLES = new Set([
+  "profile",
+  "recipes",
+  "recipe_versions",
+  "captured_food_nutrients",
+]);
+const MIGRATION_COLUMNS = new Set([
+  "body_fat_percent",
+  "pace",
+  "target_weight_kg",
+  "target_energy_kcal",
+  "archived_at",
+  "label",
+  "note",
+]);
+
+function assertDdlIdentifier(name: string, allowed: ReadonlySet<string>): void {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || !allowed.has(name)) {
+    throw new Error(`Refusing to run DDL for unknown identifier "${name}".`);
+  }
+}
+
 function addColumn(
   database: DatabaseSync,
   table: string,
   column: string,
   definition: string,
 ): void {
+  // Both interpolated call sites below are guarded: nothing reaches SQL
+  // unless it is in the fixed migrate() lists above.
+  assertDdlIdentifier(table, MIGRATION_TABLES);
+  assertDdlIdentifier(column, MIGRATION_COLUMNS);
+
   const columns = database.prepare(`PRAGMA table_info(${table})`).all() as unknown as Array<{
     name: string;
   }>;

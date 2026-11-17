@@ -1,4 +1,5 @@
 import { complete } from "./client";
+import { asData, withMaster, DATA_PREAMBLE, PROMPT_LIMITS } from "./prompt";
 import type { ImagePart } from "./types";
 import type { CapturedFoodInput, CapturedPortionInput } from "@/lib/captured-food";
 import { NUTRIENT_CODES, type NutrientCode } from "@/lib/nutrition/types";
@@ -80,8 +81,8 @@ Rules you must follow:
 export async function extractFoodFromText(text: string): Promise<FoodProposal> {
   const response = await complete({
     capability: "text",
-    system: SYSTEM,
-    prompt: `Description: ${text}\n\nReturn the JSON object now.`,
+    system: withMaster(SYSTEM),
+    prompt: `${DATA_PREAMBLE}\n${asData("description", text, PROMPT_LIMITS.request)}\n\nReturn the JSON object now.`,
     jsonSchema: FOOD_PROPOSAL_SCHEMA,
     temperature: 0,
     maxTokens: 4096,
@@ -95,8 +96,12 @@ export async function extractFoodFromImage(
 ): Promise<FoodProposal> {
   const response = await complete({
     capability: "vision",
-    system: SYSTEM,
-    prompt: `Read the nutrition label in the image and extract a food record.\n${note ? `User note: ${note}` : ""}\nReturn the JSON object now.`,
+    system: withMaster(SYSTEM),
+    prompt:
+      `Read the nutrition label in the image and extract a food record.\n` +
+      `${DATA_PREAMBLE}\n` +
+      `${note ? `${asData("user-note", note, PROMPT_LIMITS.note)}\n` : ""}` +
+      `Return the JSON object now.`,
     images,
     jsonSchema: FOOD_PROPOSAL_SCHEMA,
     temperature: 0,

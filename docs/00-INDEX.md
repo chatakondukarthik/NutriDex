@@ -34,6 +34,7 @@ means writing a new record that supersedes it.
 | [`reference/USER_SCHEMA.md`](reference/USER_SCHEMA.md) | How to add accounts later without a rewrite |
 | [`reference/STACK.md`](reference/STACK.md) | What runs this, and why? |
 | [`reference/TESTING.md`](reference/TESTING.md) | What is tested, how, and what is still manual? |
+| [`DEPLOYMENT.md`](DEPLOYMENT.md) | How is it hosted, gated and backed up? |
 
 Reference docs are updated in the same commit as the code they describe.
 

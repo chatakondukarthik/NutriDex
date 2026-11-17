@@ -1,6 +1,7 @@
 import { getFood } from "@/lib/db/foods";
 import { computeRecipe, type RecipeBlockInput } from "@/lib/nutrition/recipe";
 import { toGrams, type Unit } from "@/lib/nutrition/units";
+import { cleanNote } from "@/lib/notes";
 import type { VersionInput } from "@/lib/db/recipes";
 
 /**
@@ -41,6 +42,10 @@ export type PrepareResult =
 export function prepareVersion(draft: RecipeDraft): PrepareResult {
   const name = draft.name.trim();
   if (!name) return { ok: false, message: "Give the recipe a name." };
+  // Bounds the recipes row: the draft crosses the server-action boundary
+  // unvalidated, so a name is rejected (not silently truncated) like the
+  // other hard failures in this file.
+  if (name.length > 160) return { ok: false, message: "That name is too long." };
 
   if (!Number.isFinite(draft.servings) || draft.servings <= 0) {
     return { ok: false, message: "Servings must be a positive number." };
@@ -91,8 +96,12 @@ export function prepareVersion(draft: RecipeDraft): PrepareResult {
           input.unit === "portion" && input.portionLabel
             ? `portion:${input.portionLabel}`
             : input.unit,
-        preparation: input.preparation?.trim() || null,
-        note: input.note?.trim() || null,
+        // Bounds the component_inputs row: preparation is free text with
+        // no other cap, so a paste is truncated rather than stored whole.
+        preparation: input.preparation?.trim().slice(0, 300) || null,
+        // Notes share the app-wide 1000-char ceiling with every other
+        // note writer (editor, AI, fragments, graph saves).
+        note: cleanNote(input.note) ?? null,
       });
     }
 
@@ -101,7 +110,9 @@ export function prepareVersion(draft: RecipeDraft): PrepareResult {
         ? block.outputGrams
         : null;
 
-    const blockName = block.name?.trim() || `Step ${blockIndex + 1}`;
+    // Bounds the components row: an untrusted block name is truncated,
+    // not rejected — the default still names the step for the user.
+    const blockName = block.name?.trim().slice(0, 160) || `Step ${blockIndex + 1}`;
 
     blockInputs.push({
       name: blockName,
@@ -124,8 +135,10 @@ export function prepareVersion(draft: RecipeDraft): PrepareResult {
   return {
     ok: true,
     version: {
-      label: draft.versionLabel?.trim() || null,
-      instructions: draft.instructions.trim(),
+      // Bounds the recipe_versions row: label and instructions are both
+      // free text straight from the draft, so each is truncated.
+      label: draft.versionLabel?.trim().slice(0, 80) || null,
+      instructions: draft.instructions.trim().slice(0, 10_000),
       servings: draft.servings,
       yieldGrams,
       blocks: storedBlocks,

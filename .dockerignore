@@ -1,0 +1,52 @@
+# Build context hygiene.
+#
+# The important entry is `data/`: it holds `secrets.json` (API keys) and the
+# local database. Without this, `COPY . .` would bake a developer's keys into
+# an image layer, where they stay readable even if a later layer deletes the
+# file.
+
+node_modules
+.next
+out
+build
+dist
+coverage
+
+# Local state and secrets — never in an image.
+data
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.env
+.env.*
+!.env.example
+
+# Version control and tooling
+.git
+.gitignore
+.github
+.codex
+.cursor
+.gemini
+.vscode
+.idea
+.DS_Store
+
+# Docs, tests and specs are not needed to run the server. Keep the image
+# small and the attack surface limited to what ships.
+docs
+tests
+eval
+*.md
+!README.md
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor/build cache
+next-env.d.ts
+tsconfig.tsbuildinfo

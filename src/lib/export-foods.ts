@@ -37,7 +37,13 @@ export function toFoodJson(foods: Food[]): string {
 
 function csvCell(value: unknown): string {
   const text = value == null ? "" : String(value);
-  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  // Formula injection: a leading =, +, -, @, TAB or CR makes Excel and
+  // Sheets execute the cell (=HYPERLINK(...), DDE), so neutralise it with
+  // a leading apostrophe BEFORE quoting. Names come from user entry and
+  // from USDA/Open Food Facts, i.e. not ours. Every CSV cell passes
+  // through here, so toFoodCsv is covered by this one guard.
+  const safe = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+  return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
 export function toFoodCsv(foods: Food[]): string {

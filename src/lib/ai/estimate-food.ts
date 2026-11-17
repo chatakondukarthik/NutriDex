@@ -10,6 +10,7 @@
  */
 
 import { complete, getAiConfig } from "./client";
+import { asData, withMaster, DATA_PREAMBLE, PROMPT_LIMITS } from "./prompt";
 import { NUTRIENTS, NUTRIENT_CODES, type NutrientCode } from "@/lib/nutrition/types";
 import type { Food } from "@/lib/nutrition/types";
 import { getMasterPrompt } from "@/lib/db/settings";
@@ -91,12 +92,22 @@ export async function estimateNutrients(
     .filter((line) => !line.endsWith(": null (unknown)"))
     .join("\n");
 
-  const userPrompt = [
+  // Food names and aliases come from the user, from USDA, from Open Food
+  // Facts and from earlier model output — all untrusted in a prompt. They
+  // are tagged as data rather than interpolated raw.
+  const identity = [
     `Food: ${food.name}`,
     food.aliases.length ? `Also known as: ${food.aliases.join(", ")}` : null,
     `Category: ${food.category} · state: ${food.state} · kind: ${food.kind} · basis: ${food.basis ?? "per_100g"}`,
     food.densityGPerMl ? `Density: ${food.densityGPerMl} g/ml` : null,
     food.servingSizeG ? `Serving size: ${food.servingSizeG} g` : null,
+  ]
+    .filter((line) => line !== null)
+    .join("\n");
+
+  const userPrompt = [
+    DATA_PREAMBLE,
+    asData("food", identity, PROMPT_LIMITS.name * 6),
     "",
     "Missing nutrients to estimate (per 100 g):",
     ...missing.map((code) => `- ${NUTRIENTS[code].label} [${code}] (unit: ${NUTRIENTS[code].unit})`),
@@ -104,15 +115,14 @@ export async function estimateNutrients(
     "Already known (do NOT report these):",
     knownLines || "(nothing)",
     "",
-    "Persona / domain guidance for this user:",
-    masterPrompt,
-  ]
-    .filter((line) => line !== null)
-    .join("\n");
+    "Return the JSON object now.",
+  ].join("\n");
 
   const response = await completeFn({
     capability: "text",
-    system: SYSTEM,
+    // The master prompt lives in the system turn here exactly as it does in
+    // recipe planning, extraction and retention estimation.
+    system: withMaster(SYSTEM, masterPrompt),
     prompt: userPrompt,
     jsonSchema: SCHEMA as unknown as Record<string, unknown>,
     temperature: 0,

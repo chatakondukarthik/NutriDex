@@ -16,12 +16,35 @@ the weekly plan, theming and the target explanation work end to end. See
 ```bash
 npm install
 npm run dev      # http://localhost:3000
-npm test         # 131 tests: engine, recipes, plan, profile, targets, persistence
+npm test         # engine, recipes, plan, profile, targets, persistence, security
 npm run build    # production build
 ```
 
-No database service, no Docker, no API keys. Node 26 ships SQLite, so the app
+No database service, no Docker, no API keys. Node ships SQLite, so the app
 runs from a clean checkout.
+
+By default the app answers only on this machine: a request addressed to a LAN
+hostname gets a 403. That is the `local` request gate, not a login system —
+see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) before opening it up.
+
+---
+
+## Deploy
+
+The app ships as a standalone Node server and a three-stage Docker image, with
+a reverse-proxy configuration for nginx or Caddy, a health endpoint, a single
+data volume, and backup/restore steps.
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+curl -s http://127.0.0.1:3000/api/health   # {"ok":true}
+```
+
+There is **no authentication by design**. Put TLS and a real boundary (proxy
+auth, VPN, or `NUTRIPLAN_GATE=token`) in front of a public deployment.
+Configuration, gate modes, reverse-proxy examples, backups and residual risks
+are in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ---
 
@@ -121,5 +144,6 @@ Start at [`docs/00-INDEX.md`](docs/00-INDEX.md).
 | [`docs/reference/DATA-MODEL.md`](docs/reference/DATA-MODEL.md) | Entities |
 | [`docs/build/PLAN.md`](docs/build/PLAN.md) | Slices and definition of done |
 | [`docs/research/RESEARCH.md`](docs/research/RESEARCH.md) | Open questions |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Hosting, gate modes, reverse proxy, backups |
 
 Specifications live in [`docs/spec/`](docs/spec/).

@@ -14,7 +14,10 @@ export function parseCsv(text: string): { headers: string[]; rows: Record<string
   const rows: Record<string, string>[] = [];
   for (let i = 1; i < nonEmpty.length; i++) {
     const values = splitCsvLine(nonEmpty[i]);
-    const row: Record<string, string> = {};
+    // Headers come from the file, so keys like "__proto__" or
+    // "constructor" are attacker-controlled: a null-prototype row has no
+    // inherited properties to shadow or pollute.
+    const row: Record<string, string> = Object.create(null);
     for (let j = 0; j < headers.length; j++) {
       row[headers[j]] = (values[j] ?? "").trim();
     }

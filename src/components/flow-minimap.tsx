@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
-import { useReactFlow } from "@xyflow/react";
+import { useEffect, useMemo, useState } from "react";
+import { useReactFlow, useViewport } from "@xyflow/react";
 import type { Node } from "@xyflow/react";
 
 const NODE_W = 200;
@@ -12,30 +12,46 @@ const PAD = 40;
  * A preview that mirrors the canvas: every node drawn with the same
  * surface fill and border as its real card, with its label in the muted
  * ink colour. Click to jump the viewport anywhere.
+ *
+ * The visible-pane rectangle is measured in an effect (browser only).
+ * Reading `document` during render used to produce different HTML on the
+ * server (no DOM → fallback 400×300) and on the client (real pane size),
+ * which React reported as a hydration mismatch that it could not patch.
  */
 export function FlowMinimap({ nodes }: { nodes: Node[] }) {
-  const { setCenter, getViewport, getNodesBounds } = useReactFlow();
+  const { setCenter, getNodesBounds } = useReactFlow();
+  const { x: viewX, y: viewY, zoom } = useViewport();
+
+  // null until the pane has been measured, so the server HTML and the
+  // first client render are identical: no rectangle, then it appears.
+  const [pane, setPane] = useState<{ w: number; h: number } | null>(null);
+
+  useEffect(() => {
+    const viewportEl = document.querySelector(".react-flow__viewport");
+    const el = viewportEl?.parentElement ?? null;
+    if (!el) return;
+    const measure = () => setPane({ w: el.clientWidth, h: el.clientHeight });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const view = useMemo(() => {
-    if (nodes.length === 0) return { x: 0, y: 0, w: 320, h: 200, scale: 1 };
+    if (nodes.length === 0) return { x: 0, y: 0, w: 320, h: 200 };
     const bounds = getNodesBounds(nodes);
-    const w = Math.max(bounds.width + PAD * 2, 320);
-    const h = Math.max(bounds.height + PAD * 2, 200);
-    return { x: bounds.x - PAD, y: bounds.y - PAD, w, h, scale: 1 };
+    return {
+      x: bounds.x - PAD,
+      y: bounds.y - PAD,
+      w: Math.max(bounds.width + PAD * 2, 320),
+      h: Math.max(bounds.height + PAD * 2, 200),
+    };
   }, [nodes, getNodesBounds]);
 
-  // Where is the visible viewport right now?
-  const viewport = useMemo(() => {
-    try {
-      const vp = getViewport();
-      const pane = document.querySelector(".react-flow__viewport") as HTMLElement | null;
-      const paneW = pane?.parentElement?.clientWidth ?? 800;
-      const paneH = pane?.parentElement?.clientHeight ?? 600;
-      return { x: -vp.x / vp.zoom, y: -vp.y / vp.zoom, w: paneW / vp.zoom, h: paneH / vp.zoom };
-    } catch {
-      return { x: 0, y: 0, w: 400, h: 300 };
-    }
-  }, [getViewport, nodes]);
+  // Visible region in world coordinates, tracked live while panning.
+  const viewport = pane
+    ? { x: -viewX / zoom, y: -viewY / zoom, w: pane.w / zoom, h: pane.h / zoom }
+    : null;
 
   function jumpTo(clientX: number, clientY: number, el: SVGSVGElement) {
     const rect = el.getBoundingClientRect();
@@ -87,18 +103,20 @@ export function FlowMinimap({ nodes }: { nodes: Node[] }) {
           </g>
         );
       })}
-      {/* viewport rectangle */}
-      <rect
-        x={viewport.x}
-        y={viewport.y}
-        width={Math.max(viewport.w, 40)}
-        height={Math.max(viewport.h, 30)}
-        fill="none"
-        stroke="var(--accent)"
-        strokeWidth="4"
-        strokeDasharray="10 6"
-        opacity="0.9"
-      />
+      {/* viewport rectangle — only once the pane size is known */}
+      {viewport && (
+        <rect
+          x={viewport.x}
+          y={viewport.y}
+          width={Math.max(viewport.w, 40)}
+          height={Math.max(viewport.h, 30)}
+          fill="none"
+          stroke="var(--accent)"
+          strokeWidth="4"
+          strokeDasharray="10 6"
+          opacity="0.9"
+        />
+      )}
     </svg>
   );
 }

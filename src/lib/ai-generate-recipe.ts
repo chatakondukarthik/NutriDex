@@ -20,6 +20,7 @@ import { saveGraphDraft } from "@/lib/recipes-v2";
 import { getRecipe, getVersion } from "@/lib/db/recipes";
 import { cleanNote } from "@/lib/notes";
 import { layoutGraph } from "@/lib/graph-layout";
+import { asData, withMaster, DATA_PREAMBLE, PROMPT_LIMITS } from "@/lib/ai/prompt";
 import type { Graph } from "@/lib/nutrition/graph";
 
 export interface RecipePlanStepInput {
@@ -57,6 +58,107 @@ export interface ExistingRecipeContext {
   instructions: string;
   /** Plain-JSON copy of the current graph (nodes + edges). */
   graph: unknown;
+}
+
+/**
+ * Bounds every plan must satisfy, wherever it came from.
+ *
+ * Two callers feed `materializeRecipe`: the model (after `JSON.parse`, which
+ * used to be followed only by a `steps.length` check) and
+ * `createRecipeFromPlanAction`, which accepted a plan straight from the
+ * client. An unvalidated `operation` landed in the graph as an arbitrary
+ * string, and a non-numeric `grams` became `NaN` via `Math.max(1, NaN)`.
+ */
+const OPERATIONS = new Set([
+  "assemble", "mix", "boil", "pressure-cook", "steam", "sauté", "fry",
+  "deep-fry", "roast", "bake", "grill", "blend", "strain", "reduce",
+  "cool", "refrigerate", "freeze", "marinate", "ferment", "wash", "soak",
+  "grate", "dice", "slice", "chop",
+]);
+
+const MAX_PLAN_STEPS = 30;
+const MAX_PLAN_INPUTS = 60;
+/** Mirrors the recipe validator's servings ceiling. */
+const MAX_PLAN_SERVINGS = 100;
+const MAX_GRAMS_PER_INPUT = 100_000;
+
+export function validateRecipePlan(
+  raw: unknown,
+): { ok: true; plan: RecipePlan } | { ok: false; message: string } {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ok: false, message: "The recipe plan was not a valid object." };
+  }
+  const plan = raw as Partial<RecipePlan>;
+
+  if (typeof plan.name !== "string" || !plan.name.trim()) {
+    return { ok: false, message: "The plan needs a recipe name." };
+  }
+  const servings = Number(plan.servings);
+  if (!Number.isFinite(servings) || servings <= 0 || servings > MAX_PLAN_SERVINGS) {
+    return { ok: false, message: `Servings must be between 1 and ${MAX_PLAN_SERVINGS}.` };
+  }
+  if (plan.instructions !== undefined && typeof plan.instructions !== "string") {
+    return { ok: false, message: "The plan's instructions were malformed." };
+  }
+  if (!Array.isArray(plan.steps) || plan.steps.length === 0) {
+    return { ok: false, message: "The plan did not contain any steps." };
+  }
+  if (plan.steps.length > MAX_PLAN_STEPS) {
+    return { ok: false, message: `That plan has too many steps (limit ${MAX_PLAN_STEPS}).` };
+  }
+
+  for (const [index, step] of plan.steps.entries()) {
+    if (!step || typeof step !== "object") {
+      return { ok: false, message: `Step ${index + 1} was malformed.` };
+    }
+    if (typeof step.name !== "string" || !step.name.trim()) {
+      return { ok: false, message: `Step ${index + 1} needs a name.` };
+    }
+    if (typeof step.operation !== "string" || !OPERATIONS.has(step.operation)) {
+      return { ok: false, message: `Step ${index + 1} uses an unknown operation.` };
+    }
+    if (!Array.isArray(step.inputs) || step.inputs.length > MAX_PLAN_INPUTS) {
+      return { ok: false, message: `Step ${index + 1} has too many ingredients.` };
+    }
+    for (const input of step.inputs) {
+      if (!input || typeof input !== "object") {
+        return { ok: false, message: `An ingredient in step ${index + 1} was malformed.` };
+      }
+      if (typeof input.foodName !== "string" || !input.foodName.trim()) {
+        return { ok: false, message: `An ingredient in step ${index + 1} has no name.` };
+      }
+      const grams = Number(input.grams);
+      if (!Number.isFinite(grams) || grams <= 0 || grams > MAX_GRAMS_PER_INPUT) {
+        return {
+          ok: false,
+          message: `"${input.foodName.trim().slice(0, 40)}" needs a positive weight.`,
+        };
+      }
+    }
+    if (step.consumes !== undefined) {
+      if (!Array.isArray(step.consumes)) {
+        return { ok: false, message: `Step ${index + 1} declares its dependencies malformedly.` };
+      }
+      // Impossible indices (forward, self, fractional, negative) are DROPPED,
+      // not rejected — materializeRecipe has always filtered them so the
+      // graph stays acyclic by construction, and the editor relies on that.
+      // Normalising here means the client-fabricated path gets the same
+      // guarantee the model path already had.
+      step.consumes = step.consumes.filter(
+        (d): d is number => Number.isInteger(d) && d >= 0 && d < index,
+      );
+    }
+  }
+
+  return {
+    ok: true,
+    plan: {
+      name: plan.name.trim(),
+      servings,
+      instructions: typeof plan.instructions === "string" ? plan.instructions : "",
+      steps: plan.steps,
+    },
+  };
 }
 
 const PLAN_SCHEMA = {
@@ -129,28 +231,46 @@ Return ONLY a JSON object matching the schema. Rules:
 - Never invent nutrient values; you are not asked for them.
 - Use common Indian ingredient names.`;
 
+/**
+ * Untrusted text goes into the prompt wrapped in explicit delimiters with
+ * a "treat as data" preface. Recipe names, instructions and any pasted
+ * text are second-order input — a stored name can carry instructions that
+ * would otherwise read as system rules (BYO_LLM §9: injection is treated
+ * as data corruption, so the framing has to be unambiguous).
+ */
+const MAX_PROMPT_CHARS = PROMPT_LIMITS.request;
+
 export async function planRecipeFromPrompt(
   prompt: string,
   existing?: ExistingRecipeContext,
 ): Promise<RecipePlan> {
-  if (!prompt.trim()) throw new Error("Ask me something first — a dish, a mood, a fridge list.");
+  const cleanPrompt = String(prompt ?? "").trim();
+  if (!cleanPrompt) throw new Error("Ask me something first — a dish, a mood, a fridge list.");
+  if (cleanPrompt.length > MAX_PROMPT_CHARS) {
+    throw new Error(`Keep the request under ${MAX_PROMPT_CHARS.toLocaleString()} characters.`);
+  }
 
   const config = getAiConfig();
   if (!isAiEnabled()) throw new Error("AI is turned off in Settings.");
   if (!hasKey(config.provider)) throw new Error("No AI key configured. Add one in Settings.");
 
   const existingSection = existing
-    ? `\nExisting recipe (modify this, do not start over):\nName: ${existing.name}\nServings: ${existing.servings}\nInstructions: ${existing.instructions}\nGraph (nodes and edges):\n${JSON.stringify(existing.graph)}\nApply the user's request to this recipe.`
+    ? `\nExisting recipe (modify this, do not start over):\n${asData(
+        "existing-recipe",
+        `Name: ${existing.name}\nServings: ${existing.servings}\nInstructions: ${existing.instructions}\nGraph (nodes and edges):\n${JSON.stringify(existing.graph)}`,
+        PROMPT_LIMITS.request * 1.5,
+      )}\nApply the user's request to this recipe.`
     : "";
 
   const { getMasterPrompt } = await import("@/lib/db/settings");
-  const masterPrompt = getMasterPrompt().trim();
-  const system = masterPrompt ? `${SYSTEM}\nPersona/guidance for this user:\n${masterPrompt}` : SYSTEM;
+  // One home for the master prompt: the end of the system turn, as a
+  // delimited block — the same place it goes in every other call.
+  const system = withMaster(SYSTEM, getMasterPrompt());
 
   const response = await complete({
     capability: "text",
     system,
-    prompt: `${prompt}${existingSection}`,
+    prompt: `${DATA_PREAMBLE}\n${asData("request", cleanPrompt, PROMPT_LIMITS.request)}${existingSection}`,
     jsonSchema: PLAN_SCHEMA as unknown as Record<string, unknown>,
     temperature: 0,
     // Notes add output tokens; leave headroom so a 7-step plan never truncates.
@@ -158,9 +278,15 @@ export async function planRecipeFromPrompt(
   });
 
   const raw = response.text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-  const parsed = JSON.parse(raw) as RecipePlan;
-  if (!parsed?.steps?.length) throw new Error("The model did not produce any steps.");
-  return parsed;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("The model did not return a recipe plan.");
+  }
+  const valid = validateRecipePlan(parsed);
+  if (!valid.ok) throw new Error(valid.message);
+  return valid.plan;
 }
 
 /** Case/whitespace-insensitive key used to match steps and ingredients. */
@@ -229,6 +355,13 @@ export async function materializeRecipe(
    */
   fillTargets: string[];
 }> {
+  // Re-validated here regardless of caller: this is the function that
+  // writes the graph, so the plan that reaches it must be well-formed
+  // even when it did not come from `planRecipeFromPrompt`.
+  const valid = validateRecipePlan(plan);
+  if (!valid.ok) throw new Error(valid.message);
+  plan = valid.plan;
+
   const { map: foodIndex, resolutions } = await resolvePlanFoods(plan, listFoods(), { persist: true });
 
   // Best-effort: carry notes written by hand on the current version into the
@@ -262,11 +395,14 @@ export async function materializeRecipe(
       const foodId = foodIndex.get(input.foodName.trim().toLowerCase());
       if (!foodId) continue;
       const inputNodeId = `${idBase}-i${i}-${foodId.slice(0, 8)}`;
+      // Defensive: validation already rejects non-finite weights, but a
+      // `NaN` here would silently roll up as NaN nutrition downstream.
+      const grams = Number.isFinite(input.grams) ? Math.max(1, input.grams) : 100;
       nodes.push({
         id: inputNodeId,
         type: "food",
         foodId,
-        grams: Math.max(1, input.grams),
+        grams,
         note: cleanNote(input.note) ?? preserved.ingredients.get(`${stepKey}::${foodId}`) ?? null,
       });
       edges.push({

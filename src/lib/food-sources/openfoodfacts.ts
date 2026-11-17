@@ -43,6 +43,24 @@ export interface OffProduct {
   servingLabel?: string;
 }
 
+/** Past this the body is not a product record — refuse before JSON.parse. */
+const MAX_RESPONSE_CHARS = 5_000_000;
+
+/**
+ * Read and parse a response with a size cap. `res.json()` would buffer
+ * whatever the endpoint sends first; reading the text lets us bound it
+ * (security checklist: response size capped before parsing).
+ */
+async function readBoundedJson(res: Response): Promise<any> {
+  const text = await res.text();
+  // `.length` counts UTF-16 units rather than bytes — close enough to
+  // bound the memory a hostile or broken endpoint can make us allocate.
+  if (text.length > MAX_RESPONSE_CHARS) {
+    throw new Error("The Open Food Facts response was too large.");
+  }
+  return JSON.parse(text);
+}
+
 export async function lookupBarcode(barcode: string): Promise<OffProduct | null> {
   const code = barcode.trim();
   if (!/^\d{8,14}$/.test(code)) return null;
@@ -53,7 +71,7 @@ export async function lookupBarcode(barcode: string): Promise<OffProduct | null>
     signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) return null;
-  const data = (await res.json()) as any;
+  const data = await readBoundedJson(res);
   if (data?.status !== 1 || !data?.product) return null;
 
   const product = data.product;

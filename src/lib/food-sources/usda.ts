@@ -37,6 +37,24 @@ export interface UsdaFood {
   portions?: { label: string; grams: number; source: string }[];
 }
 
+/** Past this the body is not a food record — refuse before JSON.parse. */
+const MAX_RESPONSE_CHARS = 5_000_000;
+
+/**
+ * Read and parse a response with a size cap. `res.json()` would buffer
+ * whatever the endpoint sends first; reading the text lets us bound it
+ * (security checklist: response size capped before parsing).
+ */
+async function readBoundedJson(res: Response): Promise<any> {
+  const text = await res.text();
+  // `.length` counts UTF-16 units rather than bytes — close enough to
+  // bound the memory a hostile or broken endpoint can make us allocate.
+  if (text.length > MAX_RESPONSE_CHARS) {
+    throw new Error("The USDA response was too large.");
+  }
+  return JSON.parse(text);
+}
+
 export async function searchUsda(query: string): Promise<UsdaFood[]> {
   const q = query.trim();
   if (!q) return [];
@@ -46,7 +64,7 @@ export async function searchUsda(query: string): Promise<UsdaFood[]> {
   // connection must fail fast, not hang the request indefinitely.
   const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
   if (!res.ok) return [];
-  const data = (await res.json()) as any;
+  const data = await readBoundedJson(res);
   const foods = (data?.foods ?? []) as any[];
   return foods.map((f) => {
     const nutrients: Partial<Record<NutrientCode, number>> = {};
@@ -95,11 +113,17 @@ function mapUsdaPortions(f: any): { label: string; grams: number; source: string
 }
 
 export async function getUsdaFood(fdcId: number): Promise<UsdaFood | null> {
+  // The id is spliced into the URL path below. The action layer validates
+  // it too, but a non-integer here would be a path-injection vector, so
+  // reject it before the request exists.
+  if (!Number.isInteger(fdcId) || fdcId <= 0) {
+    throw new Error("Invalid USDA food id.");
+  }
   const key = process.env.NUTRIPLAN_USDA_KEY ?? "DEMO_KEY";
   const url = `https://api.nal.usda.gov/fdc/v1/food/${fdcId}?api_key=${encodeURIComponent(key)}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
   if (!res.ok) return null;
-  const f = (await res.json()) as any;
+  const f = await readBoundedJson(res);
   const nutrients: Partial<Record<NutrientCode, number>> = {};
   for (const n of f.foodNutrients ?? []) {
     const id = n.nutrient?.id ?? n.nutrientId;
