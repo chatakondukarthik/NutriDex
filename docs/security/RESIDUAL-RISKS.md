@@ -90,7 +90,9 @@ checksums, NDJSON for every user-owned table, referenced evidence images and
 an optional `VACUUM INTO` snapshot. Import validates the archive as hostile
 input, runs one transaction, and defaults to merge-without-overwrite.
 Secrets never travel. See `SEC-EXP-01`/`SEC-EXP-03`/`SEC-EXP-04` and D-047.
-**Residual:** no automated cross-machine restore yet (manual R-011).
+**Residual:** the restore is verified into a genuinely fresh data directory
+(`tests/restore-fresh.test.ts`, R-011); a real second-machine run-through is
+still manual and not yet done.
 
 ### G2 — App passphrase lock is not implemented
 **Target:** deferred
