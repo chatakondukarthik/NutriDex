@@ -1,7 +1,7 @@
 # NutriPlan — Testing
 
 **Type:** Reference (updated in the same commit as the code it describes)
-**Last verified:** 2026-11-18 — 63 files, 670 tests passing, `tsc --noEmit` clean.
+**Last verified:** 2026-11-18 — 64 files, 675 tests passing, `tsc --noEmit` clean.
 
 This is the tracker for how NutriPlan is tested: what is automated, what is
 manual, what each category is for, and what is still missing. It is a map, not
@@ -142,10 +142,10 @@ Status values: `Pass` (asserted in CI), `Gap` (known, not asserted), `Plan`
 Colour-contrast and `region` rules are disabled in jsdom (no layout, no app
 shell). Contrast is covered by the token review in R-003, not by axe.
 
-A-005 and A-006 live in `tests/components/plan-board.test.tsx`, A-007 in the
-component test for each dialog, and A-008 in
-`tests/components/site-header.test.tsx`. They are accessibility cases first,
-so they are listed here rather than only under `C-`.
+A-005 and A-006 live in `tests/components/plan-board.test.tsx`, A-007 in
+`tests/components/use-dialog-focus.test.tsx` plus the component test for each
+dialog, and A-008 in `tests/components/site-header.test.tsx`. They are
+accessibility cases first, so they are listed here rather than only under `C-`.
 
 ### D — Data integrity
 
@@ -224,7 +224,7 @@ run by hand and the result recorded here with the date.
 | R-002 | Mobile header: all five nav links reachable below `sm` | 390 px viewport | Pass 2026-11-15 |
 | R-003 | Contrast: every text/background pair ≥ 4.5:1 in light **and** dark | Token review, both themes | Pass 2026-11-15 (token audit) |
 | R-004 | Reduced motion: animations off, nothing essential moves | `data-motion="reduced"` toggle | Pass 2026-11-15 |
-| R-005 | Keyboard-only pass across diary, plan, recipes, profile | Tab/Shift+Tab/Enter/Escape, no mouse | Pass 2026-11-18 — builder 2026-11-15; plan move dialog, every modal, skip link and native form controls covered 2026-11-18. Flow-editor node rewiring is still pointer-only (documented in the editor) |
+| R-005 | Keyboard-only pass across diary, plan, recipes, profile | Tab/Shift+Tab/Enter/Escape, no mouse | Pass 2026-11-18 — builder 2026-11-15; browser check of the skip link, plan move dialog (Enter opens, Escape restores) and item detail 2026-11-18. Flow-editor node rewiring is still pointer-only (documented in the editor) |
 | R-006 | Empty states read as an invitation on every route | Visual pass | Pass 2026-11-18 — diary, plan, recipes, foods and the flow canvas name the next action; first-run card covers an empty profile and week |
 | R-007 | Real camera capture and label OCR on a phone | Device, not simulator | Not run (S6) |
 | R-008 | Drag a recipe card: the preview is a rounded card, not a rectangle | Visual pass | Pass 2026-11-15 |
