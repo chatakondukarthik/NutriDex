@@ -310,14 +310,61 @@ export function parseArchive(buffer: Buffer): ParsedArchive {
 
     const live = columnsOf(db, spec.table);
     const liveNames = new Set(live.map((column) => column.name));
-    const declared = manifest.columns[table];
-    if (!Array.isArray(declared)) fail(`The manifest has no columns for "${table}".`);
+    const declaredRaw = manifest.columns[table];
+    if (
+      !Array.isArray(declaredRaw) ||
+      declaredRaw.some((column) => typeof column !== "string")
+    ) {
+      fail(`The manifest has no valid column list for "${table}".`);
+    }
+    const declared = declaredRaw as string[];
+    if (new Set(declared).size !== declared.length) {
+      fail(`The manifest lists a column twice for "${table}".`);
+    }
 
+    const undeclaredManifestColumns = declared.filter(
+      (column) => !liveNames.has(column) && !spec.omit?.includes(column),
+    );
+    if (undeclaredManifestColumns.length > 0) {
+      warnings.push(
+        `The manifest lists column(s) this build does not have in "${table}": ` +
+          `${undeclaredManifestColumns.sort().join(", ")}.`,
+      );
+    }
+
+    const declaredSet = new Set(declared);
     const unknownColumns = new Set<string>();
-    const rows = parseNdjson(data, table).map((row) => {
+    const parsedRows = parseNdjson(data, table);
+
+    // The manifest count is part of the archive's contract. A file with
+    // fewer rows than promised is a truncated archive, not a merge to
+    // silently accept; checksums prove the bytes, not that they are
+    // complete.
+    const declaredCount = manifest.counts[table];
+    if (
+      typeof declaredCount !== "number" ||
+      !Number.isInteger(declaredCount) ||
+      declaredCount < 0
+    ) {
+      fail(`The manifest has no valid row count for "${table}".`);
+    }
+    if (declaredCount !== parsedRows.length) {
+      fail(
+        `The manifest says "${table}" has ${declaredCount} row(s), but the file has ` +
+          `${parsedRows.length}. The archive is incomplete or was modified.`,
+      );
+    }
+
+    const rows = parsedRows.map((row) => {
       const clean: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(row)) {
         if (spec.omit?.includes(key)) continue;
+        if (!declaredSet.has(key)) {
+          // Older archives may lack a column; a row carrying a column the
+          // manifest never listed is worth naming, but the row itself is
+          // still usable.
+          warnings.push(`"${table}" has an undeclared column "${key}".`);
+        }
         if (!liveNames.has(key)) {
           unknownColumns.add(key);
           continue;
@@ -472,16 +519,33 @@ export function applyArchive(
       const keys = primaryKey(columns);
       if (keys.length === 0) fail(`"${spec.table}" has no primary key, so it cannot be merged.`);
 
-      const incomingColumns = columns
+      const candidateColumns = columns
         .map((column) => column.name)
-        .filter((name) => !spec.omit?.includes(name) && parsedTable.rows.some((row) => name in row));
+        .filter(
+          (name) =>
+            !spec.omit?.includes(name) && parsedTable.rows.some((row) => name in row),
+        );
 
-      const insert = db.prepare(
-        `INSERT INTO ${spec.table} (${incomingColumns.join(", ")})
-         VALUES (${incomingColumns.map(() => "?").join(", ")})`,
-      );
+      // A column omitted by an older archive must be omitted from the
+      // INSERT too, so SQLite applies the column default. Using a table-wide
+      // union and writing `null` for a row that predates the column would
+      // either fail a NOT NULL constraint or store null where the default
+      // was meant to apply.
+      const inserts = new Map<string, ReturnType<typeof db.prepare>>();
+      const insertFor = (rowColumns: readonly string[]) => {
+        const cacheKey = rowColumns.join("\u0000");
+        let statement = inserts.get(cacheKey);
+        if (!statement) {
+          statement = db.prepare(
+            `INSERT INTO ${spec.table} (${rowColumns.join(", ")})
+             VALUES (${rowColumns.map(() => "?").join(", ")})`,
+          );
+          inserts.set(cacheKey, statement);
+        }
+        return statement;
+      };
       const find = db.prepare(
-        `SELECT ${incomingColumns.join(", ")} FROM ${spec.table}
+        `SELECT * FROM ${spec.table}
          WHERE ${keys.map((key) => `${key} = ?`).join(" AND ")}`,
       );
 
@@ -491,7 +555,8 @@ export function applyArchive(
 
       for (let rowIndex = 0; rowIndex < parsedTable.rows.length; rowIndex += 1) {
         const row = parsedTable.rows[rowIndex];
-        const values = incomingColumns.map(
+        const rowColumns = candidateColumns.filter((column) => column in row);
+        const values = rowColumns.map(
           (column) => (row[column] ?? null) as string | number | null,
         );
 
@@ -501,14 +566,14 @@ export function applyArchive(
             | Record<string, unknown>
             | undefined;
           if (existing) {
-            if (sameRow(existing, row, incomingColumns)) kept += 1;
+            if (sameRow(existing, row, rowColumns)) kept += 1;
             else conflicts += 1;
             continue;
           }
         }
 
         try {
-          insert.run(...values);
+          insertFor(rowColumns).run(...values);
           added += 1;
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);

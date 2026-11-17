@@ -452,6 +452,7 @@ describe("hostile archives", () => {
       rewriteEntry(entries, manifest, "data/app_settings.ndjson", (rows) => {
         rows.push({ key: "planted_setting", value: "from the archive" });
       });
+      (manifest.counts as Record<string, number>).app_settings = 2;
     });
 
     const report = importer.importArchive(crafted, { mode: "replace" });
@@ -634,5 +635,122 @@ describe("hostile archives", () => {
 
   it("rejects a non-ZIP file", () => {
     expect(() => importer.parseArchive(Buffer.from("not a zip"))).toThrow(/not a ZIP/);
+  });
+});
+
+describe("archive fidelity", () => {
+  function rebuild(
+    buffer: Buffer,
+    mutate: (entries: Array<{ name: string; data: Buffer }>, manifest: Record<string, unknown>) => void,
+  ): Buffer {
+    const files = readZip(buffer);
+    const manifest = JSON.parse(files.get(manifestPath)!.toString("utf8")) as Record<string, unknown>;
+    const entries = [...files.entries()]
+      .filter(([name]) => name !== manifestPath)
+      .map(([name, data]) => ({ name, data }));
+    mutate(entries, manifest);
+    return writeZip([
+      { name: manifestPath, data: Buffer.from(JSON.stringify(manifest), "utf8") },
+      ...entries,
+    ]);
+  }
+
+  function updateChecksum(
+    manifest: Record<string, unknown>,
+    name: string,
+    data: Buffer,
+  ): void {
+    const listed = (
+      manifest.files as Array<{ path: string; sha256: string; bytes: number }>
+    ).find((file) => file.path === name)!;
+    listed.sha256 = createHash("sha256").update(data).digest("hex");
+    listed.bytes = data.length;
+  }
+
+  function rowsOf(data: Buffer): Array<Record<string, unknown>> {
+    return data
+      .toString("utf8")
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+  }
+
+  function encode(rows: Array<Record<string, unknown>>): Buffer {
+    return Buffer.from(rows.map((row) => JSON.stringify(row)).join("\n") + "\n", "utf8");
+  }
+
+  it("rejects a row count the manifest does not match", () => {
+    const { buffer } = archive.buildArchive();
+    const crafted = rebuild(buffer, (_entries, manifest) => {
+      (manifest.counts as Record<string, number>).entries = 2;
+    });
+    expect(() => importer.parseArchive(crafted)).toThrow(/manifest says "entries" has 2/);
+  });
+
+  it("rejects a duplicated column in the manifest", () => {
+    const { buffer } = archive.buildArchive();
+    const crafted = rebuild(buffer, (_entries, manifest) => {
+      (manifest.columns as Record<string, string[]>).entries = ["id", "id"];
+    });
+    expect(() => importer.parseArchive(crafted)).toThrow(/column twice/);
+  });
+
+  it("applies a column default when an older archive omits the column", () => {
+    const { buffer } = archive.buildArchive();
+    const crafted = rebuild(buffer, (entries, manifest) => {
+      const target = entries.find((entry) => entry.name === "data/profile.ndjson")!;
+      const rows = rowsOf(target.data).map((row) => {
+        delete row.pace;
+        return row;
+      });
+      target.data = encode(rows);
+      updateChecksum(manifest, target.name, target.data);
+      (manifest.columns as Record<string, string[]>).profile = (
+        manifest.columns as Record<string, string[]>
+      ).profile.filter((column) => column !== "pace");
+    });
+
+    importer.importArchive(crafted, { mode: "replace" });
+
+    const pace = (
+      db.prepare("SELECT pace FROM profile WHERE id = 'local'").get() as unknown as {
+        pace: string;
+      }
+    ).pace;
+    expect(pace).toBe("steady");
+  });
+
+  it("applies a default per row when only some rows omit a column", () => {
+    const { buffer } = archive.buildArchive();
+    const crafted = rebuild(buffer, (entries, manifest) => {
+      const target = entries.find((entry) => entry.name === "data/captured_foods.ndjson")!;
+      const [first] = rowsOf(target.data);
+      const second: Record<string, unknown> = {
+        ...first,
+        id: "f2",
+        name: "Upma",
+        aliases: "[]",
+        image_path: null,
+      };
+      delete second.created_by;
+      // The first row still carries the column, so a table-wide union would
+      // write `null` for the second row instead of the default.
+      first.created_by = "local";
+      target.data = encode([first, second]);
+      updateChecksum(manifest, target.name, target.data);
+      (manifest.counts as Record<string, number>).captured_foods = 2;
+    });
+
+    const report = importer.importArchive(crafted, { mode: "replace" });
+    expect(report.tables.find((table) => table.table === "captured_foods")?.added).toBe(2);
+
+    const rows = db
+      .prepare("SELECT id, created_by FROM captured_foods ORDER BY id")
+      .all() as unknown as Array<{ id: string; created_by: string }>;
+    expect(rows).toEqual([
+      { id: "f1", created_by: "local" },
+      { id: "f2", created_by: "local" },
+    ]);
   });
 });
