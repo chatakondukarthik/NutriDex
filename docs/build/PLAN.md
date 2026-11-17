@@ -17,10 +17,12 @@ pipeline; breadth comes later.
 | S3.5 — Theme and transparency | 2–3 days | The product feels designed, and its numbers can be checked | Done |
 | S4 — Trust and ship | 1 week | Someone can use it unaided | In progress |
 | S5 — Testing | 3–4 days | The bugs we ship are the ones we catch | Done (foundation) |
-| S6 — Ingredient capture | 2–3 weeks | A user can add their own food | Planned |
-| S7 — Bring-your-own LLM | 2 weeks | AI helps, and NutriPlan never holds the keys | Planned |
-| S8 — Status colour | 2–3 days | Over-target reads at a glance, and not by colour alone | Planned |
-| S11 — Portability | 3–4 days | The user can leave with everything | In progress (export + import) |
+| S6 — Ingredient capture | 2–3 weeks | A user can add their own food | In progress (manual + barcode) |
+| S7 — Bring-your-own LLM | 2 weeks | AI helps, and NutriPlan never holds the keys | In progress (plumbing, resilience, eval; live run blocked) |
+| S8 — Status colour | 2–3 days | Over-target reads at a glance, and not by colour alone | Done |
+| S9 — Food search and glossary | 1 week | Search and plain-language explanations | In progress (local search + glossary) |
+| S10 — Flow recipes | 2 weeks | A recipe is a graph with retention | Done (auto-layout + convert-all) |
+| S11 — Portability | 3–4 days | The user can leave with everything | In progress (export + import + fresh restore) |
 
 ---
 
@@ -164,7 +166,9 @@ question.
       `sm` instead of scrolling "About" out of reach, icon buttons keep a 36 px
       target, the diary grid can shrink, and row actions are visible without
       hover. Every route fits 320 px with no horizontal overflow.
-- [ ] First-run guidance for an empty profile and an empty week.
+- [x] First-run guidance for an empty profile and an empty week: a "Start
+      here" card names the three steps and marks the ones already done
+      (`src/components/first-run.tsx`).
 - [ ] A keyboard-only pass and an empty-state audit across all routes.
 
 ---
@@ -209,7 +213,7 @@ Full design: [`spec/INGREDIENT_CAPTURE.md`](../spec/INGREDIENT_CAPTURE.md).
 **Done when:**
 
 - [x] A food can be created manually, used once, and found by search later.
-- [ ] A barcode resolves through Open Food Facts and stores the label's basis.
+- [x] A barcode resolves through Open Food Facts and stores the label's basis.
 - [ ] A label photo produces a confirmable proposal with the image kept as
       evidence.
 - [ ] A text description produces one candidate per food, and an ambiguous
@@ -241,8 +245,12 @@ Full design: [`spec/BYO_LLM.md`](../spec/BYO_LLM.md).
 - [x] Gemini, OpenAI, Anthropic and any OpenAI-compatible endpoint can be
       configured, with the model list fetched from the provider.
 - [x] A key can be added, tested and removed; after removal no call is made.
-- [ ] A build-time test proves no key reaches the client bundle.
-- [ ] Transient failures retry, fall back, and degrade to a non-AI path.
+- [x] A build-time test proves no key reaches the client bundle.
+      (`tests/bundle-boundary.test.ts` follows the client import graph and
+      refuses server-only modules, `process.env`, the filesystem and node
+      builtins.)
+- [x] Transient failures retry, fall back, and degrade to a non-AI path.
+      (`tests/ai-resilience.test.ts`.)
 - [x] A golden-set evaluation harness exists and has a baseline score.
       (eval/ scaffold + deterministic tests/extraction.test.ts; live run is opt-in.)
 
@@ -283,8 +291,10 @@ estimates where they do not. See
 - [x] Canvas editor (React Flow) replaces the 5-step wizard; legacy recipes
       open in it and are converted on save / via convert-all.
 - [x] LLM estimation per step (`Ask AI what changes`), cached, revertible.
-- [ ] Auto-layout on demand (dagre) in the editor.
-- [ ] Convert-all action for legacy recipes; plans keep pinned v1 pins.
+- [x] Auto-layout on demand (dagre) in the editor, and once when an existing
+      recipe has no stored layout.
+- [x] Convert-all action for legacy recipes; plans keep pinned v1 pins
+      (`tests/legacy-convert.test.ts`).
 
 ---
 
@@ -299,13 +309,16 @@ everything else tracked.
 - [x] Every bar and total has a defined state below, at and over its target.
 - [x] Colour is one of three channels; every state also has a word and an icon
       (D-039).
-- [ ] The day and week views agree, and the weekly-limit nutrients (fat, sugar,
+- [x] The day and week views agree, and the weekly-limit nutrients (fat, sugar,
       sodium) are judged over the week as well as the day.
-- [ ] Thresholds are stated in words on `/about`, next to the existing rails.
+- [x] Thresholds are stated in words on `/about`, next to the existing rails.
+- [x] Thresholds and per-nutrient targets are user-editable in Settings, with
+      the profile-derived recommendation as the default (D-049).
 
-**Open:** what "over" means for a `daily-anchor` versus a `weekly-limit`, and
-whether the thresholds are a percentage of target or a fixed margin. Both need
-a decision before the work starts.
+**Decided (D-049):** amber is "past the target", red is at or past 20% over,
+and a verdict is on target within ±10% (±15% for sugars). The thresholds are
+fractions of the target, stored with the per-nutrient overrides, and read by
+both the assessment and the bar so a colour cannot disagree with its status.
 
 ---
 
@@ -333,7 +346,10 @@ plane).
       no content is stored online.
 - [ ] Wire the optional identity plane (Supabase auth-only) behind a flag,
       with the app fully usable signed out. (P3, optional — D-048)
-- [ ] Restore on a second machine unaided, as a manual run-through.
+- [x] Restore into a genuinely fresh data directory: schema, evidence and
+      content hashes match (`tests/restore-fresh.test.ts`).
+- [ ] A real second-machine run-through, unaided. (Manual; needs a second
+      machine. The fresh-directory test is the automated equivalent.)
 
 **Non-goals:** sync, collaboration, and a hosted content database.
 

@@ -1,7 +1,7 @@
 # NutriPlan — Testing
 
 **Type:** Reference (updated in the same commit as the code it describes)
-**Last verified:** 2026-11-17 — 52 files, 587 tests passing, `tsc --noEmit` clean.
+**Last verified:** 2026-11-18 — 61 files, 660 tests passing, `tsc --noEmit` clean.
 
 This is the tracker for how NutriPlan is tested: what is automated, what is
 manual, what each category is for, and what is still missing. It is a map, not
@@ -69,12 +69,15 @@ Status values: `Pass` (asserted in CI), `Gap` (known, not asserted), `Plan`
 | U-008 | Recipe draft | Builder→draft conversion, incomplete rows dropped, server-accepted draft, preview matches server, blank servings is missing | Pass (10) |
 | U-009 | Recipe round trip | Stored version rebuilds an equivalent builder, named portion and preparation preserved | Pass (2) |
 | U-010 | Profile | Mifflin default, Katch–McArdle with body fat, PAL, pace rate, rails, floor, effective rate, projection | Pass (42) |
-| U-011 | Targets | Reference values per role, `periodTarget`, `assessDay` judges anchors only, `assessWeek` judges all | Pass (11) |
+| U-011 | Targets | Reference values per role, `periodTarget`, `assessDay` judges anchors only, `assessWeek` judges all; threshold parsing and clamping, per-nutrient overrides, thresholds carried onto every assessment, settings persistence | Pass (27) |
 | U-012 | Plan calendar | Monday start, month/year rollover, seven consecutive days, slot set, ordering | Pass (6) |
 | U-013 | Plan rollup | Food scaled by grams; pinned recipe from snapshot; gone target returns null; empty day unknown; food+recipe combined | Pass (7) |
 | U-014 | Recipe validation | Name, servings, empty blocks, unknown food, bad unit, bad amount, named portions, block naming, non-positive output, snapshot, overflow | Pass (19) |
 | U-015 | Captured food validation | Empty name, omitted nutrients unknown, estimated marking, energy ceiling, portion weight, portion count, alias dedup | Pass (7) |
 | U-016 | AI extraction parsing | Clean JSON, code fences, truncated repair, no-JSON throw, unknown codes ignored, proposal→input | Pass (6) |
+| U-017 | AI provider resilience | Transient failure retried with backoff, fallback provider used, cap spent refuses the fallback, keyless provider not charged | Pass (7) |
+| U-018 | Legacy conversion | Legacy detection, convert-all creates a v2 version, legacy version kept, plan pin unchanged, second run is a no-op | Pass (5) |
+| U-019 | Barcode lookup | Barcode validation before a request, per-100 g mapping, salt→sodium, label serving, size cap, User-Agent and timeout | Pass (7) |
 
 ### C — Component (recipe builder)
 
@@ -93,6 +96,17 @@ Status values: `Pass` (asserted in CI), `Gap` (known, not asserted), `Plan`
 | C-011 | Save stays disabled until name, ingredient and servings are valid | Pass |
 | C-012 | Successful save sends the draft and navigates | Pass |
 | C-013 | Server error is shown and no navigation happens | Pass |
+
+### C — Component (targets, first run, portability)
+
+| ID | Case | Status |
+|---|---|---|
+| C-014 | First-run card names the three steps, marks the ones done, and disappears once the profile is set and there is a log and a plan | Pass |
+| C-015 | Import stays disabled until the archive passed a dry run; changing the file or mode throws that check away | Pass |
+| C-016 | Threshold panel shows the stored values and sends percentages as fractions | Pass |
+| C-017 | Red is never sent below amber, and the panel shows what the action stored | Pass |
+| C-018 | Clearing a per-nutrient override returns that nutrient to the profile recommendation | Pass |
+| C-019 | The nutrient bar takes amber/red from the target on both the assessment and raw-rollup paths | Pass |
 
 ### I — Integration (server actions against a throwaway SQLite file)
 
@@ -148,6 +162,8 @@ shell). Contrast is covered by the token review in R-003, not by axe.
 | D-018 | Merge adds missing rows, keeps existing ones, and reports a differing row as a conflict instead of overwriting it | Pass |
 | D-019 | A dry run changes nothing; a table with zero rows imports without a malformed `INSERT` | Pass |
 | D-020 | Evidence images are restored with their original bytes | Pass |
+| D-021 | A manifest row count, duplicate column list, or undeclared/unknown column is validated; an older archive that omits a column gets the column default per row | Pass |
+| D-022 | An archive restores into a genuinely fresh data directory: schema, evidence and content hashes match the source installation | Pass |
 
 ### P — Performance
 
@@ -168,7 +184,7 @@ still catch a real regression. They are guards, not benchmarks.
 | S-002 | Gram conversion happens on the server; the client's number is never stored | `tests/actions.test.ts` I-001 | Pass |
 | S-003 | An unknown food id cannot reach the database | U-014, I-005 | Pass |
 | S-004 | Overflow and absurd quantities are rejected | U-004, U-014, I-005 | Pass |
-| S-005 | No secrets in the client bundle | — | Gap (no bundle assertion) |
+| S-005 | No secrets in the client bundle | `tests/bundle-boundary.test.ts` | Pass |
 | S-006 | LLM provider keys are server-only and `0600`; not encrypted (OS volume) | `tests/ai-secrets.test.ts`, `tests/private-files.test.ts` | Pass |
 | S-007 | Provider base URLs are SSRF-safe; mapped/NAT64 literals are rejected | `tests/security-urls.test.ts` | Pass |
 | S-008 | Image uploads are size-, type- and count-limited | `tests/actions.test.ts` | Pass |
@@ -177,12 +193,14 @@ still catch a real regression. They are guards, not benchmarks.
 | S-011 | Data directory and files are `0700`/`0600`; atomic writes survive faults | `tests/private-files.test.ts`, `tests/private-files-faults.test.ts` | Pass |
 | S-012 | Graph, recipe, captured-food and import-mapping shapes are bounded | `tests/graph-validate.test.ts`, `tests/actions.test.ts`, `tests/csv.test.ts` | Pass |
 | S-013 | Migrations and transactions recover from an interrupted write | `tests/db-recovery.test.ts` | Pass |
-| S-014 | An imported archive is hostile input: tampered checksums, unlisted files, duplicate manifest paths, local/central header mismatches, unknown tables, traversal names, zip bombs, missing required columns, dangling parents, planted `origin`, refused settings and unsafe image paths are all refused or dropped | `tests/archive.test.ts` | Pass |
+| S-014 | An imported archive is hostile input: tampered checksums, unlisted files, duplicate manifest paths, local/central header mismatches, unknown tables, traversal names, zip bombs, missing required columns, a row count the manifest does not match, duplicate or undeclared columns, dangling parents, planted `origin`, refused settings and unsafe image paths are all refused or dropped | `tests/archive.test.ts` | Pass |
 | S-015 | An upload with no trustworthy `content-length` is abandoned at the byte ceiling, not buffered | `tests/http-body.test.ts` | Pass |
 
-S-005 remains a gap: there is no build-time assertion that a key cannot be
-imported into a client component. Today keys are read only by server modules
-(`src/lib/ai/secrets.ts`, `src/lib/ai/config.ts`).
+S-005 is closed by `tests/bundle-boundary.test.ts`: it starts at every
+`"use client"` module, follows the imports the bundler will follow, stops at
+`"use server"` boundaries, and refuses any reachable module that names a
+secret env var, reads `process.env`, opens the filesystem or imports a node
+builtin.
 
 ---
 
@@ -203,7 +221,7 @@ run by hand and the result recorded here with the date.
 | R-008 | Drag a recipe card: the preview is a rounded card, not a rectangle | Visual pass | Pass 2026-11-15 |
 | R-009 | Placed plan items are copyable and movable | Browser | Pass 2026-11-15 |
 | R-010 | Skeleton shimmer before content on a slow read | Throttled network | Pass 2026-11-15 |
-| R-011 | Restore an archive on a second machine with no account | Download on machine A, copy the ZIP, import on machine B, compare counts | Not run |
+| R-011 | Restore an archive on a second machine with no account | Download on machine A, copy the ZIP, import on machine B, compare counts | Automated equivalent passes 2026-11-18 (`tests/restore-fresh.test.ts`); manual second machine not run |
 
 ---
 

@@ -280,8 +280,9 @@ expect:
 
 ## 11. Security checklist
 
-- [ ] No key in a client bundle. Verified by a build-time test that greps the
-      server build output for the key prefixes.
+- [x] No key in a client bundle. Verified by `tests/bundle-boundary.test.ts`,
+      which follows the client import graph and refuses any reachable module
+      that reads a key, `process.env`, the filesystem or a node builtin.
 - [ ] No key in a log line, an error message, or a call-log row.
 - [ ] No key in the database.
 - [ ] Custom base URLs are validated: `https:`, no private/link-local ranges,

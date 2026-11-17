@@ -154,6 +154,25 @@ Where:   `src/app/api/health/route.ts`, `src/proxy.ts`
 Verify:  Manual: `curl http://127.0.0.1:3000/api/health`.
 Notes:   Accepted for local monitoring. Revisit if the app is ever exposed.
 
+### SEC-LOC-08 — No secret can reach the client bundle
+Status:  verified
+Track:   LOC
+Threat:  A client component imports a server module by accident, carrying
+         `process.env`, the database or a key into JavaScript the browser
+         can read.
+Control: A static import-graph check starts at every `"use client"` module,
+         follows the imports the bundler follows, stops at `"use server"`
+         boundaries, and refuses any reachable module that names a secret
+         env var, reads `process.env`, opens the filesystem or imports a
+         node builtin. Type-only imports are erased by the compiler and are
+         allowed, which is how a panel can share an `ImportReport` type
+         without importing the importer.
+Where:   `tests/bundle-boundary.test.ts`
+Verify:  `npm test -- tests/bundle-boundary.test.ts`; `npm run build`.
+Notes:   This is an import-graph assertion, not a scan of the emitted
+         bundle. It catches the realistic mistake (a client import) without
+         adding a second build to the suite.
+
 ### SEC-LCK-01 — Optional app passphrase lock
 Status:  proposed
 Track:   LCK
@@ -481,7 +500,9 @@ Verify:  `tests/archive.test.ts` → "hostile archives" (tampered file,
          parent, traversal name, entry cap, zip bomb, non-ZIP input,
          duplicate manifest path, local/central header mismatch, planted
          `origin`, refused setting, unsafe image path, seed factors through
-         a replace).
+         a replace), plus "archive fidelity" (a row count the manifest does
+         not match, a duplicated column, an older archive omitting a
+         column, and a default applied per row).
 
 ### SEC-EXP-04 — Import cannot be a one-click overwrite
 Status:  verified
@@ -597,7 +618,7 @@ Verify:  `npm test`
 Status:  verified
 Track:   TST
 Threat:  A security patch breaks an unrelated path.
-Control: `npx tsc --noEmit` and `npm test` (52 files, 587 tests at this
+Control: `npx tsc --noEmit` and `npm test` (61 files, 660 tests at this
          commit).
 Where:   `tests/`
 Verify:  Run both before every commit.

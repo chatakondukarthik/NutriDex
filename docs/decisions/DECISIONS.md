@@ -95,6 +95,7 @@ Entities: [`../reference/DATA-MODEL.md`](../reference/DATA-MODEL.md).
 | D-030 | Daily targets are derived from a stored profile on read, never stored | Agreed | [below](#d-030--targets-are-derived-from-the-profile) |
 | D-031 | Pace is a body-weight rate, and the energy rails are visible | Agreed | [below](#d-031--pace-is-a-body-weight-rate-and-the-rails-are-visible) |
 | D-032 | A day and a week are different judgement windows | Agreed | [below](#d-032--a-day-and-a-week-are-different-judgement-windows) |
+| D-049 | Status thresholds are fractions of the target, stored with per-nutrient overrides and editable by the user | Accepted | [below](#d-049--status-thresholds-are-fractions-of-the-target-and-belong-to-the-user) |
 
 ### Recipe graphs
 
@@ -976,6 +977,49 @@ archive in the user's own storage — not by our database.
 No sync in v1. Adding auth must not gate any feature, and a paused or
 deleted identity project must never make local data unreachable. The
 account can be removed without touching content.
+
+---
+
+### D-049 — Status thresholds are fractions of the target and belong to the user
+
+**Status:** Accepted
+**Date:** 2026-11-18
+**Relates to:** D-030, D-032, D-039
+
+**Context**
+
+S8 asked for yellow/red overflow without defining "over", and the colours
+were hardcoded in the bar (`ratio > 1`, `ratio >= 1.2`) while the verdict
+used a ±10% tolerance in the assessment. Two sources of truth could
+disagree, and a user who wanted a different margin had to edit code.
+
+**Decision**
+
+- Amber is "past the target": `ratio > 1 + amberOver`, default `amberOver = 0`.
+- Red is "clearly over": `ratio >= 1 + redAt`, default `redAt = 0.2`.
+- A verdict is on target within `tolerance`, default ±10%, and ±15% for
+  sugars because a label value is less precise than a weighed ingredient.
+- The values are fractions stored in one `app_settings` row (`target_rules`),
+  parsed by `normalizeTargetRules`, and carried on every `Target` and
+  `Assessment` so the bar and the verdict cannot drift.
+- Per-nutrient overrides live in the same row; a missing code falls back to
+  the profile-derived recommendation. A week uses seven times the daily value.
+- The numeric rules are documented on `/about` and editable in Settings.
+
+**Consequences**
+
+Changing a threshold moves both the colour and the status. An archive can
+restore the row (it is in `IMPORTABLE_SETTINGS`), and a corrupt or hostile
+value is clamped rather than trusted. Recommended amounts still come from
+the profile; an override is a deliberate exception the user can clear.
+
+**Alternatives rejected**
+
+- Fixed margins in grams: they do not transfer across nutrients or people.
+- Only exposing the colour cut-offs: the verdict would still use a hidden
+  tolerance and could contradict the colour.
+- Storing the thresholds in code: no way to answer "why is this amber?" from
+  the UI, and no way to carry a preference to another machine.
 
 ---
 
