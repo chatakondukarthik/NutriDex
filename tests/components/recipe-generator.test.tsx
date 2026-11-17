@@ -57,6 +57,20 @@ describe("create with AI: modal", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it("closes on Escape and returns focus to the trigger", async () => {
+    const user = userEvent.setup();
+    render(<RecipeGenerator aiEnabled={true} mode="create" />);
+    const trigger = screen.getByRole("button", { name: /create with ai/i });
+
+    await user.click(trigger);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+
   it("shows where each ingredient comes from before anything is saved", async () => {
     const user = userEvent.setup();
     render(<RecipeGenerator aiEnabled={true} mode="create" />);

@@ -24,7 +24,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body className="min-h-screen text-ink antialiased">
         <ThemeProvider initial={theme}>
           <SiteHeader />
-          <PageTransition>{children}</PageTransition>
+          {/*
+            The wrapper is the skip link's target: focusing it scrolls the
+            browser to the content instead of the header, and tabbing then
+            continues inside the page.
+          */}
+          <div id="main-content" tabIndex={-1} className="outline-none">
+            <PageTransition>{children}</PageTransition>
+          </div>
         </ThemeProvider>
       </body>
     </html>

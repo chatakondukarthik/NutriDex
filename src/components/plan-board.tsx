@@ -14,6 +14,7 @@ import {
 import { CopyIcon, GripIcon } from "@/components/icons";
 import { NutrientBar } from "@/components/nutrient-bar";
 import { PlanItemSheet, type SheetItem } from "@/components/plan-item-sheet";
+import { PlanMoveDialog } from "@/components/plan-move-dialog";
 import { fmt } from "@/lib/format";
 import { toGrams, unitsFor, parseUnitKey } from "@/lib/nutrition/units";
 import { defaultAmountFor } from "@/lib/nutrition/defaults";
@@ -117,6 +118,7 @@ export function PlanBoard({
   );
   const [error, setError] = useState<string | null>(null);
   const [copyTarget, setCopyTarget] = useState<string>("");
+  const [moving, setMoving] = useState<PlanEntry | null>(null);
   const [pending, startTransition] = useTransition();
 
   const dragRef = useRef<DragPayload | null>(null);
@@ -624,9 +626,9 @@ export function PlanBoard({
               {kcal != null && dayTarget && (
                 <div
                   className={`bar-fill h-full rounded-full ${
-                    kcal / dayTarget.value >= 1.2
+                    kcal / dayTarget.value >= 1 + dayTarget.redAt
                       ? "bg-danger"
-                      : kcal / dayTarget.value > 1
+                      : kcal / dayTarget.value > 1 + dayTarget.amberOver
                         ? "bg-warn"
                         : "bg-accent"
                   }`}
@@ -704,6 +706,7 @@ export function PlanBoard({
                         onQuantity={(value) => setFoodQuantity(entry, value)}
                         onUnitChange={(unitKey) => setFoodUnit(entry, unitKey)}
                         onCopy={() => copyToPalette(entry)}
+                        onMove={() => setMoving(entry)}
                         onRemove={() => remove(entry)}
                         onDragStart={(event) => startEntryDrag(event, entry)}
                         onDragEnd={() => {
@@ -1130,9 +1133,9 @@ export function PlanBoard({
                 <div className="mt-3 h-2 overflow-hidden rounded-full bg-ink/10">
                   <div
                     className={`bar-fill h-full rounded-full ${
-                      (energy.ratio ?? 0) >= 1.2
+                      (energy.ratio ?? 0) >= 1 + energy.redAt
                         ? "bg-danger"
-                        : (energy.ratio ?? 0) > 1
+                        : (energy.ratio ?? 0) > 1 + energy.amberOver
                           ? "bg-warn"
                           : energy.status === "high"
                             ? "bg-warn"
@@ -1203,6 +1206,17 @@ export function PlanBoard({
           </p>
         </footer>
       </main>
+
+      {moving && (
+        <PlanMoveDialog
+          name={entryName(moving, foodById, recipeByVersion)}
+          day={moving.day}
+          slot={moving.slot}
+          week={week}
+          onMove={(day, slot) => move(moving, day, slot)}
+          onClose={() => setMoving(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1251,6 +1265,7 @@ function PlanEntryRow({
   onQuantity,
   onUnitChange,
   onCopy,
+  onMove,
   onRemove,
   onDragStart,
   onDragEnd,
@@ -1264,6 +1279,8 @@ function PlanEntryRow({
   onQuantity: (value: number) => void;
   onUnitChange: (unitKey: string) => void;
   onCopy: () => void;
+  /** Opens the keyboard equivalent of a drag: choose a day and meal. */
+  onMove: () => void;
   onRemove: () => void;
   onDragStart: (event: React.DragEvent) => void;
   onDragEnd: () => void;
@@ -1277,10 +1294,12 @@ function PlanEntryRow({
         <button
           type="button"
           draggable
+          onClick={onMove}
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
-          aria-label={`Move ${name}. Hold Alt while dropping to copy.`}
-          title="Drag to move · hold Alt to copy"
+          aria-haspopup="dialog"
+          aria-label={`Move ${name} to another day or meal`}
+          title="Drag to move · hold Alt to copy · press Enter to choose"
           className="-ml-0.5 mt-0.5 grid h-4 w-3.5 shrink-0 cursor-grab place-items-center rounded text-ink/25 transition hover:text-ink/60 active:cursor-grabbing"
         >
           <GripIcon className="h-3 w-3" />

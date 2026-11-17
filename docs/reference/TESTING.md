@@ -1,7 +1,7 @@
 # NutriPlan — Testing
 
 **Type:** Reference (updated in the same commit as the code it describes)
-**Last verified:** 2026-11-18 — 61 files, 660 tests passing, `tsc --noEmit` clean.
+**Last verified:** 2026-11-18 — 63 files, 670 tests passing, `tsc --noEmit` clean.
 
 This is the tracker for how NutriPlan is tested: what is automated, what is
 manual, what each category is for, and what is still missing. It is a map, not
@@ -41,7 +41,7 @@ categories; the ID says which question it answers.
 | `U-` | Unit | Is the calculation correct? | `tests/*.test.ts` |
 | `C-` | Component | Does the control behave as a user expects? | `tests/components/*.test.tsx` |
 | `I-` | Integration | Does a request survive the server-action boundary? | `tests/actions.test.ts` |
-| `A-` | Accessibility | Can a keyboard or screen-reader user do this? | `tests/components/accessibility.test.tsx` |
+| `A-` | Accessibility | Can a keyboard or screen-reader user do this? | `tests/components/accessibility.test.tsx`, plus the component file a case covers |
 | `D-` | Data integrity | Can the database end up in a state the UI cannot read? | `tests/data-integrity.test.ts` |
 | `P-` | Performance | Does this stay linear as the data grows? | `tests/perf.test.ts` |
 | `S-` | Security and privacy | Can untrusted input cause damage or leak? | split — see below |
@@ -134,9 +134,18 @@ Status values: `Pass` (asserted in CI), `Gap` (known, not asserted), `Plan`
 | A-002 | Builder, picker open — combobox/listbox/option names and relationships | Pass |
 | A-003 | Builder, after a food is chosen | Pass |
 | A-004 | Builder, review step | Pass |
+| A-005 | Plan board: the grip opens a day/meal dialog, focus enters it, Escape closes and restores focus to the grip, Tab wraps | Pass |
+| A-006 | Plan board: the dialog sends the same move payload as a drag-and-drop | Pass |
+| A-007 | Dialogs (item sheet, recipe generator, estimate foods, flow nutrient detail) take focus, wrap Tab, close on Escape and restore the opener | Pass |
+| A-008 | Every route: "Skip to content" is the first tab stop and targets `#main-content` | Pass |
 
 Colour-contrast and `region` rules are disabled in jsdom (no layout, no app
 shell). Contrast is covered by the token review in R-003, not by axe.
+
+A-005 and A-006 live in `tests/components/plan-board.test.tsx`, A-007 in the
+component test for each dialog, and A-008 in
+`tests/components/site-header.test.tsx`. They are accessibility cases first,
+so they are listed here rather than only under `C-`.
 
 ### D — Data integrity
 
@@ -215,8 +224,8 @@ run by hand and the result recorded here with the date.
 | R-002 | Mobile header: all five nav links reachable below `sm` | 390 px viewport | Pass 2026-11-15 |
 | R-003 | Contrast: every text/background pair ≥ 4.5:1 in light **and** dark | Token review, both themes | Pass 2026-11-15 (token audit) |
 | R-004 | Reduced motion: animations off, nothing essential moves | `data-motion="reduced"` toggle | Pass 2026-11-15 |
-| R-005 | Keyboard-only pass across diary, plan, recipes, profile | Tab/Shift+Tab/Enter/Escape, no mouse | Partial — builder done 2026-11-15; plan board and profile outstanding |
-| R-006 | Empty states read as an invitation on every route | Visual pass | Partial — outstanding |
+| R-005 | Keyboard-only pass across diary, plan, recipes, profile | Tab/Shift+Tab/Enter/Escape, no mouse | Pass 2026-11-18 — builder 2026-11-15; plan move dialog, every modal, skip link and native form controls covered 2026-11-18. Flow-editor node rewiring is still pointer-only (documented in the editor) |
+| R-006 | Empty states read as an invitation on every route | Visual pass | Pass 2026-11-18 — diary, plan, recipes, foods and the flow canvas name the next action; first-run card covers an empty profile and week |
 | R-007 | Real camera capture and label OCR on a phone | Device, not simulator | Not run (S6) |
 | R-008 | Drag a recipe card: the preview is a rounded card, not a rectangle | Visual pass | Pass 2026-11-15 |
 | R-009 | Placed plan items are copyable and movable | Browser | Pass 2026-11-15 |

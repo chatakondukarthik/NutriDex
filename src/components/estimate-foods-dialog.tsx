@@ -1,5 +1,7 @@
 "use client";
 
+import { useDialogFocus } from "@/components/use-dialog-focus";
+
 /**
  * The scare, on purpose.
  *
@@ -21,19 +23,23 @@ export function EstimateFoodsDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const panelRef = useDialogFocus(open, onCancel);
   if (!open) return null;
   const total = foods.reduce((sum, food) => sum + food.missing, 0);
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="estimate-foods-title"
+      role="presentation"
       className="fixed inset-0 z-50 grid place-items-center bg-ink/50 p-4 backdrop-blur-[2px]"
       onClick={onCancel}
     >
       <div
-        className="max-h-[80vh] w-full max-w-lg overflow-hidden rounded-2xl border border-warn-line bg-surface shadow-2xl"
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="estimate-foods-title"
+        tabIndex={-1}
+        className="max-h-[80vh] w-full max-w-lg overflow-hidden rounded-2xl border border-warn-line bg-surface shadow-2xl outline-none"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="border-b border-warn-line bg-warn-soft px-5 py-3">

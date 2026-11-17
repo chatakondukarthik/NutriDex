@@ -36,6 +36,7 @@ import { FlowMinimap } from "@/components/flow-minimap";
 import { PasteFragmentDialog } from "@/components/paste-fragment-dialog";
 import { RecipeGenerator } from "@/components/recipe-generator";
 import { useLeaveGuard, LeaveGuardDialog } from "@/components/leave-guard";
+import { useDialogFocus } from "@/components/use-dialog-focus";
 import { serializeFragment, parseRecipeFragment } from "@/lib/recipe-fragment";
 import { HandIcon, BoxSelectIcon } from "@/components/icons";
 
@@ -275,7 +276,9 @@ function FlowEditorInner({
     const next = [...current, processNode];
     nodesRef.current = next;
     setNodes(next);
-    flashNotice("Step added. Drag from an ingredient's output dot into this step.");
+    flashNotice(
+      "Step added. Select it, then add a food to connect them — or drag from an ingredient's output dot.",
+    );
     setSelectedId(id);
     setTimeout(() => reactFlow.fitView({ padding: 0.2 }), 60);
   }
@@ -968,8 +971,9 @@ function FlowEditorInner({
             + Add process block
           </button>
           <div className="mt-4 rounded-md border border-line bg-bg p-2 text-[11px] leading-snug text-muted">
-            Tips: drag foods/blocks from here. Connect blocks with the dots on the sides.
-            Click a block to edit what happens to its nutrients.
+            Tips: drag foods/blocks from here, or add them with the buttons. Connect blocks
+            with the dots on the sides — or select a step, then add a food, and it connects
+            to that step. Click a block to edit what happens to its nutrients.
           </div>
         </aside>
 
@@ -1433,7 +1437,8 @@ function ProcessInspector({
         </div>
         {inputLinks.length === 0 ? (
           <p className="mt-1.5 rounded-md border border-dashed border-line px-2 py-2 text-[11px] text-muted">
-            Nothing connected yet. Drag from an ingredient's output dot.
+            Nothing connected yet. Add a food from the library while this step is selected, or
+            drag from an ingredient's output dot.
           </p>
         ) : (
           <ul className="mt-1.5 divide-y divide-line/60 rounded-md border border-line/60 bg-bg">
@@ -1637,25 +1642,22 @@ function NutrientDetailModal({
   after: Rollup;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  const panelRef = useDialogFocus(true, onClose);
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="All 18 nutrients, before and after"
+      role="presentation"
       onClick={onClose}
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center"
     >
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="All 18 nutrients, before and after"
+        tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-2xl border border-line bg-surface p-4 shadow-card"
+        className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-2xl border border-line bg-surface p-4 shadow-card outline-none"
       >
         <div className="flex items-start justify-between gap-2">
           <div>

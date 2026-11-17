@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { useDialogFocus } from "@/components/use-dialog-focus";
 import { fmt } from "@/lib/format";
 import type { Rollup } from "@/lib/nutrition/engine";
 import { NUTRIENT_CODES, NUTRIENTS, type NutrientCode } from "@/lib/nutrition/types";
@@ -217,24 +218,21 @@ function DetailModal({
   rollup: Rollup;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
+  const panelRef = useDialogFocus(true, onClose);
 
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center"
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Nutrient details for ${item.name}`}
+      role="presentation"
       onClick={onClose}
     >
       <div
-        className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-line bg-surface p-4 shadow-card"
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Nutrient details for ${item.name}`}
+        tabIndex={-1}
+        className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-line bg-surface p-4 shadow-card outline-none"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-2">

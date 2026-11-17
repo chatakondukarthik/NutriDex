@@ -15,7 +15,7 @@ pipeline; breadth comes later.
 | S2 — Recipe | 1.5–2 weeks | The block model and versioning | Done |
 | S3 — Plan | 1 week | The loop closes | Done |
 | S3.5 — Theme and transparency | 2–3 days | The product feels designed, and its numbers can be checked | Done |
-| S4 — Trust and ship | 1 week | Someone can use it unaided | In progress |
+| S4 — Trust and ship | 1 week | Someone can use it unaided | Done |
 | S5 — Testing | 3–4 days | The bugs we ship are the ones we catch | Done (foundation) |
 | S6 — Ingredient capture | 2–3 weeks | A user can add their own food | In progress (manual + barcode) |
 | S7 — Bring-your-own LLM | 2 weeks | AI helps, and NutriPlan never holds the keys | In progress (plumbing, resilience, eval; live run blocked) |
@@ -169,7 +169,13 @@ question.
 - [x] First-run guidance for an empty profile and an empty week: a "Start
       here" card names the three steps and marks the ones already done
       (`src/components/first-run.tsx`).
-- [ ] A keyboard-only pass and an empty-state audit across all routes.
+- [x] A keyboard-only pass and an empty-state audit across all routes: dialogs
+      take focus, wrap Tab, close on Escape and restore the opener; the plan
+      board's grip opens a day/meal dialog instead of requiring a drag; every
+      route starts with a skip link. Empty states name the next action. The
+      flow editor keeps a keyboard path (select a step, add a food — it
+      auto-connects); arbitrary rewiring of existing nodes is still
+      pointer-only, and the editor says so.
 
 ---
 

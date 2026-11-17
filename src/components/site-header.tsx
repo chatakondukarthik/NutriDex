@@ -22,6 +22,16 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-20 border-b border-line/70 bg-canvas/80 backdrop-blur-xl">
       {/*
+        First focusable thing on the page, so a keyboard user can jump past
+        ten header links. Visually hidden until focused.
+      */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-accent focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-accent-fg"
+      >
+        Skip to content
+      </a>
+      {/*
         One row on wide screens. On phones the nav drops to its own full-width
         row: five links plus two icon buttons do not fit beside the wordmark,
         and letting the row scroll hid "About" behind an invisible scrollbar.

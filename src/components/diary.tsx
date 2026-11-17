@@ -256,6 +256,20 @@ export function Diary({
   const energyTarget = targetByCode.get("ENERC_KCAL");
   const energyPct =
     energy != null && energyTarget ? Math.min(100, (energy / energyTarget.value) * 100) : 0;
+  // Same cut-offs as the nutrient bars, so the headline and the bars agree
+  // when the user moves them in Settings.
+  const energyRatio =
+    energy != null && energyTarget && energyTarget.value > 0
+      ? energy / energyTarget.value
+      : null;
+  const energyBar =
+    energyRatio == null
+      ? "bg-accent"
+      : energyRatio >= 1 + (energyTarget?.redAt ?? 0.2)
+        ? "bg-danger"
+        : energyRatio > 1 + (energyTarget?.amberOver ?? 0)
+          ? "bg-warn"
+          : "bg-accent";
 
   const tracked = NUTRIENT_CODES.length;
   const withData = NUTRIENT_CODES.filter((c) => result.totals[c] != null).length;
@@ -645,13 +659,7 @@ export function Diary({
 
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-ink/10">
               <div
-                className={`bar-fill h-full rounded-full ${
-                  energyTarget?.value && energy != null && energy / energyTarget.value >= 1.2
-                    ? "bg-danger"
-                    : energyTarget?.value && energy != null && energy / energyTarget.value > 1
-                      ? "bg-warn"
-                      : "bg-accent"
-                }`}
+                className={`bar-fill h-full rounded-full ${energyBar}`}
                 style={{ width: `${energyPct}%` }}
               />
             </div>

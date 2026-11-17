@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useDialogFocus } from "@/components/use-dialog-focus";
 import { previewRecipeFromPromptAction, createRecipeFromPlanAction } from "@/app/actions";
 import type { RecipePlan } from "@/lib/ai-generate-recipe";
 import type { PlanFoodResolution } from "@/lib/ai/food-resolve";
@@ -40,6 +41,7 @@ export function RecipeGenerator({
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const panelRef = useDialogFocus(open, () => setOpen(false));
 
   if (!aiEnabled) {
     return (
@@ -109,14 +111,17 @@ export function RecipeGenerator({
 
       {open && (
         <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Create a recipe with AI"
+          role="presentation"
           className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center"
           onClick={() => setOpen(false)}
         >
           <div
-            className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-line bg-surface p-5 shadow-card"
+            ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Create a recipe with AI"
+            tabIndex={-1}
+            className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-line bg-surface p-5 shadow-card outline-none"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-2">
