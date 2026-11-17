@@ -17,12 +17,17 @@ import { isAiEnabled } from "@/lib/ai/client";
 import { listFoods } from "@/lib/db/foods";
 import { resolvePlanFoods } from "@/lib/ai/food-resolve";
 import { saveGraphDraft } from "@/lib/recipes-v2";
+import { getRecipe, getVersion } from "@/lib/db/recipes";
+import { cleanNote } from "@/lib/notes";
+import { layoutGraph } from "@/lib/graph-layout";
 import type { Graph } from "@/lib/nutrition/graph";
 
 export interface RecipePlanStepInput {
   foodName: string;
   grams: number;
   preparation?: string;
+  /** Optional prep/handling hint for this ingredient (not a step). */
+  note?: string;
 }
 
 export interface RecipePlanStep {
@@ -35,6 +40,8 @@ export interface RecipePlanStep {
    * legacy plans, which fall back to a plain chain.
    */
   consumes?: number[];
+  /** Optional technique/consistency/doneness hint — not a step of its own. */
+  note?: string;
 }
 
 export interface RecipePlan {
@@ -81,6 +88,11 @@ const PLAN_SCHEMA = {
                 foodName: { type: "string" },
                 grams: { type: "number" },
                 preparation: { type: "string" },
+                note: {
+                  type: "string",
+                  description:
+                    "Optional prep/handling note for this ingredient (e.g. 'pat dry', 'slice 1 cm thick'). Omit when there is nothing useful.",
+                },
               },
               required: ["foodName", "grams"],
             },
@@ -90,6 +102,11 @@ const PLAN_SCHEMA = {
             items: { type: "number" },
             description:
               "0-based indices of earlier steps whose OUTPUT this step uses (e.g. the sauce step's output into the assembly step). Empty if this step uses no upstream output.",
+          },
+          note: {
+            type: "string",
+            description:
+              "Optional technique/consistency/doneness hint for this step (e.g. 'Whip until the batter falls in a ribbon.'). Omit when there is nothing useful.",
           },
         },
         required: ["name", "operation", "inputs", "consumes"],
@@ -106,6 +123,8 @@ Return ONLY a JSON object matching the schema. Rules:
 - Only include food inputs added IN that step — do not repeat an upstream step's ingredients in later steps unless they are added again.
 - Declare real dependencies with "consumes": the 0-based indices of earlier steps whose OUTPUT this step uses. Example: ["Assemble wraps"] consumes the pan-fry step AND the garlic-sauce step; the sauce step itself consumes nothing ([]) and runs independently of the marinade. A step with consumes: [] starts fresh from its own listed inputs — list everything it needs.
 - Do NOT chain steps just because they appear in order: only set consumes when the earlier step's output is genuinely an ingredient of the later step (a sauce, a cooked component, a strained liquid).
+- Every step and every ingredient may carry one optional "note": a single sentence (≤ 200 characters) of technique, consistency, doneness or sensory guidance that is NOT a step of its own. Good: "Whip until the batter falls in a ribbon." / "Do not let the garlic brown — it turns bitter." / "Marinate at least 30 minutes." / "Pat dry so it sears, not steams." Bad: restating the step name, listing ingredients, or hiding a quantity or a food-safety step. Omit the note when there is nothing genuinely useful.
+- When editing an existing recipe, keep its existing notes for steps and ingredients that stay unchanged; only change a note when the step itself changed.
 - If the prompt is vague, keep quantities modest (serves ~2) and say so in instructions.
 - Never invent nutrient values; you are not asked for them.
 - Use common Indian ingredient names.`;
@@ -134,13 +153,63 @@ export async function planRecipeFromPrompt(
     prompt: `${prompt}${existingSection}`,
     jsonSchema: PLAN_SCHEMA as unknown as Record<string, unknown>,
     temperature: 0,
-    maxTokens: 2048,
+    // Notes add output tokens; leave headroom so a 7-step plan never truncates.
+    maxTokens: 3072,
   });
 
   const raw = response.text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
   const parsed = JSON.parse(raw) as RecipePlan;
   if (!parsed?.steps?.length) throw new Error("The model did not produce any steps.");
   return parsed;
+}
+
+/** Case/whitespace-insensitive key used to match steps and ingredients. */
+function noteKey(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+interface PreservedNotes {
+  steps: Map<string, string>;
+  ingredients: Map<string, string>;
+}
+
+/**
+ * Notes a human wrote on the current version, keyed so a regenerated plan
+ * can carry them forward even when the model omits them. Best-effort only:
+ * any failure means "no preservation", never a failed save.
+ */
+function loadPreservedNotes(recipeId?: string): PreservedNotes {
+  const preserved: PreservedNotes = { steps: new Map(), ingredients: new Map() };
+  if (!recipeId) return preserved;
+  try {
+    const recipe = getRecipe(recipeId);
+    const versionId = recipe?.summary.currentVersionId;
+    if (!versionId) return preserved;
+    const version = getVersion(versionId);
+    const graph = (version?.snapshot as { graph?: Graph } | undefined)?.graph;
+    if (!graph) return preserved;
+
+    const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+    for (const node of graph.nodes) {
+      const note = cleanNote((node as { note?: unknown }).note);
+      if (note && node.type === "process") {
+        const key = noteKey(node.name);
+        if (key && !preserved.steps.has(key)) preserved.steps.set(key, note);
+      }
+    }
+    for (const edge of graph.edges) {
+      const from = byId.get(edge.from);
+      const to = byId.get(edge.to);
+      if (from?.type !== "food" || to?.type !== "process") continue;
+      const note = cleanNote(from.note);
+      if (!note) continue;
+      const key = `${noteKey(to.name)}::${from.foodId}`;
+      if (!preserved.ingredients.has(key)) preserved.ingredients.set(key, note);
+    }
+  } catch {
+    // Losing preservation is acceptable; losing the save is not.
+  }
+  return preserved;
 }
 
 export async function materializeRecipe(
@@ -162,6 +231,10 @@ export async function materializeRecipe(
 }> {
   const { map: foodIndex, resolutions } = await resolvePlanFoods(plan, listFoods(), { persist: true });
 
+  // Best-effort: carry notes written by hand on the current version into the
+  // regenerated plan when the model did not restate them.
+  const preserved = loadPreservedNotes(recipeId);
+
   const idBase = `gen-${Date.now().toString(36)}`;
   const nodes: Graph["nodes"] = [];
   const edges: Graph["edges"] = [];
@@ -170,6 +243,7 @@ export async function materializeRecipe(
   const processIds: string[] = [];
   for (let i = 0; i < plan.steps.length; i++) {
     const step = plan.steps[i];
+    const stepKey = noteKey(step.name);
     const processId = `${idBase}-p${i}`;
     processIds.push(processId);
     nodes.push({
@@ -181,6 +255,7 @@ export async function materializeRecipe(
       measuredOutputs: [null],
       factorEstimates: {},
       factorOverrides: {},
+      note: cleanNote(step.note) ?? preserved.steps.get(stepKey) ?? null,
     });
 
     for (const input of step.inputs) {
@@ -192,6 +267,7 @@ export async function materializeRecipe(
         type: "food",
         foodId,
         grams: Math.max(1, input.grams),
+        note: cleanNote(input.note) ?? preserved.ingredients.get(`${stepKey}::${foodId}`) ?? null,
       });
       edges.push({
         id: `${inputNodeId}-${processId}`,
@@ -215,19 +291,12 @@ export async function materializeRecipe(
     prevProcessId = processId;
   }
 
-  // Layouts: ingredients on the left, processes in a column on the right
-  const layout: Record<string, { x: number; y: number }> = {};
-  let foodY = 0;
-  let processY = 0;
-  for (const node of nodes) {
-    if (node.type === "food") {
-      layout[node.id] = { x: 0, y: foodY };
-      foodY += 140;
-    } else {
-      layout[node.id] = { x: 340, y: processY };
-      processY += 170;
-    }
-  }
+  // The same dagre layout the editor's Auto-layout button uses, so a recipe
+  // born here opens already arranged instead of in a naive two-column pile.
+  const layout = layoutGraph(
+    nodes.map((node) => ({ id: node.id, type: node.type, note: node.note })),
+    edges.map((edge) => ({ from: edge.from, to: edge.to })),
+  );
 
   const saved = saveGraphDraft({
     recipeId: recipeId ?? null,

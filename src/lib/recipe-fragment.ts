@@ -16,6 +16,8 @@
  * or in this case the clipboard — proposes, the engine disposes).
  */
 
+import { cleanNote } from "@/lib/notes";
+
 export const FRAGMENT_APP = "nutriplan-flow" as const;
 export const FRAGMENT_VERSION = 2 as const;
 
@@ -61,7 +63,7 @@ interface EdgeLike {
   target: string;
 }
 
-const FOOD_KEYS = ["foodId", "grams", "amount", "unit", "label"] as const;
+const FOOD_KEYS = ["foodId", "grams", "amount", "unit", "label", "note"] as const;
 const PROCESS_KEYS = [
   "name",
   "operation",
@@ -70,6 +72,7 @@ const PROCESS_KEYS = [
   "measuredOutputs",
   "factorEstimates",
   "factorOverrides",
+  "note",
 ] as const;
 
 function pick<T extends Record<string, unknown>>(source: T, keys: readonly string[]) {
@@ -198,6 +201,7 @@ function sanitizeFoodData(data: Record<string, unknown>, errors: string[]) {
     label: asString(data.label) ?? undefined,
     amount: finiteNumber(data.amount) ?? grams,
     unit: asString(data.unit) ?? "g",
+    note: cleanNote(data.note) ?? null,
   };
 }
 
@@ -213,6 +217,7 @@ function sanitizeProcessData(data: Record<string, unknown>) {
     measuredOutputs: sanitizeMeasured(data.measuredOutputs, fixedOutputs.length),
     factorEstimates: sanitizeRatioRecord(data.factorEstimates),
     factorOverrides: sanitizeRatioRecord(data.factorOverrides),
+    note: cleanNote(data.note) ?? null,
   };
 }
 

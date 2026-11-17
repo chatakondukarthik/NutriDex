@@ -7,13 +7,29 @@ export type FoodNodeData = {
   label: string;
   grams: number;
   unknownCount: number;
+  note?: string | null;
 };
 
 export type ProcessNodeData = {
   name: string;
   operation: string;
   outputs: { label: string; tag: "consumed" | "discarded" | string }[];
+  note?: string | null;
 };
+
+/** Two-line clamped note preview; the full text lives in the inspector. */
+function NotePreview({ note }: { note?: string | null }) {
+  if (!note) return null;
+  return (
+    <p
+      className="mt-1 max-w-[190px] whitespace-pre-wrap break-words text-[10px] italic leading-snug text-ink/45"
+      style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}
+      title={note}
+    >
+      {note}
+    </p>
+  );
+}
 
 export const FoodNode = memo(function FoodNode({ data, selected }: NodeProps) {
   const d = data as FoodNodeData;
@@ -29,6 +45,7 @@ export const FoodNode = memo(function FoodNode({ data, selected }: NodeProps) {
       <div className="tabular mt-0.5 text-[11px] text-ink/55">
         {d.grams} g{d.unknownCount > 0 && <span className="ml-1.5 text-warn-ink">{d.unknownCount} unknown</span>}
       </div>
+      <NotePreview note={d.note} />
     </div>
   );
 });
@@ -55,6 +72,7 @@ export const ProcessNode = memo(function ProcessNode({ data, selected }: NodePro
         {targetConns.length} in · {outConns.length} out · {outputs.length} product{outputs.length === 1 ? "" : "s"}
         {discarded > 0 && <span className="ml-1.5 text-warn-ink">{discarded} discarded</span>}
       </div>
+      <NotePreview note={d.note} />
     </div>
   );
 });

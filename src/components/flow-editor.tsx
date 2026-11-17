@@ -25,7 +25,8 @@ import { toGrams, unitsFor, parseUnitKey } from "@/lib/nutrition/units";
 import { defaultAmountFor } from "@/lib/nutrition/defaults";
 import { computeGraph, type Graph, type GraphNode as EngineNode, type GraphProcessNode } from "@/lib/nutrition/graph";
 import type { Rollup } from "@/lib/nutrition/engine";
-import dagre from "@dagrejs/dagre";
+import { cleanNote, MAX_NOTE_LENGTH } from "@/lib/notes";
+import { layoutGraph } from "@/lib/graph-layout";
 import { tableFromRows, type FactorRow } from "@/lib/nutrition/factor-table";
 import { fmt } from "@/lib/format";
 import { NUTRIENT_CODES, NUTRIENTS } from "@/lib/nutrition/types";
@@ -112,7 +113,6 @@ function FlowEditorInner({
   const [mineOnly, setMineOnly] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [estimating, setEstimating] = useState(false);
-  const [aiContextNote, setAiContextNote] = useState("");
   const [pending, startTransition] = useTransition();
   const [selectionIds, setSelectionIds] = useState<string[]>([]);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
@@ -318,16 +318,15 @@ function FlowEditorInner({
 
   function autoLayout() {
     setNodes((current) => {
-      const g = new dagre.graphlib.Graph();
-      g.setDefaultEdgeLabel(() => ({}));
-      g.setGraph({ rankdir: "LR", nodesep: 40, ranksep: 80 });
-      for (const n of current) g.setNode(n.id, { width: 210, height: 110 });
-      for (const e of edges) g.setEdge(e.source, e.target);
-      dagre.layout(g);
-      return current.map((n) => {
-        const pos = g.node(n.id);
-        return pos ? { ...n, position: { x: pos.x - 105, y: pos.y - 55 } } : n;
-      });
+      const positions = layoutGraph(
+        current.map((n) => ({
+          id: n.id,
+          type: n.type as string,
+          note: cleanNote((n.data as { note?: unknown }).note) ?? null,
+        })),
+        edges.map((e) => ({ from: e.source, to: e.target })),
+      );
+      return current.map((n) => (positions[n.id] ? { ...n, position: positions[n.id] } : n));
     });
   }
 
@@ -583,6 +582,7 @@ function FlowEditorInner({
             unit,
             label,
             unknownCount,
+            note: cleanNote(data.note) ?? null,
           },
         };
       }
@@ -599,6 +599,7 @@ function FlowEditorInner({
           measuredOutputs: (data.measuredOutputs as (number | null)[]) ?? [],
           factorEstimates: (data.factorEstimates as Record<string, number>) ?? {},
           factorOverrides: (data.factorOverrides as Record<string, number>) ?? {},
+          note: cleanNote(data.note) ?? null,
         },
       } as Node;
     });
@@ -675,7 +676,9 @@ function FlowEditorInner({
         operation: String(selectedNode.data.operation),
         qualifier: (selectedNode.data.qualifier as string | null) ?? null,
         inputs: inputsForNode(selectedNode.id, edges, nodes, library),
-        note: aiContextNote.trim() || undefined,
+        // The step's saved note doubles as context for the estimate — it
+        // describes what actually happened in the pan.
+        note: cleanNote(selectedNode.data.note),
       });
       if (!estimate.ok || !estimate.estimate) {
         setError(estimate.message ?? "The model could not estimate this step.");
@@ -1078,8 +1081,6 @@ function FlowEditorInner({
               aiAvailable={aiAvailable}
               inputLinks={selectedInputLinks}
               isTerminal={selectedNode ? !edges.some((edge) => edge.source === selectedNode.id) : false}
-              aiContextNote={aiContextNote}
-              onAiContextNoteChange={setAiContextNote}
             />
           )}
           {preview.error && (
@@ -1190,7 +1191,7 @@ function FoodInspector({
   onRemove: (id: string) => void;
   foods: Food[];
 }) {
-  const d = node.data as { label: string; grams: number; amount?: number | null; unit?: string | null; foodId: string };
+  const d = node.data as { label: string; grams: number; amount?: number | null; unit?: string | null; foodId: string; note?: string | null };
   const food = foods.find((f) => f.id === d.foodId);
   const amount = d.amount ?? d.grams;
   const unitKey = d.unit ?? "g";
@@ -1299,6 +1300,30 @@ function FoodInspector({
         </p>
       )}
 
+      {/* ---------------- Note ---------------- */}
+      <label className="mt-4 flex flex-col gap-1 text-xs">
+        <span className="flex items-baseline justify-between font-medium">
+          <span>Note (optional)</span>
+          {(d.note?.length ?? 0) > MAX_NOTE_LENGTH * 0.8 && (
+            <span className="tabular text-[10px] text-ink/35">
+              {d.note?.length}/{MAX_NOTE_LENGTH}
+            </span>
+          )}
+        </span>
+        <textarea
+          value={d.note ?? ""}
+          onChange={(e) => onPatch(node.id, { note: e.target.value })}
+          rows={3}
+          maxLength={MAX_NOTE_LENGTH}
+          placeholder="e.g. Pat dry before searing."
+          className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm"
+        />
+        <span className="text-[10px] text-ink/40">
+          Prep or handling detail for this ingredient. Optional — leave it empty if there is nothing worth
+          noting.
+        </span>
+      </label>
+
       <button type="button" onClick={() => onRemove(node.id)} className="mt-4 text-xs text-danger-ink underline">
         Remove ingredient
       </button>
@@ -1322,8 +1347,6 @@ function ProcessInspector({
   aiAvailable,
   inputLinks,
   isTerminal,
-  aiContextNote,
-  onAiContextNoteChange,
 }: {
   node: Node;
   computed: ReturnType<typeof computeGraph>["perNode"] extends Map<string, infer V> ? V | null | undefined : never;
@@ -1334,8 +1357,6 @@ function ProcessInspector({
   aiAvailable: boolean;
   inputLinks: InputLink[];
   isTerminal: boolean;
-  aiContextNote: string;
-  onAiContextNoteChange: (note: string) => void;
 }) {
   const data = node.data as unknown as {
     name: string;
@@ -1344,6 +1365,7 @@ function ProcessInspector({
     outputs: { label: string; tag: "consumed" | "discarded"; split: Record<string, number> }[];
     measuredOutputs: (number | null)[];
     factorEstimates: Record<string, number>;
+    note?: string | null;
   };
   const supportsQualifier = ["boil", "strain", "pressure-cook"].includes(data.operation);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -1378,6 +1400,30 @@ function ProcessInspector({
           </label>
         )}
       </div>
+
+      {/* ---------------- Note ---------------- */}
+      <label className="mt-3 flex flex-col gap-1 text-xs">
+        <span className="flex items-baseline justify-between font-medium">
+          <span>Note (optional)</span>
+          {(data.note?.length ?? 0) > MAX_NOTE_LENGTH * 0.8 && (
+            <span className="tabular text-[10px] text-ink/35">
+              {data.note?.length}/{MAX_NOTE_LENGTH}
+            </span>
+          )}
+        </span>
+        <textarea
+          value={data.note ?? ""}
+          onChange={(e) => onPatch(node.id, { note: e.target.value })}
+          rows={3}
+          maxLength={MAX_NOTE_LENGTH}
+          placeholder="e.g. Whip until the batter falls in a ribbon."
+          className="rounded-md border border-line bg-bg px-2 py-1.5 text-sm"
+        />
+        <span className="text-[10px] text-ink/40">
+          Technique, consistency or doneness hints — not a step of its own. Saved with the recipe, and the AI
+          reads and writes it too.
+        </span>
+      </label>
 
       {/* ---------------- Inputs ---------------- */}
       <div className="mt-4">
@@ -1552,16 +1598,9 @@ function ProcessInspector({
       {/* ---------------- Ask AI ---------------- */}
       {aiAvailable && (
         <div className="mt-4 rounded-md border border-line/60 bg-bg p-2">
-          <label className="flex flex-col gap-1 text-[11px]">
-            <span className="font-medium text-ink/60">Extra context for the AI (optional)</span>
-            <textarea
-              value={aiContextNote}
-              onChange={(e) => onAiContextNoteChange(e.target.value)}
-              rows={2}
-              placeholder="e.g. tomatoes were cooked on high heat for 15 min; oil was drained before mixing"
-              className="rounded-md border border-line bg-surface px-2 py-1.5 text-[11px]"
-            />
-          </label>
+          <p className="mb-1.5 text-[10px] text-ink/45">
+            Uses the step note above as context, if you wrote one.
+          </p>
           <button
             type="button"
             onClick={onAskAi}
@@ -1704,7 +1743,7 @@ function buildGraph(nodes: Node[], edges: Edge[]): Graph {
   const engineNodes: EngineNode[] = [];
   for (const node of nodes) {
     if (node.type === "food") {
-      const d = node.data as { foodId: string; grams: number; amount?: number | null; unit?: string | null };
+      const d = node.data as { foodId: string; grams: number; amount?: number | null; unit?: string | null; note?: string | null };
       engineNodes.push({
         id: node.id,
         type: "food",
@@ -1712,6 +1751,7 @@ function buildGraph(nodes: Node[], edges: Edge[]): Graph {
         grams: d.grams,
         amount: d.amount ?? null,
         unit: d.unit ?? "g",
+        note: cleanNote(d.note) ?? null,
       });
     } else {
       const d = node.data as unknown as {
@@ -1720,6 +1760,7 @@ function buildGraph(nodes: Node[], edges: Edge[]): Graph {
         measuredOutputs: (number | null)[];
         factorEstimates: Record<string, number>;
         factorOverrides?: Record<string, number>;
+        note?: string | null;
       };
       engineNodes.push({
         id: node.id,
@@ -1731,6 +1772,7 @@ function buildGraph(nodes: Node[], edges: Edge[]): Graph {
         outputs: d.outputs.map((o) => ({ label: o.label, tag: o.tag, split: o.split })),
         factorEstimates: d.factorEstimates as never,
         factorOverrides: d.factorOverrides as never,
+        note: cleanNote(d.note) ?? null,
       });
     }
   }
@@ -1764,6 +1806,7 @@ function buildInitialNodes(graph: Graph | null | undefined, layout: Record<strin
           unit: node.unit ?? "g",
           foodId: node.foodId,
           unknownCount,
+          note: node.note ?? null,
         },
       };
     }
@@ -1780,6 +1823,7 @@ function buildInitialNodes(graph: Graph | null | undefined, layout: Record<strin
         measuredOutputs: d.measuredOutputs ?? d.outputs.map(() => null),
         factorEstimates: d.factorEstimates ?? {},
         factorOverrides: d.factorOverrides ?? {},
+        note: d.note ?? null,
       },
     } as Node;
   });

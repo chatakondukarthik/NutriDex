@@ -29,6 +29,12 @@ export interface GraphFoodNode {
   /** Display quantity: what the user typed and the unit chosen, or "g". */
   amount?: number | null;
   unit?: string | null;
+  /**
+   * Optional technique/consistency hint for this ingredient block. Purely
+   * documentary: `computeGraph` never reads it, so it cannot change a
+   * single nutrient value.
+   */
+  note?: string | null;
 }
 
 export interface GraphOutput {
@@ -51,6 +57,11 @@ export interface GraphProcessNode {
   /** LLM-estimated factors per nutrient. */
   factorEstimates?: Partial<Record<NutrientCode, number>>;
   outputs: GraphOutput[];
+  /**
+   * Optional technique/consistency/doneness hint for this step — guidance
+   * that is not a step of its own. Never read by `computeGraph`.
+   */
+  note?: string | null;
 }
 
 export type GraphNode = GraphFoodNode | GraphProcessNode;

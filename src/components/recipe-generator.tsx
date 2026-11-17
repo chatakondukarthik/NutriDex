@@ -182,9 +182,17 @@ export function RecipeGenerator({
                                 .join(" + ")}
                             </span>
                           )}
+                          {step.note && (
+                            <span className="block pl-3 text-[10px] italic text-ink/45">📝 {step.note}</span>
+                          )}
                           {step.inputs.length > 0 && (
                             <span className="block pl-3 text-[10px] text-muted">
-                              {step.inputs.map((input) => `${input.foodName} ${Math.round(input.grams)}g`).join(" · ")}
+                              {step.inputs.map((input, inputIndex) => (
+                                <span key={inputIndex} className="block">
+                                  {input.foodName} {Math.round(input.grams)}g
+                                  {input.note && <span className="italic text-ink/40"> — {input.note}</span>}
+                                </span>
+                              ))}
                             </span>
                           )}
                         </span>

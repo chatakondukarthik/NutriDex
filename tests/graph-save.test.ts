@@ -115,4 +115,49 @@ describe("saveGraphDraft", () => {
     const saved = recipes.getRecipe(result.recipeId!);
     expect(saved).toBeTruthy();
   });
+
+  it("trims and caps notes, and stores them on blocks and inputs", () => {
+    const long = "y".repeat(1200);
+    const result = saveGraphDraft({
+      recipeId: null,
+      name: "Noted",
+      instructions: "",
+      servings: 1,
+      graph: {
+        nodes: [
+          { id: "f1", type: "food", foodId: "paneer", grams: 50, note: "  pat dry  " },
+          {
+            id: "p1",
+            type: "process",
+            operation: "fry",
+            name: "Fry paneer",
+            outputs: [{ label: "Fried paneer", tag: "consumed", split: {} }],
+            note: `  ${long}  `,
+          },
+        ],
+        edges: [{ id: "e1", from: "f1", to: "p1" }],
+      },
+    });
+    expect(result.ok).toBe(true);
+
+    const recipe = recipes.getRecipe(result.recipeId!)!;
+    const versionId = recipe.summary.currentVersionId;
+    expect(versionId).toBeTruthy();
+    const version = recipes.getVersion(versionId!)!;
+    const snapshot = version.snapshot as unknown as {
+      graph: { nodes: Array<{ id: string; note?: string | null }> };
+      blocks: Array<{ note?: string | null }>;
+    };
+
+    expect(snapshot.graph.nodes.find((n) => n.id === "f1")!.note).toBe("pat dry");
+    expect(snapshot.graph.nodes.find((n) => n.id === "p1")!.note).toHaveLength(1000);
+
+    // The step note is exposed on the snapshot blocks the detail page reads.
+    expect(snapshot.blocks[0].note).toHaveLength(1000);
+
+    // The ingredient note lands in component_inputs, which the page renders.
+    const inputs = db.prepare("SELECT note FROM component_inputs").all() as Array<{ note: string | null }>;
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0].note).toBe("pat dry");
+  });
 });

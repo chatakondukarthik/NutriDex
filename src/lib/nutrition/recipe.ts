@@ -35,6 +35,8 @@ export interface BlockResult {
   inputGrams: number;
   outputGrams: number | null;
   result: Rollup;
+  /** Optional step note (technique/consistency hint), shown on the detail page. */
+  note?: string | null;
 }
 
 /**

@@ -217,3 +217,38 @@ describe("computeGraph", () => {
     expect(result.consumed.totals.ENERC_KCAL).toBeCloseTo(39, 5);
   });
 });
+
+describe("notes never touch nutrition", () => {
+  it("produces identical results with and without notes", () => {
+    const base: Graph = {
+      nodes: [
+        { id: "f", type: "food", foodId: "paneer", grams: 100 },
+        {
+          id: "p",
+          type: "process",
+          operation: "fry",
+          name: "Fry",
+          outputs: [{ label: "Fried", tag: "consumed", split: {} }],
+        },
+      ],
+      edges: [{ id: "e", from: "f", to: "p" }],
+    };
+    const noted: Graph = {
+      ...base,
+      nodes: base.nodes.map((node) => ({
+        ...node,
+        note: node.type === "food" ? "pat dry" : "whip to a ribbon",
+      })),
+    };
+
+    const plain = computeGraph(base, resolve);
+    const withNotes = computeGraph(noted, resolve);
+
+    expect(withNotes.consumed.totals).toEqual(plain.consumed.totals);
+    expect(withNotes.inputGrams).toBe(plain.inputGrams);
+    expect(withNotes.perNode.get("p")!.after[0].totals).toEqual(
+      plain.perNode.get("p")!.after[0].totals,
+    );
+    expect(withNotes.perNode.get("p")!.masses).toEqual(plain.perNode.get("p")!.masses);
+  });
+});

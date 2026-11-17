@@ -228,6 +228,12 @@ export default async function RecipePage({
                 })}
               </ul>
 
+              {blockResult?.note && (
+                <p className="mt-2 whitespace-pre-wrap break-words text-[11px] italic leading-snug text-ink/45">
+                  📝 {blockResult.note}
+                </p>
+              )}
+
               {blockResult?.result && (
                 <details className="mt-3 rounded-lg border border-line/60 bg-canvas/40 px-3 py-2">
                   <summary className="cursor-pointer text-[11px] font-medium text-ink/55">

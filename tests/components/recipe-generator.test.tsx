@@ -25,7 +25,8 @@ const PLAN: RecipePlan = {
     {
       name: "Cook rice",
       operation: "boil",
-      inputs: [{ foodName: "Rice", grams: 300 }],
+      inputs: [{ foodName: "Rice", grams: 300, note: "rinse until the water runs clear" }],
+      note: "Simmer until the grains are just tender.",
     },
     {
       name: "Marinate chicken",
@@ -70,6 +71,18 @@ describe("create with AI: modal", () => {
     expect(screen.getByText(/provisional · all nutrients unknown/i)).toBeInTheDocument();
 
     expect(previewRecipeFromPromptAction).toHaveBeenCalledWith({ prompt: "chicken biryani", recipeId: null });
+  });
+
+  it("shows step and ingredient notes in the preview before anything is saved", async () => {
+    const user = userEvent.setup();
+    render(<RecipeGenerator aiEnabled={true} mode="create" />);
+
+    await user.click(screen.getByRole("button", { name: /create with ai/i }));
+    await user.type(screen.getByRole("textbox"), "chicken biryani");
+    await user.click(screen.getByRole("button", { name: /plan it/i }));
+
+    expect(await screen.findByText(/Simmer until the grains are just tender/i)).toBeInTheDocument();
+    expect(screen.getByText(/rinse until the water runs clear/i)).toBeInTheDocument();
   });
 
   it("saves with Add recipe only after confirmation, then navigates to it", async () => {

@@ -11,6 +11,7 @@ import { addVersion, createRecipe, replaceVersion, getVersionOwner } from "@/lib
 import { computeRecipeGraph } from "@/lib/nutrition/graph-server";
 import { NUTRIENT_CODES, type NutrientCode } from "@/lib/nutrition/types";
 import { combine, perServing, scaleRollup, type Rollup } from "@/lib/nutrition/engine";
+import { cleanNote } from "@/lib/notes";
 import type { RecipeResult, BlockResult, YieldBasis } from "@/lib/nutrition/recipe";
 import type { Graph, GraphProcessNode, GraphNode } from "@/lib/nutrition/graph";
 
@@ -55,9 +56,13 @@ export function saveGraphDraft(draft: GraphDraft): SaveGraphResult {
     return { ok: false, message: "Servings must be a positive number." };
   }
 
+  // Notes are trimmed and capped once, here, so every writer (editor, AI,
+  // fragments, direct saves) ends up with the same bounded shape.
+  const graph = normalizeGraphNotes(draft.graph);
+
   let result: ReturnType<typeof computeRecipeGraph>;
   try {
-    result = computeRecipeGraph(draft.graph);
+    result = computeRecipeGraph(graph);
   } catch (error) {
     return {
       ok: false,
@@ -70,12 +75,14 @@ export function saveGraphDraft(draft: GraphDraft): SaveGraphResult {
   const yieldBasis: YieldBasis = result.yieldBasis === "measured" ? "measured" : "none";
 
   // v1-compatible blocks in topological order for the detail page
-  const blocks: BlockResult[] = [...result.perNode.values()].map((node) => ({
+  const graphById = new Map(graph.nodes.map((n) => [n.id, n]));
+  const blocks: BlockResult[] = [...result.perNode.entries()].map(([id, node]) => ({
     name: node.name,
     operation: node.operation,
     inputGrams: node.inputGrams,
     outputGrams: node.masses[0] ?? null,
     result: combine(node.after),
+    note: (graphById.get(id) as GraphProcessNode | undefined)?.note ?? null,
   }));
 
   const perNode: Record<string, unknown> = {};
@@ -104,13 +111,13 @@ export function saveGraphDraft(draft: GraphDraft): SaveGraphResult {
     outputGrams: result.consumedGrams,
     yieldBasis,
     calculationVersion: "2",
-    graph: draft.graph,
+    graph,
     layout: draft.layout,
     perNode,
   };
 
   // components table blocks need inputs; build them from the graph
-  const components = buildComponentsFromGraph(draft.graph, result);
+  const components = buildComponentsFromGraph(graph, result);
 
   const version = {
     instructions: draft.instructions,
@@ -127,7 +134,7 @@ export function saveGraphDraft(draft: GraphDraft): SaveGraphResult {
         amount: input.grams,
         unit: "g",
         preparation: "raw",
-        note: null,
+        note: input.note ?? null,
       })),
     })),
     label: draft.versionLabel?.trim() || null,
@@ -171,17 +178,19 @@ function buildComponentsFromGraph(
     name: string;
     operation: string | null;
     outputGrams: number | null;
-    inputs: Array<{ foodId: string; grams: number }>;
+    inputs: Array<{ foodId: string; grams: number; note?: string | null }>;
   }> = [];
 
   for (const [id, node] of result.perNode) {
     const graphNode = byId.get(id)! as GraphProcessNode;
-    const inputs: Array<{ foodId: string; grams: number }> = [];
+    const inputs: Array<{ foodId: string; grams: number; note?: string | null }> = [];
     for (const edge of graph.edges) {
       if (edge.to !== id) continue;
       const from = byId.get(edge.from);
       if (from?.type === "food") {
-        inputs.push({ foodId: from.foodId, grams: from.grams });
+        // The ingredient's own note travels to component_inputs, which the
+        // recipe detail page already renders.
+        inputs.push({ foodId: from.foodId, grams: from.grams, note: from.note ?? null });
       }
     }
     components.push({
@@ -192,6 +201,14 @@ function buildComponentsFromGraph(
     });
   }
   return components;
+}
+
+/** Trim, cap and normalise every node's note before it reaches storage. */
+function normalizeGraphNotes(graph: Graph): Graph {
+  return {
+    nodes: graph.nodes.map((node) => ({ ...node, note: cleanNote((node as { note?: unknown }).note) ?? null })),
+    edges: graph.edges,
+  };
 }
 
 export function perServingENERC(snapshot: GraphSnapshot): number | null {

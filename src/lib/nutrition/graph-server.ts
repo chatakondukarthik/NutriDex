@@ -13,6 +13,7 @@ import {
   type ComputedProcessNode,
 } from "./graph";
 import { NUTRIENT_CODES, type NutrientCode } from "./types";
+import { cleanNote } from "@/lib/notes";
 import { inputGrams } from "@/lib/recipe-draft";
 import type { BuilderBlock, BuilderInput } from "@/lib/recipe-draft";
 
@@ -93,7 +94,14 @@ export function graphFromBlocks(
       const converted = inputGrams(food, input);
       if (!converted.ok) throw new Error(converted.reason);
       const foodNodeId = `${prefix}${i + 1}-f${nodes.length}`;
-      nodes.push({ id: foodNodeId, type: "food", foodId, grams: converted.grams });
+      nodes.push({
+        id: foodNodeId,
+        type: "food",
+        foodId,
+        grams: converted.grams,
+        // The classic builder's per-ingredient note survives conversion.
+        note: cleanNote(input.note) ?? null,
+      });
       edges.push({ id: `${processId}-${foodNodeId}`, from: foodNodeId, to: processId });
     }
 

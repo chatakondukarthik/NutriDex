@@ -73,6 +73,20 @@ describe("serializeFragment", () => {
   it("returns null when the selection is empty", () => {
     expect(serializeFragment([foodNode], edges, new Set())).toBeNull();
   });
+
+  it("carries notes on both block types and trims them", () => {
+    const withNotes = [
+      { ...foodNode, data: { ...foodNode.data, note: "  pat dry  " } },
+      { ...processNode, data: { ...processNode.data, note: "Whip to a ribbon" } },
+    ];
+    const json = serializeFragment(withNotes, [], undefined);
+    expect(json).toBeTruthy();
+    const parsed = parseRecipeFragment(json!);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.fragment.nodes[0].data.note).toBe("pat dry");
+    expect(parsed.fragment.nodes[1].data.note).toBe("Whip to a ribbon");
+  });
 });
 
 describe("parseRecipeFragment", () => {
@@ -181,5 +195,34 @@ describe("parseRecipeFragment", () => {
     const outputs = process.data.outputs as Array<{ tag: string; split: Record<string, number> }>;
     expect(outputs[0].tag).toBe("consumed");
     expect(outputs[0].split).toEqual({ PROCNT: 2.5 });
+  });
+
+  it("trims and caps an oversized note instead of rejecting the fragment", () => {
+    const long = "x".repeat(1200);
+    const result = parseRecipeFragment(
+      JSON.stringify({
+        app: FRAGMENT_APP,
+        version: 2,
+        nodes: [{ ...foodNode, data: { ...foodNode.data, note: `  ${long}  ` } }],
+        edges: [],
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect((result.fragment.nodes[0].data.note as string).length).toBe(1000);
+  });
+
+  it("turns a whitespace-only note into null", () => {
+    const result = parseRecipeFragment(
+      JSON.stringify({
+        app: FRAGMENT_APP,
+        version: 2,
+        nodes: [{ ...foodNode, data: { ...foodNode.data, note: "   " } }],
+        edges: [],
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.fragment.nodes[0].data.note).toBeNull();
   });
 });
