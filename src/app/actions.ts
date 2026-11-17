@@ -225,7 +225,10 @@ export async function addPlanEntryAction(input: {
   let servings: number | null = null;
 
   if (hasFood) {
-    const food = getFood(input.foodId as string);
+    if (typeof input.foodId !== "string") {
+      return { ok: false, message: "That food does not exist." };
+    }
+    const food = getFood(input.foodId);
     if (!food) return { ok: false, message: "That food does not exist." };
     foodId = food.id;
 
@@ -242,6 +245,9 @@ export async function addPlanEntryAction(input: {
       // Amount + unit travel together; half of the pair is a client bug.
       if (input.amount == null || input.unit == null) {
         return { ok: false, message: "Amount and unit go together." };
+      }
+      if (typeof input.unit !== "string") {
+        return { ok: false, message: "That amount could not be measured." };
       }
       amount = Number(input.amount);
       unit = input.unit;
@@ -285,7 +291,7 @@ export async function addPlanEntryAction(input: {
     versionId = version.id;
 
     servings = Number(input.servings);
-    if (!Number.isFinite(servings) || servings <= 0) {
+    if (!Number.isFinite(servings) || servings <= 0 || servings > MAX_SERVINGS) {
       return { ok: false, message: "Servings must be a positive number." };
     }
   }
@@ -336,14 +342,17 @@ export async function updatePlanEntryQuantityAction(
       // stored and re-rendered on every plan read.
       const unit = patch.unit ?? null;
       if (unit != null) {
-        if (unit.length > 64 || !UNITS.some((u) => u.value === parseUnitKey(unit).unit)) {
+        // Portion labels are stored up to 80 chars (`captured-food.ts`), so
+        // `portion:` + 80 is the real ceiling. 64 rejected labels the UI
+        // itself offers.
+        if (unit.length > "portion:".length + 80 || !UNITS.some((u) => u.value === parseUnitKey(unit).unit)) {
           return { ok: false, message: "Unsupported unit." };
         }
       }
       updatePlanEntryQuantity(id, { grams, amount: patch.amount ?? null, unit });
     } else {
       const servings = Number(patch.servings);
-      if (!Number.isFinite(servings) || servings <= 0) {
+      if (!Number.isFinite(servings) || servings <= 0 || servings > MAX_SERVINGS) {
         return { ok: false, message: "Servings must be a positive number." };
       }
       updatePlanEntryQuantity(id, { servings });
@@ -460,26 +469,35 @@ export interface SaveFoodResult {
 }
 
 export async function saveCapturedFoodAction(input: CapturedFoodInput): Promise<SaveFoodResult> {
-  const prepared = prepareCapturedFood(input);
-  if (!prepared.ok) return { ok: false, message: prepared.message };
-  const result = saveCapturedFood(prepared.food);
-  if (!result.ok) return { ok: false, message: result.message, duplicateOf: result.duplicateOf };
-  revalidatePath("/");
-  revalidatePath("/foods");
-  return { ok: true, foodId: result.food.id };
+  try {
+    const prepared = prepareCapturedFood(input);
+    if (!prepared.ok) return { ok: false, message: prepared.message };
+    const result = saveCapturedFood(prepared.food);
+    if (!result.ok) return { ok: false, message: result.message, duplicateOf: result.duplicateOf };
+    revalidatePath("/");
+    revalidatePath("/foods");
+    return { ok: true, foodId: result.food.id };
+  } catch (error) {
+    return { ok: false, message: publicError("Could not save that food.", error, "saveCapturedFoodAction") };
+  }
 }
 
 export async function updateCapturedFoodAction(
   id: string,
   input: CapturedFoodInput,
 ): Promise<SaveFoodResult> {
-  const prepared = prepareCapturedFood(input);
-  if (!prepared.ok) return { ok: false, message: prepared.message };
-  const result = updateCapturedFood(id, prepared.food);
-  if (!result.ok) return { ok: false, message: result.message, duplicateOf: result.duplicateOf };
-  revalidatePath("/");
-  revalidatePath("/foods");
-  return { ok: true, foodId: result.food.id };
+  try {
+    if (typeof id !== "string" || !id.trim()) return { ok: false, message: "That food does not exist." };
+    const prepared = prepareCapturedFood(input);
+    if (!prepared.ok) return { ok: false, message: prepared.message };
+    const result = updateCapturedFood(id, prepared.food);
+    if (!result.ok) return { ok: false, message: result.message, duplicateOf: result.duplicateOf };
+    revalidatePath("/");
+    revalidatePath("/foods");
+    return { ok: true, foodId: result.food.id };
+  } catch (error) {
+    return { ok: false, message: publicError("Could not update that food.", error, "updateCapturedFoodAction") };
+  }
 }
 
 /**
@@ -590,6 +608,8 @@ export async function saveAiConfigAction(input: {
   key?: string;
 }): Promise<AiConfigResult> {
   try {
+    const limited = await aiThrottle("config", 20);
+    if (limited) return { ok: false, message: limited };
     const { ADAPTERS } = await import("@/lib/ai/adapters");
     const { validateOutboundUrl } = await import("@/lib/security/urls");
     const { effectiveDailyCap, clampDailyCap } = await import("@/lib/ai/client");
@@ -647,6 +667,9 @@ export async function saveAiConfigAction(input: {
         input.dailyCallCap === undefined ? undefined : clampDailyCap(input.dailyCallCap),
     };
     if (input.key && input.key.trim()) {
+      if (input.key.trim().length > 4_096) {
+        return { ok: false, message: "That key is too long." };
+      }
       // Bind the key to the endpoint it was entered for. A later change to
       // `baseUrl` then fails closed instead of posting the key to the new
       // host (see `secrets.ts`).
@@ -676,10 +699,29 @@ export async function setAiKeyAction(
   baseUrl?: string,
 ): Promise<AiConfigResult> {
   try {
+    const limited = await aiThrottle("config", 20);
+    if (limited) return { ok: false, message: limited };
+    const { ADAPTERS } = await import("@/lib/ai/adapters");
+    const known = Object.keys(ADAPTERS);
+    const providerId = String(provider ?? "").trim();
+    if (!known.includes(providerId)) return { ok: false, message: "Unknown provider." };
+    // A key is a credential, not free text: cap it so a 16 MB body cannot be
+    // written to `secrets.json` by a direct action call.
+    const value = String(key ?? "").trim();
+    if (value.length > 4_096) return { ok: false, message: "That key is too long." };
+    // The endpoint becomes part of the storage key (`provider@host`) and is
+    // re-read on every lookup, so validate and cap it here instead of letting
+    // a direct call write a megabyte-long hostname.
+    const { checkUrlSyntax } = await import("@/lib/security/urls");
+    const endpoint = String(baseUrl ?? "").trim();
+    if (endpoint) {
+      const verdict = checkUrlSyntax(endpoint);
+      if (!verdict.ok) return { ok: false, message: `Base URL: ${verdict.reason}` };
+    }
     // setKey throws when the key comes from the environment instead of the
     // file — that used to escape as an unhandled 500. `baseUrl` binds the
     // key to the endpoint it was entered for (fallback/image roles).
-    setKey(provider, String(key ?? "").trim(), hostFromUrl(baseUrl));
+    setKey(providerId, value, hostFromUrl(endpoint));
     revalidatePath("/settings");
     return { ok: true };
   } catch (error) {
@@ -967,19 +1009,27 @@ export async function copyPlanWeekAction(
   sourceWeekStart: string,
   targetWeekStart: string,
 ): Promise<{ ok: boolean; message?: string; count?: number }> {
-  const { weekDays } = await import("@/lib/plan");
+  const { weekStart, weekDays } = await import("@/lib/plan");
   if (!isDay(sourceWeekStart) || !isDay(targetWeekStart)) {
     return { ok: false, message: "That date is not valid." };
   }
   try {
-    const sourceDays = weekDays(sourceWeekStart);
-    const targetDays = weekDays(targetWeekStart);
+    // Normalise to the Monday of each week. The plan row is keyed by the
+    // raw string, so a non-Monday input used to create an orphan plan and
+    // copy nothing while still reporting success.
+    const sourceWeek = weekStart(sourceWeekStart);
+    const targetWeek = weekStart(targetWeekStart);
+    if (sourceWeek === targetWeek) {
+      return { ok: false, message: "Pick a different week to copy into." };
+    }
+    const sourceDays = weekDays(sourceWeek);
+    const targetDays = weekDays(targetWeek);
     if (sourceDays.length !== 7 || targetDays.length !== 7) {
       return { ok: false, message: "Invalid week." };
     }
 
-    const sourcePlan = getOrCreatePlan(sourceWeekStart);
-    const targetPlan = getOrCreatePlan(targetWeekStart);
+    const sourcePlan = getOrCreatePlan(sourceWeek);
+    const targetPlan = getOrCreatePlan(targetWeek);
     const sourceEntries = listPlanEntries(sourcePlan.id);
 
     // One transaction so a mid-week failure cannot leave a partial copy.
@@ -1154,12 +1204,36 @@ export async function importInndbAction(
       }
       const parsed = JSON.parse(mappingJson);
       // Shape-check before it drives column lookups: unknown keys are
-      // ignored downstream, but the name field must be a usable string.
+      // ignored downstream, but the name field must be a usable string and
+      // `nutrients` must be a small map of known codes. A string there used
+      // to be enumerated per row.
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
         return { ok: false, message: "That column mapping is not valid." };
       }
-      if (parsed.name !== undefined && typeof parsed.name !== "string") {
-        return { ok: false, message: "That column mapping is not valid." };
+      for (const key of ["name", "aliases", "category", "code", "defaultCategory", "defaultKind"]) {
+        if (parsed[key] !== undefined && typeof parsed[key] !== "string") {
+          return { ok: false, message: "That column mapping is not valid." };
+        }
+      }
+      const nutrients = parsed.nutrients;
+      if (nutrients !== undefined) {
+        const { NUTRIENT_CODES } = await import("@/lib/nutrition/types");
+        const codes = new Set<string>(NUTRIENT_CODES);
+        if (!nutrients || typeof nutrients !== "object" || Array.isArray(nutrients)) {
+          return { ok: false, message: "That column mapping is not valid." };
+        }
+        const entries = Object.entries(nutrients);
+        if (entries.length > 40) {
+          return { ok: false, message: "That column mapping has too many nutrients." };
+        }
+        for (const [column, code] of entries) {
+          if (typeof code !== "string" || !codes.has(code)) {
+            return { ok: false, message: "That column mapping names an unknown nutrient." };
+          }
+          if (column.length > 200) {
+            return { ok: false, message: "That column mapping is not valid." };
+          }
+        }
       }
       mapping = parsed as import("@/lib/importer/inndb").InndbMapping;
     }
@@ -1200,16 +1274,14 @@ export async function deleteCapturedFoodAction(foodId: string): Promise<{ ok: bo
 
 import { saveGraphDraft } from "@/lib/recipes-v2";
 import type { Graph } from "@/lib/nutrition/graph";
+import { sanitizeGraph, sanitizeLayout, validateGraphShape, validateLayout } from "@/lib/nutrition/graph-validate";
 
 /**
  * A graph arrives from the client as JSON with no size limit beyond the
  * framework body cap — 1 MB of nodes means a full recompute plus a
- * multi-megabyte snapshot write. Cap the shape, not just the bytes.
+ * multi-megabyte snapshot write. `validateGraphShape` bounds the shape
+ * (counts, per-node outputs, grams, factors, layout), not just the bytes.
  */
-const MAX_GRAPH_NODES = 300;
-const MAX_GRAPH_EDGES = 600;
-const MAX_LAYOUT_KEYS = 600;
-
 export async function saveGraphAction(input: {
   recipeId?: string | null;
   name: string;
@@ -1222,15 +1294,14 @@ export async function saveGraphAction(input: {
   replaceVersionId?: string | null;
 }): Promise<{ ok: boolean; recipeId?: string; message?: string }> {
   try {
-    if (!input?.graph || !Array.isArray(input.graph.nodes) || !Array.isArray(input.graph.edges)) {
-      return { ok: false, message: "That recipe graph is not valid." };
-    }
-    if (input.graph.nodes.length > MAX_GRAPH_NODES || input.graph.edges.length > MAX_GRAPH_EDGES) {
-      return { ok: false, message: "That recipe is too large to save." };
-    }
-    if (input.layout && Object.keys(input.layout).length > MAX_LAYOUT_KEYS) {
-      return { ok: false, message: "That layout is too large." };
-    }
+    const graphProblem = validateGraphShape(input?.graph);
+    if (graphProblem) return { ok: false, message: graphProblem };
+    const layoutProblem = validateLayout(input.layout);
+    if (layoutProblem) return { ok: false, message: layoutProblem };
+    // Validation bounds counts and ranges; this drops any extra keys a
+    // caller attached to a node or layout position before they are stored.
+    const graph = sanitizeGraph(input.graph);
+    const layout = sanitizeLayout(input.layout);
     if (input.mode !== undefined && input.mode !== "new-version" && input.mode !== "replace-current") {
       return { ok: false, message: "Unknown save mode." };
     }
@@ -1256,8 +1327,8 @@ export async function saveGraphAction(input: {
       versionLabel,
       instructions,
       servings,
-      layout: input.layout,
-      graph: input.graph,
+      layout,
+      graph,
       mode: input.mode,
       replaceVersionId: input.replaceVersionId ?? null,
     });
@@ -1560,6 +1631,9 @@ export async function estimateFoodNutrientsAction(
 export async function saveMasterPromptAction(
   value: string,
 ): Promise<{ ok: boolean; message?: string }> {
+  if (typeof value !== "string") {
+    return { ok: false, message: "That prompt is not valid." };
+  }
   const trimmed = value.trim();
   if (trimmed.length > 2000) {
     return { ok: false, message: "Keep it under 2,000 characters." };

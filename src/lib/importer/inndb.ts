@@ -47,30 +47,43 @@ export function importInndb(
   const { rows } = parseCsv(csvText);
   const result: ImportResult = { imported: 0, skipped: 0, errors: [] };
 
+  // Hoist the mapping out of the row loop: `Object.entries` per row turned a
+  // long mapping into tens of millions of iterations for a full import. A
+  // mapping without a `nutrients` map is allowed by the action; treat it as
+  // "no nutrient columns" rather than throwing before the first row.
+  const nutrientColumns = Object.entries(mapping.nutrients ?? {});
+  // `row` is a plain object; a column named `__proto__` would otherwise read
+  // the prototype instead of a cell. Only string cells count.
+  const cell = (row: Record<string, string>, key: string | undefined): string => {
+    if (!key) return "";
+    const value = row[key];
+    return typeof value === "string" ? value.trim() : "";
+  };
+
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    const name = (row[mapping.name] ?? "").trim();
+    const name = cell(row, mapping.name);
     if (!name) {
       result.skipped++;
       continue;
     }
 
     const aliases = mapping.aliases
-      ? (row[mapping.aliases] ?? "")
+      ? cell(row, mapping.aliases)
           .split(/[,;]/)
           .map((a) => a.trim())
           .filter(Boolean)
       : [];
 
     const category = mapping.category
-      ? (row[mapping.category] ?? "").trim() || (mapping.defaultCategory ?? "Custom")
+      ? cell(row, mapping.category) || (mapping.defaultCategory ?? "Custom")
       : (mapping.defaultCategory ?? "Custom");
 
-    const code = mapping.code ? (row[mapping.code] ?? "").trim() : undefined;
+    const code = mapping.code ? cell(row, mapping.code) || undefined : undefined;
 
     const nutrients: Partial<Record<NutrientCode, number | null>> = {};
-    for (const [column, nutrient] of Object.entries(mapping.nutrients)) {
-      const raw = (row[column] ?? "").trim();
+    for (const [column, nutrient] of nutrientColumns) {
+      const raw = cell(row, column);
       if (raw === "" || raw.toLowerCase() === "na" || raw.toLowerCase() === "tr") continue;
       const value = Number(raw);
       if (!Number.isFinite(value)) continue;

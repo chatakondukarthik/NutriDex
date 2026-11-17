@@ -49,6 +49,43 @@ describe("checkUrlSyntax", () => {
     expect(checkUrlSyntax("https://[fe80::1]/").ok).toBe(false);
   });
 
+  it("rejects an IPv4-mapped or NAT64 encoding of a metadata address", () => {
+    // `[::ffff:169.254.169.254]` reaches the same IPv4 destination as the
+    // plain literal, so checking only the v6 groups is a bypass.
+    process.env.NUTRIPLAN_ALLOW_PRIVATE_AI_URLS = "1";
+    for (const url of [
+      "https://[::ffff:169.254.169.254]/",
+      "https://[0:0:0:0:0:ffff:a9fe:a9fe]/",
+      "https://[64:ff9b::a9fe:a9fe]/",
+    ]) {
+      expect(checkUrlSyntax(url).ok, url).toBe(false);
+    }
+  });
+
+  it("rejects a mapped or NAT64 loopback unless the opt-in allows loopback", () => {
+    for (const url of ["https://[::ffff:127.0.0.1]/", "https://[64:ff9b::7f00:1]/"]) {
+      expect(checkUrlSyntax(url).ok, url).toBe(false);
+    }
+    // With the local-model opt-in, loopback is allowed — including these
+    // encodings, because they are the same destination as 127.0.0.1.
+    process.env.NUTRIPLAN_ALLOW_PRIVATE_AI_URLS = "1";
+    for (const url of ["https://[::ffff:127.0.0.1]/", "https://[64:ff9b::7f00:1]/"]) {
+      expect(checkUrlSyntax(url).ok, url).toBe(true);
+    }
+  });
+
+  it("rejects documentation ranges even with the local opt-in", () => {
+    process.env.NUTRIPLAN_ALLOW_PRIVATE_AI_URLS = "1";
+    for (const url of [
+      "https://192.0.2.10/",
+      "https://198.51.100.10/",
+      "https://203.0.113.10/",
+      "https://[2001:db8::1]/",
+    ]) {
+      expect(checkUrlSyntax(url).ok, url).toBe(false);
+    }
+  });
+
   it("rejects loopback and private ranges by default", () => {
     for (const url of [
       "http://localhost:11434/v1",

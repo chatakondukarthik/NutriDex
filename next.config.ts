@@ -66,7 +66,7 @@ function allowedOriginsFromEnv(raw: string | undefined): string[] {
     if (entry === "*" || entry.includes("://") || entry.includes("/")) {
       throw new Error(
         `NUTRIPLAN_ALLOWED_ORIGINS: "${entry}" is not a host pattern. ` +
-          `Use a hostname like app.example.com (a leading *. is allowed).`,
+          `Use app.example.com or app.example.com:8443 (a leading *. is allowed).`,
       );
     }
   }

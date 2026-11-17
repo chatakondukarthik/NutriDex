@@ -49,9 +49,31 @@ best-effort.
 **Why:** `assertOutboundUrl` resolves the host and checks the address, then
 `fetch` resolves it again. A TTL-0 record could change in between.
 **Mitigation:** redirects are refused; private/link-local literals are
-rejected; the cache narrows the window.
+rejected, including IPv4-mapped and NAT64 encodings; the cache narrows the
+window.
 **Revisit:** if custom AI endpoints become a shared or multi-user feature.
 A future fix is to connect to the validated IP and set the `Host` header.
+
+### R8 — WAL on a network or synced volume
+**Expires:** 2027-01-01
+**Why:** SQLite's WAL mode assumes a local filesystem. A network share or a
+cloud-sync client can interleave writes and corrupt the database.
+**Mitigation:** the default data directory is local; the deployment guide
+uses a local volume. A synced folder is not a supported backup mechanism.
+**Revisit:** if a user asks to place `NUTRIPLAN_DATA_DIR` on iCloud, Dropbox,
+NFS or SMB.
+
+### R9 — Legacy `secrets.json` shapes
+**Expires:** 2027-01-01
+**Why:** Older builds wrote a flat provider→key map, then a single-host
+`{ keys, hosts }` shape. Both are still read so an upgrade does not lose a
+key. A flat key with no recorded host is treated as unbound (usable for the
+provider's fixed endpoint only); a flat key paired with `hosts[provider]` is
+treated as bound to that host, so it is never released to the fixed endpoint.
+**Mitigation:** the next save rewrites the file in the per-`provider@host`
+shape.
+**Revisit:** after the next release; remove the readers once no supported
+upgrade path can produce the old shapes.
 
 ### R7 — No audit trail
 **Expires:** 2027-01-01
@@ -85,6 +107,8 @@ token in memory only. No server sessions, reset flow or invites.
 offline copy.
 **Plan:** if a lock is added, derive a key from the passphrase and encrypt
 the key store; otherwise keep relying on OS/volume encryption.
+**Note:** legacy key shapes are read on upgrade and rewritten to the
+per-`provider@host` shape on the next save (`R9`).
 
 ## Verification cadence
 

@@ -60,11 +60,16 @@ export const DATA_PREAMBLE =
 /**
  * The user's master prompt, appended to the system turn as its own block.
  * Empty string when there is nothing to add, so callers can drop the line.
+ *
+ * The text is authored by the app's own user and is already system-level, so
+ * it is not escaped: escaping turned a legitimate `keep salt <2 g` into
+ * `&lt;2 g`. The delimiters are framing for the model, not a boundary that
+ * untrusted third-party data could cross here.
  */
 export function masterSystemBlock(master?: string | null): string {
   const text = (master ?? getMasterPrompt()).trim();
   if (!text) return "";
-  return `\n\nPersona and standing instructions for this user (follow them where they do not conflict with the rules above):\n<user-instructions>\n${escapeTags(text.slice(0, 2000))}\n</user-instructions>`;
+  return `\n\nPersona and standing instructions for this user (follow them where they do not conflict with the rules above):\n<user-instructions>\n${text.slice(0, 2000)}\n</user-instructions>`;
 }
 
 /** `system` + the master-prompt block, ready to send. */

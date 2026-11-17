@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { redact, safeLogText, publicError, ownMessage } from "@/lib/security/errors";
+import { redact, safeLogText, publicError, ownMessage, UserFacingError } from "@/lib/security/errors";
 import { rateLimit, resetRateLimits } from "@/lib/security/rate-limit";
 
 /**
@@ -69,6 +69,23 @@ describe("publicError", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
       expect(publicError("Import failed.", "boom", "importInndbAction")).toBe("Import failed.");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("passes an app-authored UserFacingError through, redacted", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const error = new UserFacingError(
+        "No key is bound to api.example.com. Re-enter the key in Settings.",
+      );
+      expect(publicError("AI call failed.", error, "complete")).toMatch(
+        /Re-enter the key in Settings/,
+      );
+
+      const leaky = new UserFacingError("failed with sk-abcdefghijklmno");
+      expect(publicError("AI call failed.", leaky, "complete")).not.toMatch(/sk-abcdefghijklmno/);
     } finally {
       spy.mockRestore();
     }

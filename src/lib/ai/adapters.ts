@@ -1,7 +1,7 @@
 import type { AiConfig, ImagePart, ModelInfo, ModelRequest, ModelResponse, ProviderAdapter } from "./types";
 import { getKey, getKeyForHost } from "./secrets";
 import { assertOutboundUrl } from "@/lib/security/urls";
-import { redact } from "@/lib/security/errors";
+import { redact, UserFacingError } from "@/lib/security/errors";
 
 const TIMEOUT_DEFAULT = 30_000;
 
@@ -181,12 +181,12 @@ function keyForEndpoint(provider: string, base: string, custom: boolean): string
 function requireKey(key: string | null, label: string, base: string, custom: boolean): string {
   if (key) return key;
   if (custom) {
-    throw new Error(
+    throw new UserFacingError(
       `No ${label} key is bound to ${new URL(base).host}. ` +
         `Re-enter the key in Settings to use this endpoint.`,
     );
   }
-  throw new Error(`No ${label} key configured.`);
+  throw new UserFacingError(`No ${label} key configured.`);
 }
 
 const openai: ProviderAdapter = {

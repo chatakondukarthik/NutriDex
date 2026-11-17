@@ -21,6 +21,7 @@ import {
   unlinkSync,
   writeSync,
 } from "node:fs";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 export const PRIVATE_DIR_MODE = 0o700;
@@ -57,15 +58,25 @@ export function atomicWritePrivateFile(file: string, data: string): void {
   const dir = path.dirname(file);
   ensurePrivateDir(dir);
 
+  // A random name cannot be pre-created as a symlink in a shared directory,
+  // and `wx` refuses to open a path that already exists. A fixed pid+time
+  // name also collided when two writes happened in the same millisecond.
   const tmp = path.join(
     dir,
-    `.${path.basename(file)}.${process.pid}.${Date.now()}.tmp`,
+    `.${path.basename(file)}.${process.pid}.${randomUUID()}.tmp`,
   );
 
-  const fd = openSync(tmp, "w", PRIVATE_FILE_MODE);
+  const buffer = Buffer.from(data, "utf8");
+  const fd = openSync(tmp, "wx", PRIVATE_FILE_MODE);
   try {
     fchmodSync(fd, PRIVATE_FILE_MODE);
-    writeSync(fd, data);
+    // `writeSync` may write fewer bytes than asked (full disk, file-size
+    // limit, interrupted write). Loop until the whole buffer is on disk;
+    // otherwise a short write would be fsynced and renamed into place.
+    let offset = 0;
+    while (offset < buffer.length) {
+      offset += writeSync(fd, buffer, offset, buffer.length - offset);
+    }
     fsyncSync(fd);
   } catch (error) {
     closeSync(fd);
@@ -80,7 +91,16 @@ export function atomicWritePrivateFile(file: string, data: string): void {
   }
   closeSync(fd);
 
-  renameSync(tmp, file);
+  try {
+    renameSync(tmp, file);
+  } catch (error) {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      /* best effort */
+    }
+    throw error;
+  }
   restrictFile(file);
 
   // Make the rename itself durable: fsync the directory so a power loss

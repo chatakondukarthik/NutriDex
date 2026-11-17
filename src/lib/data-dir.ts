@@ -1,5 +1,5 @@
 import path from "node:path";
-import { ensurePrivateDir } from "@/lib/security/private-files";
+import { ensurePrivateDir, restrictFile } from "@/lib/security/private-files";
 
 /**
  * One place that decides where writable state lives: the SQLite file, the
@@ -24,9 +24,16 @@ export function dataFile(name: string): string {
  * Resolve the data directory and make it owner-only before anything is
  * written into it. Called by the database and the two JSON stores on boot;
  * idempotent and cheap.
+ *
+ * The JSON stores are tightened here too: `atomicWritePrivateFile` fixes a
+ * file's mode when it is written, but an `ai-config.json` left `0644` by an
+ * older build would otherwise stay readable until its next save.
  */
 export function ensureDataDir(): string {
   const dir = dataDir();
   ensurePrivateDir(dir);
+  for (const name of ["secrets.json", "ai-config.json"]) {
+    restrictFile(path.join(dir, name));
+  }
   return dir;
 }

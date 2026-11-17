@@ -71,8 +71,8 @@ Other properties worth knowing before you expose it:
 
 - **Node.js 24 or newer.** The app uses the built-in `node:sqlite` module,
   which needs Node 23.4+ and is provided by the `node:24-bookworm-slim`
-  image used in the Dockerfile. The local dev machine runs newer, which is
-  fine.
+  image used in the Dockerfile. `package.json` declares `"engines": { "node":
+  ">=24" }`; the local dev machine runs newer, which is fine.
 - A writable directory for state (`NUTRIPLAN_DATA_DIR`).
 - A reverse proxy for anything beyond localhost.
 
@@ -82,12 +82,19 @@ Other properties worth knowing before you expose it:
 
 ```bash
 npm install
-npm run dev            # http://localhost:3000
+npm run dev            # next dev -H 127.0.0.1 → http://localhost:3000
 ```
 
-With no configuration the gate is `local`: the app answers on loopback and
-refuses a request addressed to a LAN address. To preview from another device
-on your network during development:
+`npm run dev` binds `127.0.0.1`, so the app is not reachable from the LAN by
+default. With no configuration the gate is also `local`: the app answers on
+loopback and refuses a request addressed to a LAN address. The bind address is
+the first control; the gate is defence-in-depth for `next start`, a container
+and a custom `HOSTNAME`. To preview from another device on your network during
+development, bind wider and allow that host:
+
+```bash
+npx next dev -H 0.0.0.0
+```
 
 ```bash
 # .env.local
@@ -123,6 +130,7 @@ documents every variable. The split that matters:
 | `NUTRIPLAN_DATA_DIR` | directory for database, keys, AI config |
 | `NUTRIPLAN_DB_PATH` | exact database file; wins over the data dir |
 | `NUTRIPLAN_AI_<PROVIDER>_KEY` | `GEMINI`, `OPENAI`, `ANTHROPIC`, `OPENAI_COMPATIBLE` |
+| `NUTRIPLAN_AI_<PROVIDER>_HOST` | comma list of custom hosts an env key may be sent to; unset means fixed endpoint only |
 | `NUTRIPLAN_ALLOW_PRIVATE_AI_URLS` | `1` to allow a private/loopback AI endpoint |
 | `NUTRIPLAN_USDA_KEY` | FoodData Central key (otherwise the rate-limited `DEMO_KEY`) |
 | `PORT`, `HOSTNAME` | bind address for the standalone server |
@@ -340,7 +348,13 @@ docker compose start
 ```
 
 Back up `secrets.json` and `ai-config.json` too **only if** you saved keys
-through the UI. Prefer environment keys, which are not on the volume.
+through the UI. Prefer environment keys, which are not on the volume. Keys in
+`secrets.json` are keyed by `provider@host`; an env key is sent to a custom
+endpoint only when pinned with `NUTRIPLAN_AI_<PROVIDER>_HOST`.
+
+The data volume must be a local filesystem. SQLite runs in WAL mode; a network
+share or a cloud-synced folder can interleave writes and corrupt the database.
+Use a real volume or a local directory, not a synced folder as a "backup".
 
 Restore: stop the app, replace `nutriplan.sqlite`, delete any stale
 `nutriplan.sqlite-wal` / `-shm`, then start. Take a backup before upgrading.
@@ -355,8 +369,11 @@ docker compose up -d
 ```
 
 Schema creation is idempotent and runs at startup, so there is no separate
-migration step. Back up first anyway; this is a single-file database and the
-backup is cheap.
+migration step. Each migration step inspects the current schema before it
+runs; the one table rebuild (`entries`) runs in a single transaction, and a
+crash during it is finished on the next boot (the live table wins when the
+copy already ran, otherwise the stranded rows are merged). Back up first
+anyway; this is a single-file database and the backup is cheap.
 
 Because `NUTRIPLAN_ALLOWED_ORIGINS` is baked into the build, re-check it when
 the public hostname changes.
@@ -391,6 +408,8 @@ the public hostname changes.
   node positions through style attributes, which a nonce cannot cover.
   Scripts use a per-request nonce.
 - **Secrets on the volume** if keys are entered in Settings rather than set in
-  the environment. The file is `0600`, but it is part of a backup.
+  the environment. The file is `0600`, but it is part of a backup. Keys saved
+  there are bound to the host they were entered for; changing `baseUrl` does
+  not silently send them to a new host.
 - **No malware scanning** of uploaded label images. They are parsed as images
   in the browser and sent to the configured model; they are not executed.

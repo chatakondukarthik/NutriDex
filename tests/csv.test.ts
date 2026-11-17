@@ -54,7 +54,7 @@ describe("parseCsv", () => {
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 
-  it("rejects more rows than the cap instead of allocating them", () => {
+  it("aborts during the scan once the row cap is exceeded", () => {
     const header = "name\n";
     const body = "x\n".repeat(50_001);
     expect(() => parseCsv(header + body)).toThrow(/more than 50000 rows/);
@@ -64,5 +64,11 @@ describe("parseCsv", () => {
     const header = "name\n";
     const body = "x\n".repeat(50_000);
     expect(parseCsv(header + body).rows).toHaveLength(50_000);
+  });
+
+  it("rejects an unterminated quoted field instead of swallowing the rest", () => {
+    expect(() => parseCsv('name,note\nDal,"never closed\nmore text')).toThrow(
+      /unterminated quoted field/,
+    );
   });
 });

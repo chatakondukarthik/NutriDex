@@ -7,10 +7,12 @@ a hosted service, a central database or an ops team.
 
 ```bash
 npm install
-npm run dev            # http://localhost:3000
+npm run dev            # next dev -H 127.0.0.1 → http://localhost:3000
 ```
 
-The default gate is `local`: only loopback `Host` headers pass. If the app is
+`npm run dev` binds loopback explicitly. `next start` (and a container)
+honour `HOSTNAME`/`PORT`, so the gate remains the second control: the default
+mode is `local`, and only loopback `Host` headers pass. If the app is
 unreachable from the browser, check the gate mode in the startup log:
 
 ```
@@ -25,12 +27,13 @@ Do not set `NUTRIPLAN_GATE=off` on a machine with an untrusted LAN.
 |---|---|---|
 | `data/nutriplan.sqlite` | foods, recipes, plans, diary, settings | `0600` |
 | `data/nutriplan.sqlite-wal` / `-shm` | SQLite sidecars | `0600` |
-| `data/secrets.json` | provider API keys + host binding | `0600` |
+| `data/secrets.json` | provider keys, keyed by `provider@host` | `0600` |
 | `data/ai-config.json` | provider, model, endpoints, daily cap | `0600` |
 | `data/` | the directory itself | `0700` |
 
 `NUTRIPLAN_DATA_DIR` moves all of it. `NUTRIPLAN_DB_PATH` overrides only the
-database file.
+database file. Keep the data directory on a local filesystem: WAL on a network
+or cloud-synced volume can corrupt the database (`RESIDUAL-RISKS.md` R8).
 
 Check the modes:
 
@@ -89,10 +92,21 @@ NUTRIPLAN_AI_GEMINI_KEY=...
 NUTRIPLAN_AI_OPENAI_KEY=...
 NUTRIPLAN_AI_ANTHROPIC_KEY=...
 NUTRIPLAN_AI_OPENAI_COMPATIBLE_KEY=...
+
+# Only if that key is for a custom host. Comma-separated; exact host:port.
+NUTRIPLAN_AI_OPENAI_HOST=api.example.com
 ```
 
-Env keys are operator-controlled and are not host-bound. Setting both an env
-key and a file key for the same provider is an error.
+An env key is used for the provider's fixed endpoint without a host pin. It
+is released to a custom `baseUrl` **only** when its host is listed in
+`NUTRIPLAN_AI_<PROVIDER>_HOST`; an unpinned env key fails closed for a custom
+endpoint. Setting both an env key and a file key for the same provider is an
+error.
+
+Keys saved from Settings are stored per `provider@host`, so the primary,
+fallback and image roles can each hold a different key without overwriting
+one another. Older flat and single-host `secrets.json` shapes are read on
+upgrade and rewritten on the next save.
 
 ## 5. Back up and restore
 
@@ -119,6 +133,12 @@ Restore:
 4. Start the app and confirm the row counts in the UI.
 
 A full export/import feature is tracked as `SEC-EXP-01`.
+
+If a restore or an interrupted upgrade leaves an `entries_v1` table beside
+`entries`, the next boot finishes it: the live `entries` table wins when the
+copy already ran, and stranded rows are merged when it did not. The one state
+that still stops the app is `entries_v1` without the new `entries` shape; back
+up and inspect the database before starting.
 
 ## 6. Locked out
 

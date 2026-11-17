@@ -10,9 +10,16 @@
  * read, rewrite or delete every recipe and food, and can point the AI
  * `baseUrl` at a host of their choosing to capture the stored key.
  *
- * The dev server binds `*:3000` (the whole LAN), which makes that a live
- * exposure rather than a theoretical one. The gate keeps the app on the
- * machine by default and gives a deployment an explicit way to open it.
+ * The dev server is started with `-H 127.0.0.1` (see `package.json`), so the
+ * default install listens only on loopback. The gate is the second layer: it
+ * keeps a misconfigured bind, or a deployment whose proxy forwards the wrong
+ * `Host`, from publishing every recipe and the stored AI key.
+ *
+ * Even so, `Host` is a header. A caller who forges `Host: localhost` gets
+ * through `local` mode. The bind address is what keeps the app on the
+ * machine; the gate is a safety net, not authentication. Put a real reverse
+ * proxy (TLS, basic auth, VPN, or `token` mode) in front of a public
+ * deployment.
  *
  * ## Modes (`NUTRIPLAN_GATE`, or inferred — see `resolveGateMode`)
  *
@@ -34,11 +41,6 @@
  * client-writable: trusting them by default would let anyone claim
  * `X-Forwarded-Host: localhost` and walk in.
  *
- * Even so, `Host` is a header. A caller who forges `Host: localhost` gets
- * through `local` mode. This is a safety net, not authentication — put a
- * real reverse proxy (TLS, basic auth, VPN, or `token` mode) in front of a
- * public deployment.
- *
  * ## CSP
  *
  * Production uses a per-request nonce for scripts, which lets `script-src`
@@ -55,6 +57,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import {
   decideGate,
+  isCrossSiteMutation,
   parseAllowedHosts,
   resolveGateMode,
   trustProxyEnabled,
@@ -81,7 +84,7 @@ function announceMode(mode: string): void {
   }
 }
 
-function buildCsp(nonce?: string): string {
+function buildCsp(nonce?: string, upgradeInsecure = false): string {
   const scriptSrc = nonce
     ? `'self' 'nonce-${nonce}' 'strict-dynamic'`
     : `'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`;
@@ -102,14 +105,15 @@ function buildCsp(nonce?: string): string {
     "form-action 'self'",
     "frame-ancestors 'none'",
   ];
-  // Only meaningful over TLS; harmless behind a TLS-terminating proxy.
-  if (!isDev) directives.push("upgrade-insecure-requests");
+  // Only meaningful over TLS. A plain-HTTP `npm start` or LAN preview would
+  // otherwise rewrite same-origin subresources to https and break them.
+  if (!isDev && upgradeInsecure) directives.push("upgrade-insecure-requests");
   return directives.join("; ");
 }
 
 function blockedResponse(): NextResponse {
-  // Deliberately terse: this goes to whoever is probing the port, so it
-  // names no routes, versions or configuration.
+  // Deliberately terse: this goes to whoever is probing the port. It names
+  // the env vars an operator needs, but no routes, versions or data.
   return new NextResponse(
     "NutriPlan is bound to this machine. Set NUTRIPLAN_GATE=hosts with " +
       "NUTRIPLAN_ALLOWED_HOSTS, or NUTRIPLAN_GATE=token with NUTRIPLAN_TOKEN, " +
@@ -123,41 +127,6 @@ function blockedResponse(): NextResponse {
       },
     },
   );
-}
-
-/**
- * Reject a state-changing request that did not come from this origin.
- *
- * Next's server-action origin check is the primary CSRF defence, but it
- * allows a request with **no** `Origin` header. Any website in the user's
- * browser can still make it issue a cross-site POST to `127.0.0.1`, and the
- * browser always attaches `Origin` or `Sec-Fetch-Site`. Checking both here
- * closes that gap for every mutation, including any future Route Handler
- * that Next would not cover.
- *
- * A non-browser client (curl, a test) sends neither header and is still
- * subject to the gate and token rules.
- */
-function isCrossSiteMutation(request: NextRequest, effectiveHost: string): boolean {
-  const method = request.method.toUpperCase();
-  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return false;
-
-  const site = request.headers.get("sec-fetch-site");
-  if (site && site !== "same-origin" && site !== "none") return true;
-
-  const origin = request.headers.get("origin");
-  if (!origin) return false;
-
-  try {
-    // Compare the full authority, including the port: `http://host:1234` and
-    // `http://host:5678` are different origins, and stripping the port here
-    // would let a service on another local port drive the app.
-    const originHost = new URL(origin).host.toLowerCase();
-    const requestHost = String(effectiveHost ?? "").trim().toLowerCase();
-    return originHost !== requestHost;
-  } catch {
-    return true;
-  }
 }
 
 export function proxy(request: NextRequest) {
@@ -190,7 +159,11 @@ export function proxy(request: NextRequest) {
   });
 
   if (!decision.allow) return blockedResponse();
-  if (isCrossSiteMutation(request, effectiveHost ?? "")) return blockedResponse();
+
+  const allowedOrigins = parseAllowedHosts(process.env.NUTRIPLAN_ALLOWED_ORIGINS);
+  if (isCrossSiteMutation(request, effectiveHost ?? "", allowedOrigins)) {
+    return blockedResponse();
+  }
 
   const headers = new Headers(request.headers);
   if (!trustProxy) {
@@ -209,8 +182,15 @@ export function proxy(request: NextRequest) {
     return NextResponse.next({ request: { headers } });
   }
 
+  // `upgrade-insecure-requests` is only correct when this request arrived
+  // over TLS (directly or via a trusted proxy).
+  const forwardedProto = trustProxy
+    ? request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase()
+    : undefined;
+  const isHttps = request.nextUrl.protocol === "https:" || forwardedProto === "https";
+
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
-  const csp = buildCsp(nonce);
+  const csp = buildCsp(nonce, isHttps);
   // Next reads the nonce from the request-side CSP header and stamps it onto
   // the script tags it renders, so it must be on the request headers too.
   headers.set("x-nonce", nonce);

@@ -51,4 +51,20 @@ describe("prepareCapturedFood", () => {
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.food.aliases).toEqual(["a", "b"]);
   });
+
+  it("ignores a non-string image path instead of throwing", () => {
+    const r = prepareCapturedFood({ name: "X", imagePath: 123 as never });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.food.imagePath).toBeNull();
+  });
+
+  it("caps aliases and estimated codes before materialising them", () => {
+    const aliases = Array.from({ length: 10_000 }, (_, i) => `alias ${i}`);
+    const r = prepareCapturedFood({ name: "X", aliases });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.food.aliases).toHaveLength(12);
+
+    const estimated = new Array(101).fill("FAT");
+    expect(prepareCapturedFood({ name: "X", estimated }).ok).toBe(false);
+  });
 });

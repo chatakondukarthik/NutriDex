@@ -38,6 +38,20 @@ export function safeLogText(text: string | null, max = 300): string | null {
 }
 
 /**
+ * An error whose message is written by the app for the user, not derived
+ * from a provider, a file path or a SQL error. `publicError` passes these
+ * through (redacted) instead of replacing them with a generic sentence.
+ *
+ * Only use this for fixed strings authored in this repository.
+ */
+export class UserFacingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UserFacingError";
+  }
+}
+
+/**
  * The message a user should see. `fallback` is a fixed sentence written at
  * the call site — never derived from the error.
  *
@@ -47,6 +61,7 @@ export function publicError(fallback: string, error: unknown, context?: string):
   const detail = error instanceof Error ? error.message : String(error);
   const prefix = context ? `[${context}] ` : "";
   console.error(`${prefix}${redact(detail)}`);
+  if (error instanceof UserFacingError) return redact(detail);
   return fallback;
 }
 

@@ -22,8 +22,8 @@ depends on a hosted multi-user design the product does not have.
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| All input is validated on the server | met | Every action in `src/app/actions.ts` validates its own inputs |
-| Numeric bounds are enforced | met | grams, servings, image bytes, graph nodes/edges, plan steps |
+| All input is validated on the server | met | Every action in `src/app/actions.ts` validates its own inputs; graph, recipe and captured-food shapes have dedicated validators |
+| Numeric bounds are enforced | met | grams, servings, image bytes, graph nodes/edges/outputs, recipe blocks/inputs, plan steps |
 | Business-logic limits are enforced server-side | met | AI daily cap, per-minute buckets, unique-ingredient cap |
 | Anti-automation controls exist for expensive operations | met | `src/lib/security/rate-limit.ts`, `aiThrottle` |
 
@@ -34,7 +34,7 @@ depends on a hosted multi-user design the product does not have.
 | CSP restricts script sources | met | nonce-based CSP in `src/proxy.ts`; dev policy in `next.config.ts` |
 | `frame-ancestors 'none'` | met | `src/proxy.ts` |
 | `X-Content-Type-Options: nosniff` | met | `next.config.ts`, gate 403 response |
-| Cross-site request forgery is prevented | met | `isCrossSiteMutation` + Next action origin check |
+| Cross-site request forgery is prevented | met | `isCrossSiteMutation` rejects `none`/`same-site`/`cross-site`, mismatched origins and non-default ports; Next's action origin check runs after it |
 | Host header is validated | met | `src/lib/security/gate.ts` |
 | Referrer policy is restrictive | met | `next.config.ts` |
 
@@ -54,7 +54,7 @@ depends on a hosted multi-user design the product does not have.
 | Upload size is bounded | met | 5 MB/image, 12 MB total, 10 images |
 | Path traversal is not possible | met | No user-supplied path reaches `fs`; `dataDir` is fixed |
 | Imported text is bounded | met | 400k chars, 50k rows, 50 errors |
-| Temporary files are private | met | `atomicWritePrivateFile` uses `0600` temp files |
+| Temporary files are private | met | `atomicWritePrivateFile` uses random `wx` temp files, `0600`, short-write/fsync, cleanup on failure; fault-tested |
 
 ## V6 — Authentication
 
@@ -122,7 +122,7 @@ depends on a hosted multi-user design the product does not have.
 | Security controls are centralized | met | gate, URL validation, private files, rate limits, secrets |
 | Dependencies are current | met | `next@16.4.6`; clean `npm audit` (`SEC-SUP-01`) |
 | No known vulnerable components | met | `npm audit` clean at time of writing |
-| Security tests exist | met | 479 tests, including `tests/security-gate.test.ts` |
+| Security tests exist | met | 554 tests, including gate, origin, URL, key-binding, file-fault, graph-validation and DB-recovery suites |
 
 ## V16 — Security logging and error handling
 

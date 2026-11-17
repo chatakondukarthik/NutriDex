@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { dataFile, ensureDataDir } from "@/lib/data-dir";
 import { ensurePrivateDir, restrictFile } from "@/lib/security/private-files";
@@ -243,10 +244,19 @@ const SCHEMA = `
 
 function createDb(): DatabaseSync {
   const dbPath = resolveDbPath();
-  // `NUTRIPLAN_DB_PATH` may point outside the data dir (tests do this), so
-  // create and tighten that parent explicitly as well.
-  ensurePrivateDir(path.dirname(dbPath));
-  ensureDataDir();
+  const dataRoot = ensureDataDir();
+  // Tighten the DB's parent only when it is the app's own data directory.
+  // `NUTRIPLAN_DB_PATH` may point at a shared or unrelated directory (tests,
+  // a mounted volume, `:memory:`); chmod'ing that to 0700 would break other
+  // services. The 0600 file mode below is the actual protection.
+  const parent = path.dirname(path.resolve(dbPath));
+  if (parent === path.resolve(dataRoot)) {
+    ensurePrivateDir(parent);
+  } else {
+    // Create a missing parent for an explicit `NUTRIPLAN_DB_PATH` (a fresh
+    // mounted volume, a CI temp dir), but do not chmod it: it may be shared.
+    mkdirSync(parent, { recursive: true });
+  }
 
   const database = new DatabaseSync(dbPath);
   database.exec(SCHEMA);
@@ -260,8 +270,8 @@ function createDb(): DatabaseSync {
 /**
  * The main file and its WAL sidecars are created by SQLite, not by us, so
  * they inherit the umask. Tighten them after the first write has created
- * them. `-wal`/`-shm` may not exist yet on a brand-new database; the next
- * boot catches them.
+ * them; `SCHEMA` has already put the database in WAL mode, so both sidecars
+ * exist by this point. Recreated sidecars inherit the database's mode.
  */
 function restrictDbFiles(dbPath: string): void {
   restrictFile(dbPath);
@@ -274,8 +284,9 @@ function restrictDbFiles(dbPath: string): void {
  *
  * `CREATE TABLE IF NOT EXISTS` does nothing to a table that already
  * exists, so a new column needs an explicit `ALTER TABLE`. Every column
- * is additive and nullable (or has a default), which is what lets this run
- * on every boot without a migration framework.
+ * is additive and nullable (or has a default). The one destructive change —
+ * the `entries` rebuild — runs in a single transaction and is recoverable
+ * if an older boot was interrupted.
  */
 function migrate(database: DatabaseSync): void {
   addColumn(database, "profile", "body_fat_percent", "REAL");
@@ -292,42 +303,136 @@ function migrate(database: DatabaseSync): void {
  * Extend `entries` to also hold at most one recipe-version per row, with the
  * same XOR shape as plan_entries. Done as a rebuild because ALTER can't drop
  * the original NOT NULL on food_id.
+ *
+ * The rebuild is one `BEGIN IMMEDIATE … COMMIT`: the old code ran the four
+ * statements in autocommit, so a crash between RENAME and DROP stranded the
+ * user's diary in `entries_v1` while the next boot created an empty `entries`
+ * and returned early. A database left in that state by an older build is
+ * repaired on the next boot instead of being silently ignored.
  */
 function rebuildEntriesTable(database: DatabaseSync): void {
   const columns = database
     .prepare("PRAGMA table_info(entries)")
     .all() as unknown as Array<{ name: string }>;
+  const hasNewShape = columns.some((column) => column.name === "recipe_version_id");
 
-  if (columns.some((column) => column.name === "recipe_version_id")) return;
+  const legacy = database
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'entries_v1'")
+    .get();
 
-  database.exec(`
-    ALTER TABLE entries RENAME TO entries_v1;
+  if (legacy) {
+    recoverEntriesRebuild(database, hasNewShape);
+    return;
+  }
+  if (hasNewShape) return;
 
-    -- A diary entry is a food OR a pinned recipe version, never both.
-    CREATE TABLE entries (
-      id                TEXT PRIMARY KEY,
-      food_id           TEXT,
-      recipe_version_id TEXT REFERENCES recipe_versions (id),
-      grams             REAL NOT NULL,
-      amount            REAL NOT NULL,
-      unit              TEXT NOT NULL,
-      day               TEXT NOT NULL,
-      created_at        TEXT NOT NULL,
-      CHECK ((food_id IS NOT NULL) <> (recipe_version_id IS NOT NULL))
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    database.exec(`
+      ALTER TABLE entries RENAME TO entries_v1;
+
+      -- A diary entry is a food OR a pinned recipe version, never both.
+      CREATE TABLE entries (
+        id                TEXT PRIMARY KEY,
+        food_id           TEXT,
+        recipe_version_id TEXT REFERENCES recipe_versions (id),
+        grams             REAL NOT NULL,
+        amount            REAL NOT NULL,
+        unit              TEXT NOT NULL,
+        day               TEXT NOT NULL,
+        created_at        TEXT NOT NULL,
+        CHECK ((food_id IS NOT NULL) <> (recipe_version_id IS NOT NULL))
+      );
+
+      INSERT INTO entries (id, food_id, grams, amount, unit, day, created_at)
+        SELECT id, food_id, grams, amount, unit, day, created_at FROM entries_v1;
+
+      DROP TABLE entries_v1;
+
+      CREATE INDEX IF NOT EXISTS entries_day_idx ON entries (day, created_at);
+    `);
+    database.exec("COMMIT");
+  } catch (error) {
+    try {
+      database.exec("ROLLBACK");
+    } catch {
+      /* SQLite may already have rolled back */
+    }
+    throw error;
+  }
+}
+
+/**
+ * Finish a rebuild that an older, non-transactional boot interrupted.
+ *
+ * `entries` is the new shape (created by `SCHEMA`) and `entries_v1` is the
+ * stranded copy. Two crash points leave a stranded table, and they need
+ * different treatment:
+ *
+ *   - after `CREATE`, before `INSERT`: `entries` holds only rows written
+ *     after the crash; the pre-crash diary is still in `entries_v1`;
+ *   - after `INSERT`, before `DROP`: every `entries_v1` row is already in
+ *     `entries` (same ids). `entries` was then the live table, so it wins
+ *     and edits/deletions made since must not be undone.
+ *
+ * An id present in both means the copy ran, so `entries` is authoritative and
+ * the stranded table is a stale snapshot. No overlap means the copy never
+ * ran, so the old rows are brought over. Testing for overlap (rather than
+ * refusing to start) also avoids resurrecting a row the user deleted after
+ * the crash.
+ */
+function recoverEntriesRebuild(database: DatabaseSync, hasNewShape: boolean): void {
+  const count = (table: string) =>
+    (database.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as unknown as { n: number }).n;
+
+  if (!hasNewShape) {
+    // Should not happen: `SCHEMA` always creates the new shape. Refuse rather
+    // than drop a table that may hold the only copy of the diary.
+    throw new Error(
+      "Database migration is ambiguous: entries_v1 exists but entries is not the new shape. " +
+        "Back up the data directory and inspect the database before starting.",
     );
+  }
 
-    INSERT INTO entries (id, food_id, grams, amount, unit, day, created_at)
-      SELECT id, food_id, grams, amount, unit, day, created_at FROM entries_v1;
+  const oldRows = count("entries_v1");
+  const overlap =
+    oldRows === 0
+      ? 0
+      : (
+          database
+            .prepare("SELECT COUNT(*) AS n FROM entries_v1 WHERE id IN (SELECT id FROM entries)")
+            .get() as unknown as { n: number }
+        ).n;
 
-    DROP TABLE entries_v1;
-
-    CREATE INDEX IF NOT EXISTS entries_day_idx ON entries (day, created_at);
-  `);
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    if (oldRows > 0 && overlap === 0) {
+      database.exec(`
+        INSERT OR IGNORE INTO entries (id, food_id, grams, amount, unit, day, created_at)
+          SELECT id, food_id, grams, amount, unit, day, created_at FROM entries_v1;
+      `);
+    }
+    database.exec("DROP TABLE entries_v1");
+    // The index followed the RENAME onto entries_v1, so it was dropped with
+    // that table. `SCHEMA`'s `CREATE INDEX IF NOT EXISTS` already ran against
+    // `entries` before this recovery, so restore it here.
+    database.exec("CREATE INDEX IF NOT EXISTS entries_day_idx ON entries (day, created_at)");
+    database.exec("COMMIT");
+  } catch (error) {
+    try {
+      database.exec("ROLLBACK");
+    } catch {
+      /* SQLite may already have rolled back */
+    }
+    throw error;
+  }
 }
 
 /**
  * Seed the retention-factor table once. Runs on every boot; inserts are
- * guarded by a lookup so it is idempotent.
+ * guarded by a lookup so it is idempotent. Wrapped in a transaction so a
+ * crash mid-loop cannot leave a partial seed that the count check then
+ * treats as complete.
  */
 function seedRetentionFactors(database: DatabaseSync): void {
   const count = database
@@ -339,16 +444,27 @@ function seedRetentionFactors(database: DatabaseSync): void {
     `INSERT INTO retention_factors (id, operation, qualifier, nutrient, factor, source, notes)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
-  for (const seed of SEED_FACTORS) {
-    insert.run(
-      randomUUID(),
-      seed.operation,
-      seed.qualifier,
-      seed.nutrient,
-      seed.factor,
-      seed.source,
-      null,
-    );
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    for (const seed of SEED_FACTORS) {
+      insert.run(
+        randomUUID(),
+        seed.operation,
+        seed.qualifier,
+        seed.nutrient,
+        seed.factor,
+        seed.source,
+        null,
+      );
+    }
+    database.exec("COMMIT");
+  } catch (error) {
+    try {
+      database.exec("ROLLBACK");
+    } catch {
+      /* SQLite may already have rolled back */
+    }
+    throw error;
   }
 }
 
@@ -413,13 +529,46 @@ export const db: DatabaseSync =
  * invisible to the UI, so this cannot be left to chance.
  */
 export function transaction<T>(fn: () => T): T {
-  db.exec("BEGIN");
+  // `BEGIN IMMEDIATE` takes the write lock up front. Every caller here reads
+  // before it writes (`MAX(position)`, `MAX(version_no)`); a deferred BEGIN
+  // fails instantly with SQLITE_BUSY_SNAPSHOT when another process commits in
+  // that window, and `busy_timeout` does not cover that case.
+  db.exec("BEGIN IMMEDIATE");
+  let result: T;
   try {
-    const result = fn();
-    db.exec("COMMIT");
-    return result;
+    result = fn();
   } catch (error) {
-    db.exec("ROLLBACK");
+    // SQLite may already have rolled back (SQLITE_FULL/IOERR/BUSY). A second
+    // ROLLBACK then throws "no transaction is active" and hides the real
+    // error, so the rollback is best effort and the original is rethrown.
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      /* already rolled back */
+    }
     throw error;
   }
+
+  // A thenable would let COMMIT run before the async body finished. Refuse
+  // rather than commit a half-applied write.
+  if (result && typeof (result as { then?: unknown }).then === "function") {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      /* already rolled back */
+    }
+    throw new Error("transaction() callback must be synchronous.");
+  }
+
+  try {
+    db.exec("COMMIT");
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      /* already rolled back */
+    }
+    throw error;
+  }
+  return result;
 }

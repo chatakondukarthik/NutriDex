@@ -181,3 +181,82 @@ export function trustProxyEnabled(env: Record<string, string | undefined> = proc
   const raw = env.NUTRIPLAN_TRUST_PROXY?.trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes";
 }
+
+/** The small slice of a request this check needs, so it stays testable. */
+export interface OriginCheckRequest {
+  method: string;
+  headers: { get(name: string): string | null };
+}
+
+/**
+ * Reject a state-changing request that a browser reports as cross-origin.
+ *
+ * Next's own action check rejects a *wrong* `Origin`, but a missing `Origin`
+ * passes. This runs before it and is deliberately stricter:
+ *
+ *   - `Sec-Fetch-Site` must be absent or `same-origin`. `none` is a
+ *     user-typed navigation, never a legitimate server-action POST;
+ *     `same-site` and `cross-site` are rejected.
+ *   - When `Origin` is present its authority must equal the request's, or
+ *     match a configured `NUTRIPLAN_ALLOWED_ORIGINS` authority (a public
+ *     origin fronting the app through a proxy). A non-default port is
+ *     significant in both branches; `:80`/`:443` is normalised away.
+ *
+ * A non-browser client sends neither header and is still subject to the gate
+ * and token rules.
+ */
+export function isCrossSiteMutation(
+  request: OriginCheckRequest,
+  effectiveHost: string,
+  allowedOrigins: string[] = [],
+): boolean {
+  const method = request.method.toUpperCase();
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return false;
+
+  const site = request.headers.get("sec-fetch-site");
+  if (site && site !== "same-origin") return true;
+
+  const origin = request.headers.get("origin");
+  if (!origin) return false;
+
+  try {
+    const originHost = authority(new URL(origin).host);
+    if (originHost === authority(effectiveHost)) return false;
+    return !originAllowed(originHost, allowedOrigins);
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Match an `Origin` authority against `NUTRIPLAN_ALLOWED_ORIGINS`.
+ *
+ * Unlike the gate's host allowlist, the port is significant here: a service
+ * on another local port is a different origin, which is exactly what this
+ * check exists to stop. Entries are `host[:port]`; a leading `*.` matches
+ * subdomains (never the bare domain). Default ports are normalised away, so
+ * `app.example.com` also matches `https://app.example.com:443`.
+ */
+function originAllowed(originHost: string, patterns: string[]): boolean {
+  const target = authority(originHost);
+  if (!target) return false;
+  for (const raw of patterns) {
+    const pattern = authority(raw);
+    if (!pattern) continue;
+    if (pattern.startsWith("*.")) {
+      const suffix = pattern.slice(1); // ".example.com"
+      if (target.length > suffix.length && target.endsWith(suffix)) return true;
+      continue;
+    }
+    if (pattern === target) return true;
+  }
+  return false;
+}
+
+/** Lowercase, trim, and drop a default HTTP(S) port. */
+function authority(value: string): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/:(80|443)$/, "");
+}

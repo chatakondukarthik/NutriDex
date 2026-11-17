@@ -1,7 +1,7 @@
 # NutriPlan — Testing
 
 **Type:** Reference (updated in the same commit as the code it describes)
-**Last verified:** 2026-11-15 — 17 files, 230 tests passing, `tsc --noEmit` clean.
+**Last verified:** 2026-11-17 — 50 files, 554 tests passing, `tsc --noEmit` clean.
 
 This is the tracker for how NutriPlan is tested: what is automated, what is
 manual, what each category is for, and what is still missing. It is a map, not
@@ -107,6 +107,10 @@ Status values: `Pass` (asserted in CI), `Gap` (known, not asserted), `Plan`
 | I-007 | Move within the week; refuse a move outside it | Pass |
 | I-008 | Quantity update rejects non-positive and oversized | Pass |
 | I-009 | Captured food round trip, archival blocking, duplicate name | Pass (4) |
+| I-010 | Day/week copies are transactional; a week input is normalised to its Monday | Pass (3) |
+| I-011 | `saveGraphAction` rejects oversized or invalid graphs, layout and metadata | Pass (7) |
+| I-012 | `importInndbAction` rejects a malformed mapping and imports a valid one | Pass (4) |
+| I-013 | Plan servings, recipe block/input and captured-food input caps | Pass (5) |
 
 ### A — Accessibility
 
@@ -136,6 +140,8 @@ shell). Contrast is covered by the token review in R-003, not by axe.
 | D-010 | `(recipe_id, version_no)` is unique | Pass |
 | D-011 | A failed transaction writes nothing | Pass |
 | D-012 | A successful transaction commits | Pass |
+| D-013 | An interrupted `entries` rebuild is finished on boot; an ambiguous both-tables state refuses to start | Pass |
+| D-014 | `BEGIN IMMEDIATE` takes the write lock; an async callback is rejected; the original error survives a rollback | Pass |
 
 ### P — Performance
 
@@ -156,13 +162,19 @@ still catch a real regression. They are guards, not benchmarks.
 | S-002 | Gram conversion happens on the server; the client's number is never stored | `tests/actions.test.ts` I-001 | Pass |
 | S-003 | An unknown food id cannot reach the database | U-014, I-005 | Pass |
 | S-004 | Overflow and absurd quantities are rejected | U-004, U-014, I-005 | Pass |
-| S-005 | No secrets in the client bundle | — | Gap |
-| S-006 | LLM provider keys are server-only, encrypted at rest | — | Plan (S7) |
-| S-007 | Provider base URLs are allow-listed / SSRF-safe | — | Plan (S7) |
-| S-008 | Image uploads are size-, type- and count-limited | — | Plan (S6) |
+| S-005 | No secrets in the client bundle | — | Gap (no bundle assertion) |
+| S-006 | LLM provider keys are server-only and `0600`; not encrypted (OS volume) | `tests/ai-secrets.test.ts`, `tests/private-files.test.ts` | Pass |
+| S-007 | Provider base URLs are SSRF-safe; mapped/NAT64 literals are rejected | `tests/security-urls.test.ts` | Pass |
+| S-008 | Image uploads are size-, type- and count-limited | `tests/actions.test.ts` | Pass |
+| S-009 | Request gate and cross-site mutation checks | `tests/security-gate.test.ts`, `tests/security-origin.test.ts` | Pass |
+| S-010 | Keys are bound to the host they were entered for; env keys are host-pinned | `tests/ai-secrets.test.ts` | Pass |
+| S-011 | Data directory and files are `0700`/`0600`; atomic writes survive faults | `tests/private-files.test.ts`, `tests/private-files-faults.test.ts` | Pass |
+| S-012 | Graph, recipe, captured-food and import-mapping shapes are bounded | `tests/graph-validate.test.ts`, `tests/actions.test.ts`, `tests/csv.test.ts` | Pass |
+| S-013 | Migrations and transactions recover from an interrupted write | `tests/db-recovery.test.ts` | Pass |
 
-S-005 can be a build-time assertion once any key exists to leak; today there
-is no key handling at all, so it is a gap rather than a failure.
+S-005 remains a gap: there is no build-time assertion that a key cannot be
+imported into a client component. Today keys are read only by server modules
+(`src/lib/ai/secrets.ts`, `src/lib/ai/config.ts`).
 
 ---
 

@@ -72,39 +72,46 @@ row?" — it is "can anything other than the owner reach the data or the keys?"
 ## Threats and controls
 
 ### T1 — LAN exposure of an unauthenticated app
-`next dev` binds `*:3000`. Every server action runs as the single local user
-with no session. Anyone who reaches the port can read, rewrite or delete
-everything and can repoint `baseUrl` to capture the key.
+`next start` (or `next dev` invoked directly) can bind a wider interface, and
+every server action runs as the single local user with no session. Anyone who
+reaches the port can read, rewrite or delete everything and can repoint
+`baseUrl` to capture the key.
 
-**Controls:** the gate defaults to `local`; loopback only; `0.0.0.0` is not
-loopback; `hosts` mode trusts only the allowlist; `token` mode trusts only a
-header/cookie token; forwarded headers are stripped unless a proxy is
-explicitly trusted. See `SEC-LOC-01`…`SEC-LOC-06`.
+**Controls:** `npm run dev` binds `127.0.0.1`; the gate defaults to `local`;
+loopback only; `0.0.0.0` is not loopback; `hosts` mode trusts only the
+allowlist; `token` mode trusts only a header/cookie token; forwarded headers
+are stripped unless a proxy is explicitly trusted. The bind address is the
+first control; the gate is defence-in-depth. See `SEC-LOC-01`…`SEC-LOC-06`.
 
 ### T2 — Cross-site request forgery from the browser
 Next's action origin check rejects a cross-site request but allows one with
 no `Origin` header. A page could POST to `127.0.0.1`.
 
-**Controls:** `isCrossSiteMutation` rejects non-GET requests whose
-`Sec-Fetch-Site` is not `same-origin`/`none`, or whose `Origin` authority
-(including port) differs. See `SEC-LOC-05`.
+**Controls:** `isCrossSiteMutation` rejects non-GET requests unless
+`Sec-Fetch-Site` is absent or `same-origin` (`none` is a typed navigation, not
+a server action), and rejects an `Origin` whose authority (including a
+non-default port) differs, unless it matches a configured
+`NUTRIPLAN_ALLOWED_ORIGINS` host. See `SEC-LOC-05`.
 
 ### T3 — AI key exfiltration through `baseUrl`
 The AI layer posts a stored key to a user-supplied URL. Change the URL, press
 "test connection", and the key leaves.
 
 **Controls:** `assertOutboundUrl` rejects non-HTTPS, credentials, private,
-loopback, link-local and reserved ranges, and resolves DNS. `fetchJson`
-refuses redirects. Keys are bound to the host they were entered for; a custom
-endpoint with a different host gets no key and a "re-enter" error. See
-`SEC-AIL-01`…`SEC-AIL-03`.
+loopback, link-local and reserved ranges (including IPv4-mapped and NAT64
+encodings of those addresses), and resolves DNS. `fetchJson` refuses
+redirects. Keys are bound to the host they were entered for; a custom endpoint
+with a different host gets no key and a "re-enter" error. An env key is
+released to a custom host only when the operator pins it with
+`NUTRIPLAN_AI_<PROVIDER>_HOST`. See `SEC-AIL-01`…`SEC-AIL-03`.
 
 ### T4 — SSRF / DNS rebinding
 A public hostname can resolve to a private address after validation.
 
 **Controls:** DNS is resolved and checked with a short cache; redirects are
-refused. **Residual:** a TOCTOU window remains between the check and the
-socket. See `RESIDUAL-RISKS.md`.
+refused; mapped/NAT64 literals cannot smuggle a private IPv4 destination.
+**Residual:** a TOCTOU window remains between the check and the socket. See
+`RESIDUAL-RISKS.md`.
 
 ### T5 — Prompt injection from stored data
 Recipe names, food names, aliases, imported product names and notes are
@@ -137,12 +144,15 @@ Default umask leaves the database and keys world-readable.
 **Controls:** `0700` directory, `0600` files, `fchmod` before rename, SQLite
 sidecars tightened on boot. See `SEC-DAT-01`…`SEC-DAT-04`.
 
-### T9 — Partial writes and partial copies
+### T9 — Partial writes, partial copies and interrupted migrations
 A crash mid-write truncates `secrets.json`; a failure mid-copy leaves a
-partial day.
+partial day; a crash during the `entries` rebuild strands the diary.
 
 **Controls:** atomic temp+fsync+rename writes; `transaction()` around day and
-week copies. See `SEC-DAT-03`, `SEC-PER-01`.
+week copies; the `entries` rebuild runs in one transaction, and a stranded
+`entries_v1` is finished on the next boot (the live table wins when the copy
+already ran; otherwise the stranded rows are merged). See `SEC-DAT-03`,
+`SEC-PER-01`, `SEC-PER-03`, `SEC-PER-04`.
 
 ### T10 — Supply chain
 A vulnerable framework or a native addon.
@@ -157,5 +167,6 @@ A vulnerable framework or a native addon.
 - `NUTRIPLAN_GATE` is not set to `off` on a machine with an untrusted LAN.
 - `NUTRIPLAN_TRUST_PROXY=1` is set only behind a proxy that overwrites
   forwarded headers.
-- Provider keys from env vars are operator-controlled and intentionally not
-  host-bound.
+- Provider keys from env vars are operator-controlled; they are released to a
+  custom host only when pinned with `NUTRIPLAN_AI_<PROVIDER>_HOST`, and are
+  otherwise used only for the provider's fixed endpoint.

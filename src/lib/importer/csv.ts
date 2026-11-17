@@ -21,7 +21,6 @@ export function parseCsv(text: string): { headers: string[]; rows: Record<string
   if (records.length - 1 > MAX_CSV_ROWS) {
     throw new Error(`That CSV has more than ${MAX_CSV_ROWS} rows — import it in smaller batches.`);
   }
-
   const rows: Record<string, string>[] = [];
   for (let i = 1; i < records.length; i++) {
     const values = records[i];
@@ -60,7 +59,17 @@ function parseRecords(text: string): string[][] {
   const pushRecord = () => {
     pushField();
     // Ignore a blank line (a single empty field, never quoted).
-    if (!(record.length === 1 && record[0] === "")) records.push(record);
+    if (!(record.length === 1 && record[0] === "")) {
+      records.push(record);
+      // Abort during the scan instead of parsing the whole document and
+      // checking afterwards: the point of the cap is to avoid allocating
+      // millions of rows. The header is one record, so allow cap + 1.
+      if (records.length > MAX_CSV_ROWS + 1) {
+        throw new Error(
+          `That CSV has more than ${MAX_CSV_ROWS} rows — import it in smaller batches.`,
+        );
+      }
+    }
     record = [];
   };
 
@@ -96,6 +105,12 @@ function parseRecords(text: string): string[][] {
       field += ch;
       fieldStarted = true;
     }
+  }
+
+  // A quote opened but never closed swallowed the rest of the file into one
+  // field. That is a broken file, not a valid row — say so.
+  if (inQuotes) {
+    throw new Error("That CSV has an unterminated quoted field.");
   }
 
   // A file that does not end in a newline still has one final record.

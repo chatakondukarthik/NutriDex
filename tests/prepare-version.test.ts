@@ -155,6 +155,47 @@ describe("prepareVersion: ingredients", () => {
     }
   });
 
+  it("treats non-string name, operation and preparation as absent", () => {
+    const result = prepareVersion(
+      draft({
+        blocks: [
+          {
+            name: 42 as never,
+            operation: { text: "fry" } as never,
+            inputs: [
+              { foodId: "paneer", amount: 100, unit: "g", preparation: 7 as never },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.version.blocks[0].name).toBe("Step 1");
+      expect(result.version.blocks[0].operation).toBeNull();
+      expect(result.version.blocks[0].inputs[0].preparation).toBeNull();
+    }
+  });
+
+  it("caps an operation and ignores an output weight above the gram ceiling", () => {
+    const result = prepareVersion(
+      draft({
+        blocks: [
+          {
+            operation: "x".repeat(200),
+            outputGrams: 1e9,
+            inputs: [{ foodId: "paneer", amount: 100, unit: "g" }],
+          },
+        ],
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.version.blocks[0].operation).toHaveLength(60);
+      expect(result.version.blocks[0].outputGrams).toBeNull();
+    }
+  });
+
   it("computes the snapshot on the server from gram weights", () => {
     const result = prepareVersion(draft());
     expect(result.ok).toBe(true);

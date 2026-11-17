@@ -108,8 +108,9 @@ const MAX_IMAGE_PATH = 500;
  * string is dropped to null rather than trimmed, following how the other
  * optional fields fall back to null.
  */
-function safeImagePath(value: string | undefined): string | null {
-  const trimmed = value?.trim();
+function safeImagePath(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
   if (!trimmed || trimmed.length > MAX_IMAGE_PATH) return null;
   try {
     return new URL(trimmed).protocol === "https:" ? trimmed : null;
@@ -119,12 +120,38 @@ function safeImagePath(value: string | undefined): string | null {
 }
 
 export function prepareCapturedFood(input: CapturedFoodInput): PrepareCapturedResult {
+  // The input crosses the server-action boundary as untyped JSON, so a field
+  // may be any JSON value despite the TypeScript type. Guard the shapes that
+  // would otherwise throw (`"x".trim`, `.map`) and surface a typed failure.
+  if (!input || typeof input !== "object") {
+    return { ok: false, message: "That food is not valid." };
+  }
+  if (typeof input.name !== "string") {
+    return { ok: false, message: "Give the food a name." };
+  }
+  if (input.aliases != null && !Array.isArray(input.aliases)) {
+    return { ok: false, message: "Those alternate names are not valid." };
+  }
+  if (input.portions != null && !Array.isArray(input.portions)) {
+    return { ok: false, message: "Those portions are not valid." };
+  }
+  if (input.estimated != null && !Array.isArray(input.estimated)) {
+    return { ok: false, message: "Those estimated nutrients are not valid." };
+  }
+
   const name = input.name.trim();
   if (!name) return { ok: false, message: "Give the food a name." };
   if (name.length > 80) return { ok: false, message: "That name is too long." };
 
-  const aliases = [...new Set((input.aliases ?? []).map((alias) => alias.trim()).filter(Boolean))]
-    .slice(0, 12);
+  // Slice before mapping so a huge array is not materialised first.
+  const aliases = [
+    ...new Set(
+      (input.aliases ?? [])
+        .slice(0, 12)
+        .map((alias) => String(alias).trim())
+        .filter(Boolean),
+    ),
+  ].slice(0, 12);
   if (aliases.some((alias) => alias.length > 60)) {
     return { ok: false, message: "One of the alternate names is too long." };
   }
@@ -159,12 +186,15 @@ export function prepareCapturedFood(input: CapturedFoodInput): PrepareCapturedRe
     }
   }
 
+  if ((input.portions?.length ?? 0) > 20) {
+    return { ok: false, message: "That is a lot of portions. Keep the useful ones." };
+  }
   const portions = (input.portions ?? []).map((portion) => {
     // Bounded like every other stored string: these are free-text fields
     // and an unbounded paste would bloat the portion rows.
-    const label = portion.label.trim().slice(0, 80);
-    const source = portion.source?.trim().slice(0, 64) || null;
-    return { label, grams: portion.grams, source };
+    const label = String(portion?.label ?? "").trim().slice(0, 80);
+    const source = String(portion?.source ?? "").trim().slice(0, 64) || null;
+    return { label, grams: Number(portion?.grams), source };
   });
 
   if (portions.length > 20) {
@@ -180,6 +210,9 @@ export function prepareCapturedFood(input: CapturedFoodInput): PrepareCapturedRe
     }
   }
 
+  if ((input.estimated?.length ?? 0) > 100) {
+    return { ok: false, message: "Those estimated nutrients are not valid." };
+  }
   const estimated = new Set(input.estimated ?? []);
   for (const code of estimated) {
     if (!NUTRIENT_CODES.includes(code)) {
@@ -221,15 +254,24 @@ export function prepareCapturedFood(input: CapturedFoodInput): PrepareCapturedRe
       // The three free-text fields below carry third-party payloads
       // (USDA/OFF) and pasted text alike, so each is bounded to keep the
       // stored row and the CSV/JSON exports a sane size.
-      category: (input.category?.trim() || "Custom").slice(0, 80),
+      category:
+        (typeof input.category === "string" && input.category.trim()
+          ? input.category.trim()
+          : "Custom"
+        ).slice(0, 80),
       kind,
       state,
       densityGPerMl: input.densityGPerMl ?? null,
       basis,
       servingSizeG: input.servingSizeG ?? null,
       servingsPerPack: input.servingsPerPack ?? null,
-      source: (input.source?.trim() || "manual").slice(0, 200),
-      sourceCode: input.sourceCode?.trim().slice(0, 64) || null,
+      source:
+        (typeof input.source === "string" && input.source.trim()
+          ? input.source.trim()
+          : "manual"
+        ).slice(0, 200),
+      sourceCode:
+        typeof input.sourceCode === "string" ? input.sourceCode.trim().slice(0, 64) || null : null,
       imagePath: safeImagePath(input.imagePath),
       confidence: input.confidence ?? null,
       nutrients,

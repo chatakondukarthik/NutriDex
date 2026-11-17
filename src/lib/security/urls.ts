@@ -34,18 +34,66 @@ export interface UrlVerdict {
   reason?: string;
 }
 
-/** Link-local and metadata ranges: never allowed, opt-in or not. */
+/** Link-local, metadata and documentation ranges: never allowed, opt-in or not. */
 function isNeverAllowed(host: string): boolean {
   const bare = host.replace(/^\[|\]$/g, "");
   if (isIpv4(bare)) {
-    const [a, b] = bare.split(".").map(Number);
-    return a === 169 && b === 254; // 169.254.0.0/16, incl. 169.254.169.254
+    const [a, b, c] = bare.split(".").map(Number);
+    if (a === 169 && b === 254) return true; // 169.254.0.0/16, incl. 169.254.169.254
+    // TEST-NET-1/2/3: documentation ranges. Nothing real lives there, so a
+    // "destination" in them is always a mistake or an attack.
+    if (a === 192 && b === 0 && c === 2) return true;
+    if (a === 198 && b === 51 && c === 100) return true;
+    if (a === 203 && b === 0 && c === 113) return true;
+    return false;
   }
+
   const v6 = expandIpv6(bare);
   if (!v6) return false;
-  // fe80::/10 link-local
+
+  // fe80::/10 link-local.
   if ((v6[0] & 0xffc0) === 0xfe80) return true;
+  // 2001:db8::/32 documentation.
+  if (v6[0] === 0x2001 && v6[1] === 0x0db8) return true;
+
+  // A v6 literal can embed an IPv4 address; judge the embedded address, or
+  // an attacker simply writes `[::ffff:169.254.169.254]` to bypass the
+  // plain-IPv4 check above.
+  const embedded = embeddedIpv4(v6);
+  if (embedded) return isNeverAllowed(embedded);
+
+  // NAT64 local-use prefix (RFC 8215): never a public destination.
+  if (v6[0] === 0x0064 && v6[1] === 0xff9b && v6[2] === 0x0001) return true;
+
   return false;
+}
+
+/**
+ * The IPv4 address carried inside a v6 literal, or null.
+ *
+ * Handles IPv4-mapped (`::ffff:a.b.c.d`) and the well-known NAT64 prefix
+ * (`64:ff9b::/96`, RFC 6052). Both reach an IPv4 destination on the wire,
+ * so a range check on the v6 groups alone would miss the target.
+ */
+function embeddedIpv4(v6: number[]): string | null {
+  const tail = () => `${v6[6] >> 8}.${v6[6] & 0xff}.${v6[7] >> 8}.${v6[7] & 0xff}`;
+
+  // ::ffff:0:0/96
+  if (v6.slice(0, 5).every((x) => x === 0) && v6[5] === 0xffff) return tail();
+
+  // 64:ff9b::/96
+  if (
+    v6[0] === 0x0064 &&
+    v6[1] === 0xff9b &&
+    v6[2] === 0 &&
+    v6[3] === 0 &&
+    v6[4] === 0 &&
+    v6[5] === 0
+  ) {
+    return tail();
+  }
+
+  return null;
 }
 
 /** Private / loopback / reserved / multicast — blocked unless opted in. */
@@ -81,11 +129,10 @@ function isPrivateOrLocal(host: string): boolean {
   if ((v6[0] & 0xfe00) === 0xfc00) return true; // fc00::/7 unique-local
   if ((v6[0] & 0xff00) === 0xff00) return true; // ff00::/8 multicast
   if ((v6[0] & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
-  // ::ffff:a.b.c.d IPv4-mapped — judge the embedded IPv4 instead.
-  if (v6.slice(0, 5).every((x) => x === 0) && v6[5] === 0xffff) {
-    const v4 = `${v6[6] >> 8}.${v6[6] & 0xff}.${v6[7] >> 8}.${v6[7] & 0xff}`;
-    return isPrivateOrLocal(v4);
-  }
+  // IPv4-mapped and NAT64 literals reach an IPv4 destination on the wire,
+  // so judge the embedded address rather than the v6 groups.
+  const embedded = embeddedIpv4(v6);
+  if (embedded) return isNeverAllowed(embedded) || isPrivateOrLocal(embedded);
   // `::` and `::1`: every group zero except the trailing loopback.
   if (v6[0] === 0 && v6.slice(0, 7).every((x) => x === 0)) return true;
   return false;

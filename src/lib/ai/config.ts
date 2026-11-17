@@ -1,11 +1,12 @@
 import { readFileSync, existsSync } from "node:fs";
-import { dataFile } from "@/lib/data-dir";
+import { dataFile, ensureDataDir } from "@/lib/data-dir";
 import { atomicWritePrivateFile } from "@/lib/security/private-files";
 import type { AiConfig } from "./types";
 
 const CONFIG_PATH = dataFile("ai-config.json");
 
 export function readAiConfig(): AiConfig | null {
+  ensureDataDir();
   if (!existsSync(CONFIG_PATH)) return null;
   try {
     return JSON.parse(readFileSync(CONFIG_PATH, "utf8")) as AiConfig;
