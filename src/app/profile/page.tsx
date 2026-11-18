@@ -3,6 +3,14 @@ import { getProfile } from "@/lib/db/profile";
 import { getTargetRules } from "@/lib/db/settings";
 import { getActivePerson } from "@/lib/person-server";
 import { isDefaultProfile } from "@/lib/profile";
+import { listFoods } from "@/lib/db/foods";
+import { listEntries, today } from "@/lib/db/entries";
+import { listRecipeOptions } from "@/lib/db/recipes";
+import { addDays, weekdayShort } from "@/lib/plan";
+import { dayRollup } from "@/lib/day";
+import { WeekStrip } from "@/components/week-strip";
+import { NUTRIENT_CODES, type Food } from "@/lib/nutrition/types";
+import { PageHeader } from "@/components/page-header";
 
 export const dynamic = "force-dynamic";
 
@@ -10,16 +18,43 @@ export default async function ProfilePage() {
   const person = await getActivePerson();
   const profile = getProfile(person.id);
 
+  // The ledger's honest sparkline — real kcal, per day, from the diary.
+  const todayStr = today();
+  const foods = listFoods();
+  const allRecipes = listRecipeOptions();
+  const recipeByVersion = new Map(allRecipes.map((o) => [o.versionId, o]));
+  const resolveFood = (id: string): Food =>
+    foods.find((f) => f.id === id) ?? {
+      id,
+      name: "Deleted food",
+      aliases: [],
+      category: "Custom",
+      kind: "provisional",
+      state: "raw",
+      portions: [],
+      nutrients: Object.fromEntries(
+        NUTRIENT_CODES.map((code) => [
+          code,
+          { amount: null, status: "unknown", source: "none" },
+        ]),
+      ) as Food["nutrients"],
+    };
+  const week = Array.from({ length: 7 }, (_, index) => addDays(todayStr, -(6 - index))).map(
+    (day) => ({
+      day,
+      label: weekdayShort(day),
+      kcal: dayRollup(listEntries(person.id, day), resolveFood, recipeByVersion).totals.ENERC_KCAL,
+    }),
+  );
+
   return (
     <main className="mx-auto max-w-5xl px-5 py-6">
-      <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Profile</h1>
-          <p className="mt-1 text-xs text-muted">
-            Used to work out targets for {person.displayName}. Nothing here is sent anywhere.
-          </p>
-        </div>
-        <span className="text-[11px] text-faint">Saved for this person only</span>
+      <div className="mb-4">
+        <PageHeader
+          title="Profile"
+          kicker={`For ${person.displayName}`}
+          lead="Used to work out targets for this person. Nothing here is sent anywhere."
+        />
       </div>
 
       {isDefaultProfile(profile) && (
@@ -28,6 +63,8 @@ export default async function ProfilePage() {
           make the diary and plan use these targets.
         </p>
       )}
+
+      <WeekStrip days={week} today={todayStr} />
 
       <ProfileEditor
         // The editor keeps the person's numbers in client state; remount it

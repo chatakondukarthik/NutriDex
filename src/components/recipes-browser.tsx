@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { fmt } from "@/lib/format";
 import { filterRecipes, ingredientFacets } from "@/lib/recipe-filter";
 import { ProvenanceChip } from "@/components/provenance-chip";
+import { Spotlight } from "@/components/spotlight";
 import { recipeProvenance } from "@/lib/provenance";
 
 export type Recipe = {
@@ -99,14 +100,16 @@ export function RecipesBrowser({ recipes }: { recipes: Recipe[] }) {
         </p>
       ) : (
         <ul className="mt-3 max-h-[600px] grid gap-3 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((recipe) => (
-            <li
+          {filtered.map((recipe, index) => (
+            <Spotlight
+              as="li"
               key={recipe.id}
-              className="flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-card transition hover:border-accent/30"
+              className="flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-card transition-[box-shadow,border-color] duration-200 ease-out hover:border-accent/40 hover:shadow-plate"
+              index={index}
             >
               <Link href={`/recipes/${recipe.id}`} className="block flex-1 p-4 pb-3">
                 <div className="flex items-start justify-between gap-2">
-                  <h2 className="text-sm font-semibold leading-snug">{recipe.name}</h2>
+                  <h2 className="font-display text-[13px] font-semibold leading-snug tracking-tight text-ink">{recipe.name}</h2>
                   <span className="flex shrink-0 items-center gap-1.5">
                     <ProvenanceChip provenance={recipeProvenance(recipe.currentVersionLabel)} />
                     <span className="rounded-md bg-ink/[0.07] px-1.5 py-0.5 text-[10px] font-medium text-ink/45">
@@ -118,10 +121,10 @@ export function RecipesBrowser({ recipes }: { recipes: Recipe[] }) {
                   <p className="mt-0.5 truncate text-[11px] text-ink/40">{recipe.currentVersionLabel}</p>
                 )}
                 <div className="mt-3 flex items-baseline gap-1.5">
-                  <span className="tabular text-xl font-semibold leading-none">
+                  <span className="font-ledger text-[22px] font-bold leading-none tracking-tight text-ink">
                     {fmt(recipe.kcalPerServing, 0)}
                   </span>
-                  <span className="text-[11px] text-ink/40">kcal / serving</span>
+                  <span className="font-ledger text-[9px] uppercase tracking-[0.16em] text-faint">kcal / serving</span>
                 </div>
                 <div className="mt-2 flex items-center justify-between text-[11px] text-ink/40">
                   <span>
@@ -158,7 +161,7 @@ export function RecipesBrowser({ recipes }: { recipes: Recipe[] }) {
                   )}
                 </p>
               )}
-            </li>
+            </Spotlight>
           ))}
         </ul>
       )}

@@ -98,7 +98,9 @@ function buildCsp(nonce?: string, upgradeInsecure = false): string {
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
     // Dev HMR opens a websocket to the dev server; production is same-origin.
-    `connect-src 'self'${isDev ? " ws://localhost:* ws://127.0.0.1:* ws://[::1]:*" : ""}`,
+    // (An IPv6 wildcard-port source like ws://[::1]:* is rejected as invalid;
+    // the dev server binds 127.0.0.1, so it is deliberately omitted.)
+    `connect-src 'self'${isDev ? " ws://localhost:* ws://127.0.0.1:*" : ""}`,
     "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'self'",

@@ -73,7 +73,7 @@ export function PlanItemSheet({
     <section className="rounded-2xl border border-line bg-surface shadow-card">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line/70 px-4 py-3">
         <div>
-          <h2 className="text-sm font-semibold">Item detail</h2>
+          <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Item detail</h2>
           <p className="text-[11px] text-ink/40">{dayLabel}</p>
         </div>
         <div className="relative">

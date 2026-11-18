@@ -273,7 +273,7 @@ export function AiSettingsPanel({ status, config }: Props) {
 
   return (
     <section className="rounded-lg border border-line bg-surface p-4">
-      <h2 className="text-sm font-semibold">AI access</h2>
+      <h2 className="font-display text-sm font-semibold tracking-tight text-ink">AI access</h2>
       <p className="mt-1 text-xs text-muted">
         NutriPlan never holds a key. You bring your own from Google, OpenAI, Anthropic, or any
         OpenAI-compatible endpoint. Keys are stored in <code>data/secrets.json</code> (mode 0600) or

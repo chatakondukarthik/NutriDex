@@ -39,8 +39,8 @@ export default async function FoodDetailPage({ params }: { params: Promise<{ id:
     <main className="mx-auto max-w-5xl px-5 py-6">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{food.name}</h1>
-          <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted">
+          <h1 className="font-display text-[28px] font-bold leading-none tracking-tight text-ink">{food.name}</h1>
+          <p className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
             {food.source && <ProvenanceChip provenance={provenance} />}
             <span>
               {food.category} · {food.kind} · {food.state}
@@ -63,7 +63,7 @@ export default async function FoodDetailPage({ params }: { params: Promise<{ id:
 
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="rounded-lg border border-line bg-surface p-4">
-          <h2 className="text-sm font-semibold">Details</h2>
+          <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Details</h2>
           <dl className="mt-3 space-y-1 text-xs">
             <div className="flex justify-between"><dt className="text-muted">Basis</dt><dd>{food.basis ?? "per 100 g"}</dd></div>
             {food.servingSizeG != null && <div className="flex justify-between"><dt className="text-muted">Serving size</dt><dd>{food.servingSizeG} g</dd></div>}
@@ -104,7 +104,7 @@ export default async function FoodDetailPage({ params }: { params: Promise<{ id:
 
         <section className="rounded-lg border border-line bg-surface p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold">Nutrients (per 100 g)</h2>
+            <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Nutrients (per 100 g)</h2>
             <p className="text-[10px] tabular text-ink/45">
               <span className="text-accent">{counts.known} known</span>
               {" · "}

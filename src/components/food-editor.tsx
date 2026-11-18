@@ -373,7 +373,7 @@ export function FoodEditor({ initial, mode, ai, defaultPin }: Props) {
           <Link href="/foods" className="text-[11px] text-ink/40 hover:text-ink/60">
             ← Foods
           </Link>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+          <h1 className="font-display mt-1 text-[28px] font-bold leading-none tracking-tight text-ink">
             {mode === "create" ? "New food" : `Edit ${initial?.name}`}
           </h1>
           <p className="mt-1 max-w-md text-xs text-muted">
@@ -405,7 +405,7 @@ export function FoodEditor({ initial, mode, ai, defaultPin }: Props) {
 
       {/* ── How you want to start ───────────────────────────────────── */}
       <section className="mt-5 rounded-2xl border border-line bg-surface p-4 shadow-card">
-        <h2 className="text-sm font-semibold">How would you like to start?</h2>
+        <h2 className="font-display text-sm font-semibold tracking-tight text-ink">How would you like to start?</h2>
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {METHODS.map((item) => {
             const disabled = item.id === "ai" && !aiAvailable;
@@ -631,7 +631,7 @@ export function FoodEditor({ initial, mode, ai, defaultPin }: Props) {
 
       {/* ── The food ────────────────────────────────────────────────── */}
       <section className="mt-4 rounded-2xl border border-line bg-surface p-4 shadow-card">
-        <h2 className="text-sm font-semibold">The food</h2>
+        <h2 className="font-display text-sm font-semibold tracking-tight text-ink">The food</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-1 text-xs sm:col-span-2">
             <span className="font-medium">Name</span>
@@ -821,7 +821,7 @@ export function FoodEditor({ initial, mode, ai, defaultPin }: Props) {
       <section className="mt-4 rounded-2xl border border-line bg-surface p-4 shadow-card">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>
-            <h2 className="text-sm font-semibold">Nutrients</h2>
+            <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Nutrients</h2>
             <p className="text-[11px] text-muted">Per 100 g unless you chose a different basis. Leave blank = unknown, never zero.</p>
           </div>
           <span className="tabular text-[11px] text-ink/50">{knownCount}/{NUTRIENT_CODES.length} known</span>

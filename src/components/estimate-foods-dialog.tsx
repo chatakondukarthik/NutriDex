@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { motion } from "motion/react";
+import { SPRING } from "@/lib/motion/tokens";
 import { useDialogFocus } from "@/components/use-dialog-focus";
 import { NutrientPicker } from "@/components/nutrient-picker";
 import type { NutrientCode } from "@/lib/nutrition/types";
@@ -56,20 +58,25 @@ export function EstimateFoodsDialog({
   const total = perFood.reduce((sum, food) => sum + food.picked, 0);
   const foodsToRun = perFood.filter((food) => food.picked > 0).length;
 
-  if (!open) return null;
-
   return (
-    <div
+    open && (
+    <motion.div
       role="presentation"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.18 }}
       className="fixed inset-0 z-50 grid place-items-center bg-ink/50 p-4 backdrop-blur-[2px]"
       onClick={onCancel}
     >
-      <div
+      <motion.div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="estimate-foods-title"
         tabIndex={-1}
+        initial={{ opacity: 0, scale: 0.96, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ ...SPRING.settle }}
         className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-warn-line bg-surface shadow-2xl outline-none"
         onClick={(event) => event.stopPropagation()}
       >
@@ -152,7 +159,8 @@ export function EstimateFoodsDialog({
             {busy ? "Estimating…" : `Yes, estimate ${foodsToRun} food${foodsToRun === 1 ? "" : "s"}`}
           </button>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
+    )
   );
 }

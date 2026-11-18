@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PageHeader } from "@/components/page-header";
 
 export const metadata = {
   title: "About the numbers · NutriPlan",
@@ -17,11 +18,11 @@ export default function AboutPage() {
   return (
     <main className="mx-auto max-w-3xl px-5 py-8">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">About the numbers</h1>
-        <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
-          NutriPlan is a planning tool. It helps you see what a meal contains and how a week adds
-          up. It does not diagnose, treat, or replace advice from a clinician or dietitian.
-        </p>
+        <PageHeader
+          title="About the numbers"
+          kicker="Trust · method · honesty"
+          lead="NutriPlan is a planning tool. It helps you see what a meal contains and how a week adds up. It does not diagnose, treat, or replace advice from a clinician or dietitian."
+        />
       </header>
 
       <div className="mt-8 space-y-8">
@@ -234,7 +235,7 @@ function Section({
 }) {
   return (
     <section className="rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-6">
-      <h2 className="text-sm font-semibold">{title}</h2>
+      <h2 className="font-display text-sm font-semibold tracking-tight text-ink">{title}</h2>
       {lead && <p className="mt-1.5 max-w-2xl text-xs leading-relaxed text-muted">{lead}</p>}
       <div className="mt-4">{children}</div>
     </section>

@@ -132,7 +132,7 @@ export function ProfileEditor({
         <input type="hidden" name="expectedPersonId" value={personId} />
         {/* ---- body ---------------------------------------------------- */}
         <section className="rounded-card border border-line bg-surface p-5 shadow-card">
-          <h2 className="text-sm font-semibold">{personName}&apos;s numbers</h2>
+          <h2 className="font-display text-sm font-semibold tracking-tight text-ink">{personName}&apos;s numbers</h2>
           <p className="mt-1 text-xs leading-relaxed text-muted">
             Used to work out energy and protein. Body fat is optional — it makes
             the energy estimate more accurate when you know it.
@@ -249,7 +249,7 @@ export function ProfileEditor({
 
         {/* ---- goal ---------------------------------------------------- */}
         <section className="rounded-card border border-line bg-surface p-5 shadow-card">
-          <h2 className="text-sm font-semibold">Goal</h2>
+          <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Goal</h2>
           <p className="mt-1 text-xs leading-relaxed text-muted">
             The goal changes the energy target and the protein target. Pace
             changes only the size of the energy adjustment.
@@ -493,7 +493,7 @@ export function ProfileEditor({
       <aside className="lg:sticky lg:top-20">
         <section className="rounded-card border border-line bg-surface p-5 shadow-card">
           <div className="flex items-baseline justify-between gap-2">
-            <h2 className="text-sm font-semibold">Live targets</h2>
+            <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Live targets</h2>
             {live && (
               <span className="tabular text-[11px] text-muted">
                 {fmt(energy, 0)} kcal

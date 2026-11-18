@@ -55,7 +55,7 @@ export function StepNutrition({ snapshot }: { snapshot: GraphSnapshot }) {
 
   return (
     <section className="mt-4">
-      <h2 className="text-sm font-semibold">What each step did to the nutrients</h2>
+      <h2 className="font-display text-sm font-semibold tracking-tight text-ink">What each step did to the nutrients</h2>
       <p className="mt-0.5 text-[11px] text-ink/45">
         Before → after for every tracked nutrient, at each step. Factors marked “est”
         were estimated by the model and can be changed in the editor.

@@ -23,7 +23,7 @@ const devCsp = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  "connect-src 'self' ws://localhost:* ws://127.0.0.1:* ws://[::1]:*",
+  `connect-src 'self' ws://localhost:* ws://127.0.0.1:*`,
   "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",

@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { createPortal } from "react-dom";
+import { AnimatePresence, motion } from "motion/react";
+import { SPRING } from "@/lib/motion/tokens";
 import { useDialogFocus } from "@/components/use-dialog-focus";
 import { fmtDay } from "@/lib/format";
 import { SLOTS, SLOT_LABELS, weekDays, type Slot } from "@/lib/plan";
@@ -42,17 +44,26 @@ export function PlanMoveDialog({
   const unchanged = mode === "move" && day === initialDay && slot === initialSlot;
 
   return createPortal(
-    <div
+    <AnimatePresence>
+    <motion.div
       role="presentation"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.18 }}
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center"
       onClick={onClose}
     >
-      <div
+      <motion.div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="move-entry-title"
         tabIndex={-1}
+        initial={{ opacity: 0, scale: 0.96, y: 12 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.97, y: 10 }}
+        transition={{ ...SPRING.settle }}
         onClick={(event) => event.stopPropagation()}
         className="w-full max-w-sm rounded-2xl border border-line bg-surface p-4 shadow-card outline-none"
       >
@@ -153,8 +164,9 @@ export function PlanMoveDialog({
             </button>
           </div>
         </form>
-      </div>
-    </div>,
+      </motion.div>
+    </motion.div>
+    </AnimatePresence>,
     document.body,
   );
 }

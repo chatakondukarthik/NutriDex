@@ -143,7 +143,7 @@ export function TargetSettingsPanel({
   return (
     <section className="rounded-2xl border border-line bg-surface p-5 shadow-card">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold">Status colours and targets</h2>
+        <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Status colours and targets</h2>
         <span className="text-[10px] text-ink/40">
           {overrideCount === 0
             ? `All targets from ${personName}'s profile`

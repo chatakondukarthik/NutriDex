@@ -121,7 +121,7 @@ export function DataPortabilityPanel({
 
   return (
     <section className="rounded-2xl border border-line bg-surface p-5 shadow-card">
-      <h2 className="text-sm font-semibold">Your data</h2>
+      <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Your data</h2>
       <p className="mt-1 text-[11px] leading-relaxed text-muted">
         Everything lives on this machine. An archive is a single ZIP with one JSON line per row,
         evidence images, and a manifest of checksums. It never contains your AI keys.

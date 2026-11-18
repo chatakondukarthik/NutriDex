@@ -2,7 +2,9 @@ import { cookies } from "next/headers";
 import {
   ACCENT_COOKIE,
   MOTION_COOKIE,
+  SOUND_COOKIE,
   THEME_COOKIE,
+  TRANSITION_COOKIE,
   parseThemeSettings,
   type ThemeSettings,
 } from "@/lib/theme";
@@ -20,5 +22,7 @@ export async function getThemeSettings(): Promise<ThemeSettings> {
     mode: store.get(THEME_COOKIE)?.value,
     accent: store.get(ACCENT_COOKIE)?.value,
     motion: store.get(MOTION_COOKIE)?.value,
+    sound: store.get(SOUND_COOKIE)?.value,
+    transition: store.get(TRANSITION_COOKIE)?.value,
   });
 }

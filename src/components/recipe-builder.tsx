@@ -235,7 +235,7 @@ export function RecipeBuilder({ foods, initial, recipeId }: RecipeBuilderProps) 
 
         {step === 2 && (
           <div>
-            <h2 className="text-sm font-semibold">Instructions</h2>
+            <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Instructions</h2>
             <p className="mt-1 text-xs text-ink/45">
               Saved with this version as written. The MVP stores them as evidence; it does not
               parse them into steps or change any number.
@@ -333,7 +333,7 @@ function IngredientsStep({
 }) {
   return (
     <div>
-      <h2 className="text-sm font-semibold">Ingredients</h2>
+      <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Ingredients</h2>
       <p className="mt-1 text-xs text-ink/45">
         Add one ingredient at a time. Group them into steps if the dish is cooked in stages —
         each step gets its own subtotal and can record a measured output weight.
@@ -730,7 +730,7 @@ function MethodStep({
 }) {
   return (
     <div>
-      <h2 className="text-sm font-semibold">Method</h2>
+      <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Method</h2>
       <p className="mt-1 text-xs text-ink/45">
         Name each step and say what happens to it. An operation is a label: it changes no number
         unless you record a measured output weight in the next section.
@@ -804,7 +804,7 @@ function YieldStep({
 }) {
   return (
     <div>
-      <h2 className="text-sm font-semibold">Yield and servings</h2>
+      <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Yield and servings</h2>
       <p className="mt-1 text-xs text-ink/45">
         Weigh the pan after cooking if you can. That is the only thing that changes the per-100 g
         figure — the total amount of protein in the dish does not change when water boils off.
@@ -889,7 +889,7 @@ function ReviewStep({
   if (!result) {
     return (
       <div>
-        <h2 className="text-sm font-semibold">Review</h2>
+        <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Review</h2>
         <p className="mt-2 rounded-xl border border-dashed border-line px-3 py-6 text-center text-xs text-ink/40">
           {problem === "servings"
             ? "Enter how many servings this makes to see the totals."
@@ -910,7 +910,7 @@ function ReviewStep({
   return (
     <div>
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <h2 className="text-sm font-semibold">Review</h2>
+        <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Review</h2>
         <label className="flex items-center gap-2 text-[11px] text-ink/45">
           servings
           <input

@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { switchPersonAction } from "@/app/actions";
+import { motion } from "motion/react";
+import { SPRING } from "@/lib/motion/tokens";
 import { CheckIcon, ChevronDownIcon } from "@/components/icons";
 
 /**
@@ -122,11 +124,15 @@ export function PersonSwitcher({
       </button>
 
       {open && (
-        <div
+        <motion.div
           ref={menuRef}
           role="menu"
           aria-label="Switch person"
           onKeyDown={moveFocus}
+          initial={{ opacity: 0, scale: 0.96, y: -4 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ ...SPRING.settle }}
+          style={{ transformOrigin: "top right" }}
           className="absolute right-0 z-30 mt-1.5 w-60 overflow-hidden rounded-xl border border-line bg-surface p-1 shadow-card"
         >
           <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-wide text-faint">
@@ -168,7 +174,7 @@ export function PersonSwitcher({
               {error}
             </p>
           )}
-        </div>
+        </motion.div>
       )}
     </div>
   );

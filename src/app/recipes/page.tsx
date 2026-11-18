@@ -4,6 +4,7 @@ import { listRecipes, listRecipeIngredientIds, countLegacyRecipes } from "@/lib/
 import { listFoods } from "@/lib/db/foods";
 import { ConvertRecipesButton } from "@/components/convert-recipes-button";
 import { RecipesBrowser } from "@/components/recipes-browser";
+import { PageHeader } from "@/components/page-header";
 
 export const dynamic = "force-dynamic";
 
@@ -33,27 +34,23 @@ export default function RecipesPage() {
 
   return (
     <main className="mx-auto max-w-6xl px-5 py-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Recipes</h1>
-          <p className="mt-1 text-xs text-ink/45">
-            Every save is a new version. Old versions stay exactly as they were.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {countLegacyRecipes() > 0 && <ConvertRecipesButton legacyCount={countLegacyRecipes()} />}
-          <Link
-            href="/recipes/new"
-            className="rounded-lg bg-accent px-4 py-2 text-xs font-medium text-accent-ink transition hover:bg-accent-strong"
-          >
-            New recipe
-          </Link>
-        </div>
-      </div>
+      <PageHeader
+        title="Recipes"
+        kicker="Saved kitchens"
+        lead="Every save is a new version. Old versions stay exactly as they were."
+      >
+        {countLegacyRecipes() > 0 && <ConvertRecipesButton legacyCount={countLegacyRecipes()} />}
+        <Link
+          href="/recipes/new"
+          className="btn-sheen rounded-lg bg-accent px-4 py-2 text-xs font-medium text-accent-ink transition hover:bg-accent-strong active:scale-[0.97]"
+        >
+          New recipe
+        </Link>
+      </PageHeader>
 
       {recipes.length === 0 ? (
         <section className="mt-5 rounded-2xl border border-dashed border-line bg-surface px-5 py-10 text-center">
-          <h2 className="text-sm font-semibold">Nothing saved yet</h2>
+          <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Nothing saved yet</h2>
           <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-ink/45">
             A recipe is a named thing you will cook again — not a one-off plate. Start from a
             preset and change it, or build one from your own ingredients.

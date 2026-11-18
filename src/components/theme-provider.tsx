@@ -1,6 +1,6 @@
 "use client";
 
-import { useReducedMotion } from "motion/react";
+import { MotionConfig, useReducedMotion } from "motion/react";
 import {
   createContext,
   useCallback,
@@ -14,7 +14,9 @@ import {
   ACCENT_COOKIE,
   DEFAULT_THEME,
   MOTION_COOKIE,
+  SOUND_COOKIE,
   THEME_COOKIE,
+  TRANSITION_COOKIE,
   type Accent,
   type ThemeMode,
   type ThemeSettings,
@@ -25,6 +27,8 @@ interface ThemeContextValue {
   setMode: (mode: ThemeMode) => void;
   setAccent: (accent: Accent) => void;
   setMotion: (motion: boolean) => void;
+  setSound: (sound: boolean) => void;
+  setTransition: (transition: boolean) => void;
   reset: () => void;
 }
 
@@ -41,6 +45,7 @@ function applyToDocument(settings: ThemeSettings): void {
   root.dataset.theme = settings.mode;
   root.dataset.accent = settings.accent;
   root.dataset.motion = settings.motion ? "on" : "off";
+  root.dataset.sound = settings.sound ? "on" : "off";
 }
 
 /**
@@ -64,6 +69,8 @@ export function ThemeProvider({
     writeCookie(THEME_COOKIE, settings.mode);
     writeCookie(ACCENT_COOKIE, settings.accent);
     writeCookie(MOTION_COOKIE, settings.motion ? "on" : "off");
+    writeCookie(SOUND_COOKIE, settings.sound ? "on" : "off");
+    writeCookie(TRANSITION_COOKIE, settings.transition ? "on" : "off");
   }, [settings]);
 
   const setMode = useCallback((mode: ThemeMode) => {
@@ -78,14 +85,26 @@ export function ThemeProvider({
     setSettings((current) => ({ ...current, motion }));
   }, []);
 
+  const setSound = useCallback((sound: boolean) => {
+    setSettings((current) => ({ ...current, sound }));
+  }, []);
+
+  const setTransition = useCallback((transition: boolean) => {
+    setSettings((current) => ({ ...current, transition }));
+  }, []);
+
   const reset = useCallback(() => setSettings(DEFAULT_THEME), []);
 
   const value = useMemo(
-    () => ({ settings, setMode, setAccent, setMotion, reset }),
-    [settings, setMode, setAccent, setMotion, reset],
+    () => ({ settings, setMode, setAccent, setMotion, setSound, setTransition, reset }),
+    [settings, setMode, setAccent, setMotion, setSound, setTransition, reset],
   );
 
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+  return (
+    <MotionConfig reducedMotion="user">
+      <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
+    </MotionConfig>
+  );
 }
 
 export function useTheme(): ThemeContextValue {

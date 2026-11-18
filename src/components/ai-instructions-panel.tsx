@@ -28,7 +28,7 @@ export function AiInstructionsPanel({ initial }: { initial: string }) {
 
   return (
     <section className="rounded-2xl border border-line bg-surface p-5 shadow-card">
-      <h2 className="text-sm font-semibold">Global AI instructions</h2>
+      <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Global AI instructions</h2>
       <p className="mt-1 text-[11px] leading-relaxed text-muted">
         Prepended to every AI task (recipe planning, nutrient estimation, capture). Tell it who
         you are and how you cook — e.g. “I am from Bengaluru and cook South Indian food; prefer

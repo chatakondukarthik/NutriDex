@@ -20,13 +20,13 @@ const MODE_ICONS = {
 };
 
 export function ThemeSettingsPanel() {
-  const { settings, setMode, setAccent, setMotion, reset } = useTheme();
+  const { settings, setMode, setAccent, setMotion, setSound, setTransition, reset } = useTheme();
   const motionEnabled = useMotionEnabled();
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_340px] lg:items-start">
       <section className="rounded-card border border-line bg-surface p-5 shadow-card">
-        <h2 className="text-sm font-semibold">Appearance</h2>
+        <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Appearance</h2>
         <p className="mt-1 text-xs leading-relaxed text-muted">
           These tokens are used by every screen. Add a new page and it inherits the
           same palette, radius and motion rules.
@@ -110,32 +110,57 @@ export function ThemeSettingsPanel() {
           </div>
         </div>
 
-        <div className="mt-5 flex items-start justify-between gap-4 rounded-control border border-line bg-surface-2 px-3 py-3">
-          <div>
-            <div className="text-xs font-medium">Motion</div>
-            <p className="mt-0.5 text-[11px] leading-relaxed text-muted">
-              Page fades, bar fills and list changes. The system setting always wins.
-            </p>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={settings.motion}
-            aria-label="Enable motion"
-            onClick={() => setMotion(!settings.motion)}
-            className={cn(
-              "relative mt-0.5 h-6 w-10 shrink-0 rounded-full transition",
-              settings.motion ? "bg-accent" : "bg-ink/15",
-            )}
+        {[
+          {
+            label: "Motion",
+            hint: "Springs, list drops and the thali tilt. The system setting always wins.",
+            checked: settings.motion,
+            onToggle: () => setMotion(!settings.motion),
+            aria: "Enable motion",
+          },
+          {
+            label: "Sound effects",
+            hint: "A quiet kitchen whisper for saves, streaks and mis-steps. Off mutes everything.",
+            checked: settings.sound,
+            onToggle: () => setSound(!settings.sound),
+            aria: "Enable sound effects",
+          },
+          {
+            label: "Chef's transition",
+            hint: "The corner plate folds into the next room's plate when you switch tabs. Off swaps instantly.",
+            checked: settings.transition,
+            onToggle: () => setTransition(!settings.transition),
+            aria: "Enable the fold transition",
+          },
+        ].map((option) => (
+          <div
+            key={option.label}
+            className="mt-4 flex items-start justify-between gap-4 rounded-control border border-line bg-surface-2 px-3 py-3 first:mt-5"
           >
-            <span
+            <div>
+              <div className="text-xs font-medium">{option.label}</div>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-muted">{option.hint}</p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={option.checked}
+              aria-label={option.aria}
+              onClick={option.onToggle}
               className={cn(
-                "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-surface shadow-sm transition-transform",
-                settings.motion ? "translate-x-4" : "translate-x-0",
+                "relative mt-0.5 h-6 w-10 shrink-0 rounded-full transition",
+                option.checked ? "bg-accent" : "bg-ink/15",
               )}
-            />
-          </button>
-        </div>
+            >
+              <span
+                className={cn(
+                  "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-surface shadow-sm transition-transform",
+                  option.checked ? "translate-x-4" : "translate-x-0",
+                )}
+              />
+            </button>
+          </div>
+        ))}
 
         <button
           type="button"
@@ -148,7 +173,7 @@ export function ThemeSettingsPanel() {
 
       <aside className="lg:sticky lg:top-20">
         <section className="rounded-card border border-line bg-surface p-5 shadow-card">
-          <h2 className="text-sm font-semibold">Preview</h2>
+          <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Preview</h2>
           <p className="mt-1 text-xs text-muted">A card, a control and a progress bar.</p>
 
           <div className="mt-4 rounded-control border border-line bg-surface-2 p-3">

@@ -69,7 +69,7 @@ export default async function RecipePage({
           <Link href="/recipes" className="text-[11px] text-ink/40 hover:text-ink/60">
             ← Recipes
           </Link>
-          <h1 className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-2xl font-semibold tracking-tight">
+          <h1 className="font-display mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[26px] font-bold leading-none tracking-tight text-ink">
             {version.recipeName}
             {version.label && (
               <ProvenanceChip
@@ -171,7 +171,7 @@ export default async function RecipePage({
       </section>
 
       <section className="mt-4 space-y-3">
-        <h2 className="text-sm font-semibold">Steps</h2>
+        <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Steps</h2>
         {version.blocks.map((block, index) => {
           const blockResult = snapshot.blocks[index];
 
@@ -263,7 +263,7 @@ export default async function RecipePage({
 
       {version.instructions && (
         <section className="mt-4 rounded-2xl border border-line bg-surface p-5 shadow-card">
-          <h2 className="text-sm font-semibold">Instructions</h2>
+          <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Instructions</h2>
           <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-ink/70">
             {version.instructions}
           </p>
@@ -290,7 +290,7 @@ export default async function RecipePage({
       </section>
 
       <section className="mt-4 rounded-2xl border border-line bg-surface p-5 shadow-card">
-        <h2 className="text-sm font-semibold">Versions</h2>
+        <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Versions</h2>
         <p className="mt-1 text-[11px] text-ink/45">
           Editing saves a new version. The plan that used an older version keeps using it.
         </p>

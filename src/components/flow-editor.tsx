@@ -250,7 +250,7 @@ function FlowEditorInner({
         ? current.find((n) => n.type === "process")
         : undefined);
     if (target) {
-      setEdges((edges) => [...edges, { id: crypto.randomUUID(), source: id, target: target.id }]);
+      setEdges((edges) => [...edges, { id: crypto.randomUUID(), source: id, target: target.id, animated: true, style: { stroke: "var(--accent)", strokeWidth: 2.25 }, markerEnd: { type: "arrowclosed", color: "var(--accent)" } }]);
     }
     setSelectedId(id);
     setTimeout(() => reactFlow.fitView({ padding: 0.2 }), 60);
@@ -315,7 +315,7 @@ function FlowEditorInner({
   }, []);
 
   const onConnect = useCallback(
-    (connection: Connection) => setEdges((current) => addEdge({ ...connection, id: crypto.randomUUID() }, current)),
+    (connection: Connection) => setEdges((current) => addEdge({ ...connection, id: crypto.randomUUID(), animated: true, style: { stroke: "var(--accent)", strokeWidth: 2.25 }, markerEnd: { type: "arrowclosed", color: "var(--accent)" } }, current)),
     [],
   );
 
@@ -611,6 +611,9 @@ function FlowEditorInner({
       id: crypto.randomUUID(),
       source: idMap.get(edge.from)!,
       target: idMap.get(edge.to)!,
+      animated: true,
+      style: { stroke: "var(--accent)", strokeWidth: 2.25 },
+      markerEnd: { type: "arrowclosed", color: "var(--accent)" },
     }));
 
     setNodes((current) => [...current.map((n) => ({ ...n, selected: false })), ...pastedNodes]);
@@ -1206,7 +1209,7 @@ function FoodInspector({
   const isUsda = food?.source === "usda" || food?.source === "openfoodfacts";
   return (
     <div>
-      <h2 className="text-sm font-semibold">{d.label}</h2>
+      <h2 className="font-display text-sm font-semibold tracking-tight text-ink">{d.label}</h2>
       {food?.source && (
         <p className="mt-0.5 text-[11px] text-muted">
           {isUsda ? `Imported from ${food.source === "usda" ? "USDA FoodData Central" : "Open Food Facts"}` : `Source: ${food.source}`}
@@ -1376,7 +1379,7 @@ function ProcessInspector({
 
   return (
     <div>
-      <h2 className="text-sm font-semibold">{data.name.trim() || "Step"}</h2>
+      <h2 className="font-display text-sm font-semibold tracking-tight text-ink">{data.name.trim() || "Step"}</h2>
       <p className="mt-0.5 text-[10px] uppercase tracking-wider text-ink/40">
         {isTerminal ? "Final step" : "Process"} · {data.operation}
       </p>
@@ -1718,7 +1721,7 @@ function ConnectionInspector({
     n ? String((n.data as { name?: string; label?: string }).name ?? (n.data as { label?: string }).label ?? "block") : "?";
   return (
     <div>
-      <h2 className="text-sm font-semibold">Connection</h2>
+      <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Connection</h2>
       <p className="mt-2 text-sm leading-snug text-ink/80">
         <span className="font-medium">{nameOf(fromNode)}</span>
         <span className="mx-1.5 text-muted">→</span>
@@ -1833,5 +1836,12 @@ function buildInitialNodes(graph: Graph | null | undefined, layout: Record<strin
 
 function buildInitialEdges(graph: Graph | null | undefined): Edge[] {
   if (!graph) return [];
-  return graph.edges.map((e) => ({ id: e.id, source: e.from, target: e.to }));
+  return graph.edges.map((e) => ({
+    id: e.id,
+    source: e.from,
+    target: e.to,
+    animated: true,
+    style: { stroke: "var(--accent)", strokeWidth: 2.25 },
+    markerEnd: { type: "arrowclosed", color: "var(--accent)" },
+  }));
 }

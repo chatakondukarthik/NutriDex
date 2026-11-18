@@ -27,7 +27,7 @@ export default function ErrorPage({
         <p className="text-[10px] font-semibold uppercase tracking-wider text-warn-ink">
           Something went wrong
         </p>
-        <h1 className="mt-1.5 text-lg font-semibold">This page could not be loaded</h1>
+        <h1 className="font-display mt-1.5 text-lg font-bold tracking-tight">This page could not be loaded</h1>
         <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-muted">
           The data behind it did not come back in a shape the page could use. Trying again often
           fixes a transient read; if it keeps failing, restart the dev server.

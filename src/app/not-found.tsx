@@ -5,7 +5,7 @@ export default function NotFound() {
     <main className="mx-auto grid min-h-[60vh] max-w-lg place-items-center px-5 py-10">
       <div className="w-full rounded-2xl border border-line bg-surface p-6 text-center shadow-card">
         <p className="text-[10px] font-semibold uppercase tracking-wider text-faint">404</p>
-        <h1 className="mt-1.5 text-lg font-semibold">That page does not exist</h1>
+        <h1 className="font-display mt-1.5 text-lg font-bold tracking-tight">That page does not exist</h1>
         <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-muted">
           The link may be old, or the thing it pointed at was removed. The diary and the plan are
           both still here.

@@ -8,6 +8,9 @@ import { toGrams, parseUnitKey } from "@/lib/nutrition/units";
 import { defaultAmountFor } from "@/lib/nutrition/defaults";
 import { serializeFragment } from "@/lib/recipe-fragment";
 import { BulkEstimateButton } from "@/components/bulk-estimate-button";
+import { Spotlight } from "@/components/spotlight";
+import { AnimatePresence, motion } from "motion/react";
+import { SPRING } from "@/lib/motion/tokens";
 import { ProvenanceChip } from "@/components/provenance-chip";
 import { foodProvenance } from "@/lib/provenance";
 import { NUTRIENT_CODES } from "@/lib/nutrition/types";
@@ -207,14 +210,16 @@ export function FoodsBrowser({
         </p>
       ) : (
         <ul className="mt-4 grid max-h-[70vh] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
-          {results.map((food) => {
+          {results.map((food, index) => {
             const estimatedCount = Object.values(food.nutrients).filter(
               (value) => value?.status === "estimated",
             ).length;
             return (
-            <li
+            <Spotlight
+              as="li"
               key={food.id}
-              className="flex items-start gap-2.5 rounded-lg border border-line bg-surface p-3 text-sm"
+              className="flex items-start gap-2.5 rounded-xl border border-line bg-surface p-3 text-sm shadow-card transition-[box-shadow,border-color] duration-200 ease-out hover:border-accent/35 hover:shadow-plate"
+              index={index}
             >
               <input
                 type="checkbox"
@@ -225,7 +230,7 @@ export function FoodsBrowser({
               />
               <div className="flex min-w-0 flex-1 items-start justify-between gap-2">
                 <div>
-                  <p className="font-medium">{food.name}</p>
+                  <p className="font-display text-[13px] font-semibold tracking-tight text-ink">{food.name}</p>
                   <p className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
                     <ProvenanceChip provenance={foodProvenance(food.source ?? null, food.sourceKind ?? null)} />
                     {estimatedCount > 0 && (
@@ -253,21 +258,27 @@ export function FoodsBrowser({
                   ) : null}
                 </div>
               </div>
-            </li>
+            </Spotlight>
             );
           })}
         </ul>
       )}
       <p className="mt-3 text-[11px] text-muted">{results.length} of {foods.length} foods.</p>
 
-      {notice && (
-        <p
-          role="status"
-          className="pointer-events-none absolute bottom-2 left-1/2 z-10 -translate-x-1/2 rounded-full border border-line bg-surface px-4 py-1.5 text-[11px] text-ink shadow-card"
-        >
-          {notice}
-        </p>
-      )}
+      <AnimatePresence>
+        {notice && (
+          <motion.p
+            role="status"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ ...SPRING.settle }}
+            className="pointer-events-none absolute bottom-2 left-1/2 z-10 -translate-x-1/2 rounded-full border border-line bg-surface px-4 py-1.5 text-[11px] text-ink shadow-card"
+          >
+            {notice}
+          </motion.p>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

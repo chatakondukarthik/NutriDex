@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { PageHeader } from "@/components/page-header";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -12,6 +13,7 @@ import {
   updatePlanEntryQuantityAction,
 } from "@/app/actions";
 import { CopyIcon, GripIcon } from "@/components/icons";
+import DropBurst from "@/components/drop-burst";
 import { NutrientBar } from "@/components/nutrient-bar";
 import { PlanItemSheet, type SheetItem } from "@/components/plan-item-sheet";
 import { PlanMoveDialog } from "@/components/plan-move-dialog";
@@ -120,6 +122,8 @@ export function PlanBoard({
   const [copyTarget, setCopyTarget] = useState<string>("");
   const [moving, setMoving] = useState<PlanEntry | null>(null);
   const [pending, startTransition] = useTransition();
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [flashKey, setFlashKey] = useState<string | null>(null);
 
   const dragRef = useRef<DragPayload | null>(null);
   const paletteRef = useRef<HTMLElement | null>(null);
@@ -520,6 +524,7 @@ export function PlanBoard({
   }
 
   function startPaletteDrag(event: React.DragEvent, picked: Selection) {
+    setDraggingId("palette");
     const payload: DragPayload = { kind: "palette", selection: picked };
     dragRef.current = payload;
     event.dataTransfer.setData(DRAG_MIME, JSON.stringify(payload));
@@ -529,6 +534,7 @@ export function PlanBoard({
   }
 
   function startEntryDrag(event: React.DragEvent, entry: PlanEntry) {
+    setDraggingId(entry.id);
     const payload: DragPayload = { kind: "entry", id: entry.id };
     dragRef.current = payload;
     event.dataTransfer.setData(DRAG_MIME, JSON.stringify(payload));
@@ -553,9 +559,14 @@ export function PlanBoard({
     event.preventDefault();
     setDragOver(null);
 
+    const dropKey = `${day}:${slot}`;
     const payload = readPayload(event, dragRef);
     dragRef.current = null;
+    setDraggingId(null);
     if (!payload) return;
+
+    setFlashKey(dropKey);
+    window.setTimeout(() => setFlashKey(null), 1200);
 
     if (payload.kind === "palette") {
       place(day, slot, payload.selection);
@@ -659,10 +670,11 @@ export function PlanBoard({
                   setDragOver((current) => (current === dropKey ? null : current))
                 }
                 onDrop={(event) => onDrop(event, day, slot)}
-                className={`rounded-lg border border-dashed p-1 transition ${
-                  isOver ? "border-accent/60 bg-accent/[0.06]" : "border-transparent"
-                }`}
+                className={`relative rounded-lg border border-dashed p-1 transition ${
+                  isOver ? "slot-hot" : "border-transparent"
+                } ${flashKey === dropKey ? "drop-flash" : ""}`}
               >
+                <DropBurst fire={flashKey === dropKey} />
                 <div className="flex items-center justify-between gap-1">
                   <span className="text-[9px] font-semibold uppercase tracking-wider text-ink/30">
                     {SLOT_LABELS[slot]}
@@ -709,9 +721,11 @@ export function PlanBoard({
                         onMove={() => setMoving(entry)}
                         onRemove={() => remove(entry)}
                         onDragStart={(event) => startEntryDrag(event, entry)}
+                        dragging={draggingId === entry.id}
                         onDragEnd={() => {
                           dragRef.current = null;
                           setDragOver(null);
+                          setDraggingId(null);
                         }}
                       />
                     ))}
@@ -730,23 +744,23 @@ export function PlanBoard({
   return (
     <div className="min-h-screen">
       <main className="mx-auto max-w-7xl px-5 py-6">
-        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Plan</h1>
-            <div className="mt-1 flex items-center gap-2">
-              <p className="text-xs text-ink/45">{weekLabel}</p>
-              <input
-                type="date"
-                value={week}
-                onChange={(e) => {
-                  if (e.target.value) router.push(`/plan?week=${weekStart(e.target.value)}`);
-                }}
-                className="rounded-md border border-line bg-bg px-2 py-1 text-xs"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1">
+        <div className="mb-4">
+          <PageHeader
+            title="Plan"
+            kicker={`Week of ${weekLabel}`}
+            lead="The week ahead — the diary borrows from it when you log."
+          >
+            <input
+              type="date"
+              value={week}
+              onChange={(e) => {
+                if (e.target.value) router.push(`/plan?week=${weekStart(e.target.value)}`);
+              }}
+              className="rounded-md border border-line bg-surface px-2 py-1.5 text-xs"
+              aria-label="Choose a week"
+            />
+          </PageHeader>
+          <div className="mt-3 flex flex-wrap items-center justify-end gap-1">
             <Link
               href={`/plan?week=${addDays(week, -7)}`}
               className="rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink/60 transition hover:bg-ink/5"
@@ -868,6 +882,7 @@ export function PlanBoard({
                         onDragEnd={() => {
                           dragRef.current = null;
                           setDragOver(null);
+                          setDraggingId(null);
                         }}
                         onClick={() => setSelection(active ? null : picked)}
                         className="block w-full cursor-grab px-1 pt-0.5 text-left active:cursor-grabbing"
@@ -1025,7 +1040,7 @@ export function PlanBoard({
         <section className="mt-5">
           <div className="rounded-2xl border border-line bg-surface p-5 shadow-card">
             <div className="flex items-baseline justify-between gap-2">
-              <h2 className="text-sm font-semibold">
+              <h2 className="font-display text-sm font-semibold tracking-tight text-ink">
                 {weekdayShort(selectedDay)} {dayOfMonth(selectedDay)}
               </h2>
               <span className="text-[11px] text-ink/40">
@@ -1102,7 +1117,7 @@ export function PlanBoard({
           <section className="flex flex-col rounded-2xl border border-line bg-surface p-4 shadow-card">
             <div className="flex items-start justify-between gap-2">
               <div>
-                <h2 className="text-sm font-semibold">
+                <h2 className="font-display text-sm font-semibold tracking-tight text-ink">
                   {period === "day" ? "Day nutrition" : "Week nutrition"}
                 </h2>
                 <p className="mt-0.5 text-[11px] text-ink/40">
@@ -1266,6 +1281,7 @@ function PlanEntryRow({
   kcal,
   food,
   units,
+  dragging,
   onQuantity,
   onUnitChange,
   onCopy,
@@ -1283,6 +1299,8 @@ function PlanEntryRow({
   onQuantity: (value: number) => void;
   onUnitChange: (unitKey: string) => void;
   onCopy: () => void;
+  /** True while this row is the one being dragged. */
+  dragging: boolean;
   /** Opens the keyboard equivalent of a drag: choose a day and meal. */
   onMove: () => void;
   onRemove: () => void;
@@ -1293,7 +1311,7 @@ function PlanEntryRow({
   const unitKey = entry.unit ?? "g";
 
   return (
-    <li className="animate-pop group rounded-md bg-surface-2 px-1.5 py-1 transition hover:bg-ink/[0.05]">
+    <li className={`animate-pop group rounded-md bg-surface-2 px-1.5 py-1 transition hover:bg-ink/[0.05] ${dragging ? "drag-source" : ""}`}>
       <div className="flex items-start gap-0.5">
         <button
           type="button"

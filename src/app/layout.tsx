@@ -1,11 +1,35 @@
 import type { Metadata } from "next";
-import { PageTransition } from "@/components/page-transition";
+import { Fraunces, Instrument_Sans, Space_Mono } from "next/font/google";
+import RouteMotif from "@/components/route-motif";
+import EmberField from "@/components/ember-field";
+import { SpiceGlow } from "@/components/spice-glow";
+import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { ThemeProvider } from "@/components/theme-provider";
 import { listPeople } from "@/lib/db/people";
 import { getActivePerson } from "@/lib/person-server";
 import { getThemeSettings } from "@/lib/theme-server";
 import "./globals.css";
+
+const fraunces = Fraunces({
+  subsets: ["latin"],
+  variable: "--ff-display",
+  axes: ["SOFT"],
+  display: "swap",
+});
+
+const instrumentSans = Instrument_Sans({
+  subsets: ["latin"],
+  variable: "--ff-sans",
+  display: "swap",
+});
+
+const spaceMono = Space_Mono({
+  subsets: ["latin"],
+  weight: ["400", "700"],
+  variable: "--ff-ledger",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "NutriPlan",
@@ -23,10 +47,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       data-theme={theme.mode}
       data-accent={theme.accent}
       data-motion={theme.motion ? "on" : "off"}
+      data-sound={theme.sound ? "on" : "off"}
       suppressHydrationWarning
+      className={`${fraunces.variable} ${instrumentSans.variable} ${spaceMono.variable}`}
     >
-      <body className="min-h-screen text-ink antialiased">
+      <body className="grain flex min-h-screen flex-col text-ink antialiased">
+        <EmberField />
+        <SpiceGlow />
         <ThemeProvider initial={theme}>
+          <RouteMotif />
           <SiteHeader
             activePersonId={activePerson.id}
             people={people.map((person) => ({
@@ -39,9 +68,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             browser to the content instead of the header, and tabbing then
             continues inside the page.
           */}
-          <div id="main-content" tabIndex={-1} className="outline-none">
-            <PageTransition>{children}</PageTransition>
-          </div>
+          <div id="main-content" tabIndex={-1} className="flex-1 outline-none">{children}</div>
+          <SiteFooter />
         </ThemeProvider>
       </body>
     </html>

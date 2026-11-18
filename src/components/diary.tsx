@@ -1,6 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { SPRING } from "@/lib/motion/tokens";
 import { useRouter } from "next/navigation";
 import { ChevronDownIcon } from "@/components/icons";
 import {
@@ -11,6 +13,10 @@ import {
 } from "@/app/actions";
 import { NutrientBar } from "@/components/nutrient-bar";
 import { FirstRunGuide } from "@/components/first-run";
+import { PageHeader } from "@/components/page-header";
+import { ThaliRing } from "@/components/thali-ring";
+import SparkBurst from "@/components/spark-burst";
+import { playSound } from "@/lib/motion/sound";
 import type { Entry } from "@/lib/db/entries";
 import { dayRollup } from "@/lib/day";
 import { searchFoods } from "@/lib/nutrition/food-search";
@@ -78,8 +84,25 @@ export function Diary({
   const [unitKey, setUnitKey] = useState("g");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const reduced = useReducedMotion();
   /** Which food's default-refine may still land; null after deselect. */
   const selectTokenRef = useRef<string | null>(null);
+  const [freshIds, setFreshIds] = useState<ReadonlySet<string>>(new Set());
+  const prevEntryIds = useRef<string[]>(entries.map((entry) => entry.id));
+  const wasFull = useRef(false);
+  const [burstFire, setBurstFire] = useState(false);
+
+  // Rows that were not here a render ago are the "just logged" rows.
+  useEffect(() => {
+    const current = entries.map((entry) => entry.id);
+    const fresh = current.filter((id) => !prevEntryIds.current.includes(id));
+    prevEntryIds.current = current;
+    if (fresh.length === 0) return;
+    setFreshIds(new Set(fresh));
+    const timeout = setTimeout(() => setFreshIds(new Set()), 1900);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries]);
 
   const categories = useMemo(
     () => ["All", ...Array.from(new Set(foods.map((f) => f.category))).sort()],
@@ -174,6 +197,7 @@ export function Diary({
   }, [selectedFood, preview]);
 
   function select(food: Food) {
+    playSound("tick");
     const next = food.id === selectedId ? null : food.id;
     setSelectedId(next);
     setError(null);
@@ -212,9 +236,11 @@ export function Diary({
       });
 
       if (!response.ok) {
+        playSound("thud");
         setError(response.message ?? "Could not add this food.");
         return;
       }
+      playSound("stamp");
       setSelectedId(null);
       setAmount("100");
       setUnitKey("g");
@@ -228,6 +254,7 @@ export function Diary({
   }
 
   function selectRecipe(option: PlanRecipeOption) {
+    playSound("tick");
     setSelectedRecipeId((current) =>
       current === option.versionId ? null : option.versionId,
     );
@@ -253,9 +280,11 @@ export function Diary({
       });
 
       if (!response.ok) {
+        playSound("thud");
         setError(response.message ?? "Could not add this recipe.");
         return;
       }
+      playSound("stamp");
       setSelectedRecipeId(null);
       setVersionOverride(null);
       setServings("1");
@@ -282,45 +311,43 @@ export function Diary({
     energy != null && energyTarget ? Math.min(100, (energy / energyTarget.value) * 100) : 0;
   // Same cut-offs as the nutrient bars, so the headline and the bars agree
   // when the user moves them in Settings.
-  const energyRatio =
-    energy != null && energyTarget && energyTarget.value > 0
-      ? energy / energyTarget.value
-      : null;
-  const energyBar =
-    energyRatio == null
-      ? "bg-accent"
-      : energyRatio >= 1 + (energyTarget?.redAt ?? 0.2)
-        ? "bg-danger"
-        : energyRatio > 1 + (energyTarget?.amberOver ?? 0)
-          ? "bg-warn"
-          : "bg-accent";
-
+  const hitFull =
+    energy != null && energyTarget != null && energyTarget.value > 0 && energy >= energyTarget.value;
+  useEffect(() => {
+    if (hitFull && !wasFull.current) setBurstFire(true);
+    wasFull.current = hitFull;
+  }, [hitFull]);
   const tracked = NUTRIENT_CODES.length;
   const withData = NUTRIENT_CODES.filter((c) => result.totals[c] != null).length;
 
   return (
     <div className="min-h-screen">
       <main className="mx-auto max-w-6xl px-5 py-6">
-        <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Diary</h1>
-            <div className="mt-1 flex items-center gap-2">
-              <p className="text-xs text-ink/45">{fmtDay(day)}</p>
-              <input
-                type="date"
-                value={day}
-                onChange={(e) => {
-                  if (e.target.value) router.push(`/?day=${e.target.value}`);
-                }}
-                className="rounded-md border border-line bg-bg px-2 py-1 text-xs"
-              />
-            </div>
-          </div>
-          <p className="text-[11px] text-ink/35">
-            ✓ Saved · {entries.length} {entries.length === 1 ? "entry" : "entries"} · coverage shown per
-            nutrient
-          </p>
-        </div>
+        <motion.div
+          className="mb-4"
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ ...SPRING.settle }}
+        >
+          <PageHeader
+            title="Diary"
+            kicker={fmtDay(day)}
+            lead="What the household actually ate today — every number, counted."
+          >
+            <input
+              type="date"
+              value={day}
+              onChange={(e) => {
+                if (e.target.value) router.push(`/?day=${e.target.value}`);
+              }}
+              className="rounded-md border border-line bg-surface px-2 py-1.5 text-xs"
+              aria-label="Choose a day"
+            />
+            <p className="hidden font-ledger text-[9px] uppercase leading-snug tracking-[0.18em] text-faint md:block">
+              Saved · {entries.length}<br />{entries.length === 1 ? "entry" : "entries"} · coverage per nutrient
+            </p>
+          </PageHeader>
+        </motion.div>
 
         <FirstRunGuide
           profileIsDefault={profileIsDefault}
@@ -329,22 +356,27 @@ export function Diary({
         />
 
         {planned.length > 0 && (
-          <section className="mb-4 grid gap-3 sm:grid-cols-[1fr_1fr] rounded-2xl border border-line bg-surface p-4 shadow-card">
+          <motion.section
+            className="mb-4 grid gap-3 sm:grid-cols-[1fr_1fr] dotgrid rounded-2xl border border-line bg-surface p-4 shadow-card"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...SPRING.settle, delay: 0.05 }}
+          >
             <div>
-              <h2 className="text-sm font-semibold">Planned</h2>
-              <p className="tabular mt-1 text-2xl font-semibold">{Math.round(plannedKcal)} <span className="text-sm font-normal text-ink/40">kcal</span></p>
+              <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Planned</h2>
+              <p className="font-ledger mt-1 text-2xl font-bold tracking-tight">{Math.round(plannedKcal)} <span className="font-sans text-sm font-normal text-ink/40">kcal</span></p>
             </div>
             <div>
-              <h2 className="text-sm font-semibold">Logged</h2>
-              <p className="tabular mt-1 text-2xl font-semibold">{fmt(result?.totals.ENERC_KCAL ?? null, 0)} <span className="text-sm font-normal text-ink/40">kcal</span></p>
+              <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Logged</h2>
+              <p className="font-ledger mt-1 text-2xl font-bold tracking-tight">{fmt(result?.totals.ENERC_KCAL ?? null, 0)} <span className="font-sans text-sm font-normal text-ink/40">kcal</span></p>
             </div>
-          </section>
+          </motion.section>
         )}
 
         {planned.length > 0 && (
           <section className="mb-4 rounded-2xl border border-line bg-surface p-4 shadow-card">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h2 className="text-sm font-semibold">Planned for this day</h2>
+              <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Planned for this day</h2>
               <Link
                 href={`/plan?week=${weekStart(day)}`}
                 className="text-[11px] font-medium text-accent hover:underline"
@@ -374,9 +406,14 @@ export function Diary({
 
         <div className="grid gap-5 lg:grid-cols-[1fr_420px] lg:items-start">
         {/* ---- Food search ---------------------------------------------- */}
-        <section className="min-w-0 rounded-2xl border border-line bg-surface p-5 shadow-card">
+        <motion.section
+          className="min-w-0 rounded-2xl border border-line bg-surface p-5 shadow-card"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ ...SPRING.settle, delay: 0.08 }}
+        >
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold">
+            <h2 className="font-display text-sm font-semibold tracking-tight text-ink">
               {tab === "foods" ? "Find a food" : "Find a recipe"}
             </h2>
             <div
@@ -453,7 +490,13 @@ export function Diary({
           )}
 
           {tab === "foods" && (
-          <ul className="mt-2 max-h-[440px] divide-y divide-line overflow-y-auto pr-1">
+          <motion.ul
+              key={`${tab}:${category}`}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ ...SPRING.settle }}
+              className="mt-2 max-h-[440px] divide-y divide-line overflow-y-auto pr-1"
+            >
             {results.slice(0, limit).map((food) => {
               const kcal = food.nutrients.ENERC_KCAL.amount;
               const isOpen = food.id === selectedId;
@@ -464,7 +507,7 @@ export function Diary({
                     type="button"
                     onClick={() => select(food)}
                     aria-expanded={isOpen}
-                    className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2.5 text-left transition hover:bg-surface-2"
+                    className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2.5 text-left transition hover:bg-surface-2 active:scale-[0.98]"
                   >
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-medium">{food.name}</span>
@@ -484,7 +527,12 @@ export function Diary({
                   </button>
 
                   {isOpen && (
-                    <div className="mb-2 ml-2 rounded-xl border border-line bg-surface-2 p-3">
+                    <motion.div
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ ...SPRING.settle }}
+                      className="mb-2 ml-2 rounded-xl border border-line bg-surface-2 p-3"
+                    >
                       <div className="flex flex-wrap items-end gap-2">
                         <label className="flex-1">
                           <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-ink/40">
@@ -521,7 +569,7 @@ export function Diary({
                           type="button"
                           onClick={submit}
                           disabled={pending}
-                          className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-ink transition hover:bg-accent-strong disabled:opacity-50"
+                          className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-ink transition hover:bg-accent-strong active:scale-[0.96] disabled:opacity-50"
                         >
                           {pending ? "Adding…" : "Add"}
                         </button>
@@ -549,12 +597,12 @@ export function Diary({
                       </p>
 
                       {error && <p className="mt-1 text-[11px] text-danger">{error}</p>}
-                    </div>
+                    </motion.div>
                   )}
                 </li>
               );
             })}
-          </ul>
+          </motion.ul>
           )}
           {tab === "foods" && results.length > limit && (
             <button
@@ -580,7 +628,13 @@ export function Diary({
                   No recipes match “{query}”.
                 </p>
               ) : (
-                <ul className="mt-2 max-h-[440px] divide-y divide-line overflow-y-auto pr-1">
+                <motion.ul
+              key={`${tab}:${category}`}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ ...SPRING.settle }}
+              className="mt-2 max-h-[440px] divide-y divide-line overflow-y-auto pr-1"
+            >
                   {recipeResults.map((option) => {
                     const kcal = option.perServing.totals.ENERC_KCAL;
                     const isOpen = option.versionId === selectedRecipeId;
@@ -591,7 +645,7 @@ export function Diary({
                           type="button"
                           onClick={() => selectRecipe(option)}
                           aria-expanded={isOpen}
-                          className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2.5 text-left transition hover:bg-surface-2"
+                          className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2.5 text-left transition hover:bg-surface-2 active:scale-[0.98]"
                         >
                           <span className="min-w-0">
                             <span className="block truncate text-sm font-medium">{option.name}</span>
@@ -614,7 +668,12 @@ export function Diary({
                         </button>
 
                         {isOpen && (
-                          <div className="mb-2 ml-2 rounded-xl border border-line bg-surface-2 p-3">
+                          <motion.div
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ ...SPRING.settle }}
+                      className="mb-2 ml-2 rounded-xl border border-line bg-surface-2 p-3"
+                    >
                             {selectedVersions.length > 1 && (
                               <label className="mb-2 block">
                                 <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-ink/40">
@@ -658,7 +717,7 @@ export function Diary({
                                 type="button"
                                 onClick={submitRecipe}
                                 disabled={pending}
-                                className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-ink transition hover:bg-accent-strong disabled:opacity-50"
+                                className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-ink transition hover:bg-accent-strong active:scale-[0.96] disabled:opacity-50"
                               >
                                 {pending ? "Adding…" : "Add"}
                               </button>
@@ -677,50 +736,60 @@ export function Diary({
                             </p>
 
                             {error && <p className="mt-1 text-[11px] text-danger">{error}</p>}
-                          </div>
+                          </motion.div>
                         )}
                       </li>
                     );
                   })}
-                </ul>
+                </motion.ul>
               )}
             </>
           )}
-        </section>
+        </motion.section>
 
         {/* ---- Today ---------------------------------------------------- */}
-        <aside className="min-w-0 lg:sticky lg:top-20">
-          <section className="rounded-2xl border border-line bg-surface p-5 shadow-card">
+        <motion.aside
+          className="min-w-0 lg:sticky lg:top-20"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ ...SPRING.settle, delay: 0.12 }}
+        >
+          <section className="dotgrid rounded-2xl border border-line bg-surface p-5 shadow-card">
             <div className="flex items-baseline justify-between">
-              <h2 className="text-sm font-semibold">Today</h2>
+              <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Today</h2>
               <span className="text-[11px] text-ink/40">
                 {entries.length} {entries.length === 1 ? "item" : "items"}
               </span>
             </div>
 
-            <div className="mt-3 flex items-end justify-between">
-              <div>
-                <div className="tabular text-3xl font-semibold leading-none">
-                  {fmt(energy, 0)}
-                  <span className="ml-1 text-sm font-normal text-ink/40">kcal</span>
+            <div className="relative mt-4 flex items-center gap-5">
+              <div className="relative shrink-0">
+                <ThaliRing
+                  pct={energyPct}
+                  label={fmt(energy, 0)}
+                  sublabel={`of ${fmt(energyTarget?.value ?? null, 0)} kcal`}
+                  size={136}
+                  complete={hitFull}
+                />
+                <SparkBurst fire={burstFire} />
+              </div>
+              <div className="min-w-0">
+                <div className="font-ledger text-lg font-bold leading-tight text-ink">
+                  {energy != null && energyTarget != null ? (
+                    energy >= energyTarget.value ? (
+                      <>{Math.round(energy - energyTarget.value).toLocaleString()} <span className="font-sans text-xs font-medium text-gold">over target</span></>
+                    ) : (
+                      <>{Math.round(energyTarget.value - energy).toLocaleString()} <span className="font-sans text-xs font-medium text-muted">kcal to go</span></>
+                    )
+                  ) : (
+                    <span className="font-sans text-xs text-faint">No target set</span>
+                  )}
                 </div>
-                <div className="mt-1 text-[11px] text-ink/40">
-                  of {fmt(energyTarget?.value ?? null, 0)} kcal target
+                <div className="mt-2 text-[11px] leading-snug text-ink/45">
+                  <span className="font-ledger tabular text-ink/70">{withData}/{tracked}</span> nutrients
+                  have data today
                 </div>
               </div>
-              <div className="text-right text-[11px] text-ink/40">
-                <div className="tabular">
-                  {withData}/{tracked} nutrients
-                </div>
-                <div>have data</div>
-              </div>
-            </div>
-
-            <div className="mt-3 h-2 overflow-hidden rounded-full bg-ink/10">
-              <div
-                className={`bar-fill h-full rounded-full ${energyBar}`}
-                style={{ width: `${energyPct}%` }}
-              />
             </div>
 
             <div className="mt-5 space-y-5">
@@ -752,14 +821,37 @@ export function Diary({
           </section>
 
           <section className="mt-4 rounded-2xl border border-line bg-surface p-5 shadow-card">
-            <h2 className="text-sm font-semibold">Logged</h2>
+            <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Logged</h2>
 
             {entries.length === 0 ? (
-              <p className="mt-3 rounded-xl border border-dashed border-line px-3 py-6 text-center text-xs text-ink/40">
-                Nothing yet. Search foods or recipes to add your first entry.
-              </p>
+              <div className="mt-3 rounded-xl border border-dashed border-line px-3 py-6 text-center">
+                <div className="mx-auto mb-3 grid h-14 w-14 place-items-center">
+                  <motion.svg
+                    width="44"
+                    height="44"
+                    viewBox="0 0 44 44"
+                    aria-hidden="true"
+                    animate={reduced ? undefined : { scale: [1, 1.05, 1], opacity: [0.55, 0.95, 0.55] }}
+                    transition={{ duration: 2.6, repeat: Infinity, ease: "easeInOut" }}
+                    className="text-accent"
+                  >
+                    <circle cx="22" cy="22" r="19" fill="none" stroke="currentColor" strokeWidth="1.6" />
+                    <circle cx="22" cy="22" r="10.5" fill="none" stroke="currentColor" strokeWidth="1.1" strokeDasharray="3 4" opacity="0.8" />
+                  </motion.svg>
+                </div>
+                <p className="text-xs text-ink/40">
+                  Nothing yet. Search foods or recipes to add your first entry.
+                </p>
+              </div>
             ) : (
-              <ul className="mt-2 max-h-80 divide-y divide-line overflow-y-auto pr-1">
+              <AnimatePresence initial={false} mode="popLayout">
+              <motion.ul
+                key={day}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ ...SPRING.settle }}
+                className="mt-2 max-h-80 divide-y divide-line overflow-y-auto pr-1"
+              >
                 {entries.map((entry) => {
                   if (entry.recipeVersionId) {
                     const recipe = recipeByVersion.get(entry.recipeVersionId);
@@ -770,7 +862,15 @@ export function Diary({
                       : "Deleted recipe";
 
                     return (
-                      <li key={entry.id} className="flex items-center gap-3 py-2.5">
+                      <motion.li
+                        key={entry.id}
+                        layout
+                        initial={freshIds.has(entry.id) ? { opacity: 0, y: -26 } : false}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scaleY: 0.92, x: 14 }}
+                        transition={{ ...SPRING.drop }}
+                        className={`-mx-2 flex items-center gap-3 rounded-lg px-2 py-2.5 ${freshIds.has(entry.id) ? "entry-fresh" : ""}`}
+                      >
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm">{label}</div>
                           <div className="text-[11px] text-ink/40">
@@ -787,7 +887,7 @@ export function Diary({
                         >
                           ×
                         </button>
-                      </li>
+                      </motion.li>
                     );
                   }
 
@@ -796,7 +896,15 @@ export function Diary({
                   const entryKcal = kcal != null ? (kcal * entry.grams) / 100 : null;
 
                   return (
-                    <li key={entry.id} className="flex items-center gap-3 py-2.5">
+                    <motion.li
+                      key={entry.id}
+                      layout
+                      initial={freshIds.has(entry.id) ? { opacity: 0, y: -26 } : false}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, scaleY: 0.92, x: 14 }}
+                      transition={{ ...SPRING.drop }}
+                      className={`-mx-2 flex items-center gap-3 rounded-lg px-2 py-2.5 ${freshIds.has(entry.id) ? "entry-fresh" : ""}`}
+                    >
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm">{food?.name ?? entry.foodId}</div>
                         <div className="text-[11px] text-ink/40">
@@ -817,13 +925,14 @@ export function Diary({
                       >
                         ×
                       </button>
-                    </li>
+                    </motion.li>
                   );
                 })}
-              </ul>
+              </motion.ul>
+              </AnimatePresence>
             )}
           </section>
-        </aside>
+        </motion.aside>
         </div>
       </main>
 
