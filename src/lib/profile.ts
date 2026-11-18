@@ -195,6 +195,51 @@ export interface EnergyBreakdown {
   sugar: number;
 }
 
+export interface EnergyMacros {
+  fat: number;
+  carbs: number;
+  fibre: number;
+  sugar: number;
+}
+
+/**
+ * The macro ceilings that follow an energy target.
+ *
+ * One place computes them so the formula and a person's energy override can
+ * agree: when the target is overridden, fat, carbohydrate, fibre and sugar
+ * follow the overridden number, not the formula's.
+ */
+export function energyMacros(energyKcal: number, proteinGrams: number): EnergyMacros {
+  // Fat at 30 % of energy is a ceiling, not a goal: it is the top of the
+  // acceptable range, so the bar going amber means something.
+  const fat = roundTo((energyKcal * 0.3) / 9, 5);
+
+  // Carbohydrate is whatever energy is left once protein and fat are
+  // accounted for. Presenting it as a minimum keeps the bars readable;
+  // it is not an independent recommendation.
+  const carbs = Math.max(50, roundTo((energyKcal - proteinGrams * 4 - fat * 9) / 4, 5));
+
+  // 14 g per 1000 kcal is the usual fibre guidance, applied to the
+  // energy the person is actually aiming at rather than a fixed adult figure.
+  const fibre = roundTo((energyKcal / 1000) * 14, 1);
+
+  // Free sugars should stay under 10 % of energy. Our SUGAR field is total
+  // sugars, so this is a stricter reading of the same limit — worth
+  // knowing, and documented rather than hidden.
+  const sugar = roundTo((energyKcal * 0.1) / 4, 5);
+
+  return { fat, carbs, fibre, sugar };
+}
+
+/**
+ * The energy target the app should act on: the person's override when they
+ * set one, otherwise the formula's. The override is a decision, not an
+ * estimate, and every screen agrees on it.
+ */
+export function effectiveEnergyKcal(profile: Profile): number {
+  return profile.targetEnergyKcal ?? energyBreakdown(profile).target;
+}
+
 /**
  * Everything the energy target is made of, in one place.
  *
@@ -206,6 +251,8 @@ export interface EnergyBreakdown {
  * - never a surplus above 15 % of maintenance.
  *
  * They are guard rails, not prescriptions. The panel says when one bites.
+ * The energy override is applied outside of this function, not inside it:
+ * this is the formula, and the panel shows both when they differ.
  */
 export function energyBreakdown(profile: Profile): EnergyBreakdown {
   const basal = bmr(profile);
@@ -261,23 +308,7 @@ export function energyBreakdown(profile: Profile): EnergyBreakdown {
   const proteinPerKg = profile.goal === "lose" ? 1.2 : profile.goal === "gain" ? 1.4 : 1.0;
   const protein = roundTo(profile.weightKg * proteinPerKg, 5);
 
-  // Fat at 30 % of energy is a ceiling, not a goal: it is the top of the
-  // acceptable range, so the bar going amber means something.
-  const fat = roundTo((target * 0.3) / 9, 5);
-
-  // Carbohydrate is whatever energy is left once protein and fat are
-  // accounted for. Presenting it as a minimum keeps the bars readable;
-  // it is not an independent recommendation.
-  const carbs = Math.max(50, roundTo((target - protein * 4 - fat * 9) / 4, 5));
-
-  // 14 g per 1000 kcal is the usual fibre guidance, applied to the
-  // computed energy rather than a fixed adult figure.
-  const fibre = roundTo((target / 1000) * 14, 1);
-
-  // Free sugars should stay under 10 % of energy. Our SUGAR field is total
-  // sugars, so this is a stricter reading of the same limit — worth
-  // knowing, and documented rather than hidden.
-  const sugar = roundTo((target * 0.1) / 4, 5);
+  const { fat, carbs, fibre, sugar } = energyMacros(target, protein);
 
   return {
     bmr: basal,
@@ -307,7 +338,7 @@ export function energyBreakdown(profile: Profile): EnergyBreakdown {
 }
 
 export function dailyEnergyKcal(profile: Profile): number {
-  return energyBreakdown(profile).target;
+  return effectiveEnergyKcal(profile);
 }
 
 /** Protein per kg of body weight, by goal. */

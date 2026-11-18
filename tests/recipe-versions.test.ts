@@ -12,6 +12,7 @@ import path from "node:path";
  * promoting an arbitrary version changes only where new logs come from.
  */
 let dir: string;
+let personId: string;
 let recipeRepo: typeof import("@/lib/db/recipes");
 let service: typeof import("@/lib/recipes");
 let planRepo: typeof import("@/lib/db/plan");
@@ -24,6 +25,7 @@ beforeAll(async () => {
   service = await import("@/lib/recipes");
   planRepo = await import("@/lib/db/plan");
   entries = await import("@/lib/db/entries");
+  personId = (await import("@/lib/db/people")).defaultPersonId();
 });
 
 afterAll(() => {
@@ -55,8 +57,8 @@ function twoVersionRecipe(name: string) {
 }
 
 function pinWithPlanEntry(versionId: string) {
-  const plan = planRepo.getOrCreatePlan("2030-05-04");
-  planRepo.addPlanEntry({
+  const plan = planRepo.getOrCreatePlan(personId, "2030-05-04");
+  planRepo.addPlanEntry(personId, {
     planId: plan.id,
     day: "2030-05-04",
     slot: "lunch",
@@ -102,7 +104,7 @@ describe("deleteVersion", () => {
 
   it("refuses a version pinned by a diary entry", () => {
     const { v1 } = twoVersionRecipe("Pinned in diary");
-    entries.addRecipeEntry({
+    entries.addRecipeEntry(personId, {
       recipeVersionId: v1,
       servings: 1,
       grams: 150,
@@ -130,8 +132,10 @@ describe("promoteVersion", () => {
     expect(recipeRepo.getRecipe(recipeId)?.summary.currentVersionId).toBe(v1);
 
     // the pin is exactly where it was; promoting must not rewrite it
-    const plan = planRepo.getPlan("2030-05-04")!;
-    const listed = planRepo.listPlanEntries(plan.id).filter((entry) => entry.recipeVersionId === v1);
+    const plan = planRepo.getPlan(personId, "2030-05-04")!;
+    const listed = planRepo
+      .listPlanEntries(personId, plan.id)
+      .filter((entry) => entry.recipeVersionId === v1);
     expect(listed.length).toBeGreaterThan(0);
     expect(recipeRepo.getRecipe(recipeId)?.summary.currentVersionId).toBe(v1);
     expect(recipeRepo.countVersionReferences(v1)).toBeGreaterThan(0);
@@ -158,7 +162,7 @@ describe("countVersionReferences", () => {
   it("counts plan and diary pins for one version only", () => {
     const { v1, v2 } = twoVersionRecipe("References");
     pinWithPlanEntry(v1);
-    entries.addRecipeEntry({
+    entries.addRecipeEntry(personId, {
       recipeVersionId: v1,
       servings: 1,
       grams: 150,

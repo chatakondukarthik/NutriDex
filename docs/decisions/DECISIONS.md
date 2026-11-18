@@ -1086,6 +1086,68 @@ OS account and the encrypted volume are the trust boundary.
 
 ---
 
+### D-051 — A household is trusted; people are convenience scopes
+
+**Status:** Accepted
+**Date:** 2026-11-18
+**Relates to:** D-047, D-048, D-049, D-050, SEC-GOV-02
+
+**Context**
+
+A local-first diary is used by a household of three or four people on one
+device, not by one person. Recipes and foods are naturally shared, while
+body profile, targets, diary and plans are personal. The product has no
+accounts, no server session and no per-person privacy boundary; adding one
+would be a different product.
+
+**Decision**
+
+- One installation is one household. A second household is a second
+  installation, data directory or OS user.
+- Add a `people` roster. Person ids are UUIDs; the migrated first person gets
+  a new id, not `'local'`. `profile.id` is the person id.
+- Shared household content: seed and captured foods, nutrients, portions,
+  evidence, recipes, versions, blocks and ingredient lines, retention
+  overrides, and the whole AI layer (config, keys, master prompt, cap, log,
+  cache).
+- Personal content: body profile, target rules, diary entries, weekly plans,
+  plan entries and default amount pins.
+- There is no shared meal plan and no automatic propagation. A person adds a
+  shared recipe or food to their own diary or plan when they use it.
+- Profiles are filters, never authorization. No per-person PIN, login, role
+  or hidden row. Anyone at the device can switch people and see everything.
+- The archive becomes format v2 with `household`, `person` and `shared`
+  scopes; replace is scope-filtered; v1 archives import as one person and
+  cannot replace a multi-person household.
+- Deletion is scoped: personal categories for one person, shared categories
+  for the household, and person removal as a separate People action.
+- AI stays household-wide in V1. Per-person keys, prompts, caps and
+  attribution are deferred.
+
+**Consequences**
+
+The household shares one library, one AI budget and one trust boundary. A
+person archive is self-contained by carrying the shared library, and never
+contains another person's profile, diary or plans. Crossing a person boundary
+is possible by design; that is documented, not prevented. If privacy is ever
+required, the legitimate path is separate OS users or encrypted per-person
+vaults, not a PIN over the shared database.
+
+**Alternatives rejected**
+
+- A local `users` table with an `owner_id` on every table and an authorization
+  claim: more joins, no security on one OS account, and a false privacy
+  promise.
+- Per-person SQLite files: duplicates the shared library and breaks the
+  one-archive contract.
+- Per-person PINs: no session model, lockout, recovery or fixation story.
+- Treating the gate, CSRF check or loopback binding as household privacy:
+  they protect against other machines and websites, not co-located people.
+- A shared meal plan / "cook once" propagation: the household wants a shared
+  library, not a second planning model.
+
+---
+
 ## Superseded
 
 None yet.

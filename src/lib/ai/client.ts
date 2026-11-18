@@ -179,7 +179,10 @@ export async function withAiBudget<T>(
 
 const LIMIT_MESSAGE = "You have reached today's AI call limit. Raise it in Settings or try tomorrow.";
 
-export async function complete(request: ModelRequest): Promise<ModelResponse> {
+export async function complete(
+  request: ModelRequest,
+  options?: { preferFallback?: boolean },
+): Promise<ModelResponse> {
   const config = getAiConfig();
   if (config.enabled === false) throw new Error("AI is turned off in Settings.");
 
@@ -196,7 +199,10 @@ export async function complete(request: ModelRequest): Promise<ModelResponse> {
     ? { ...config, provider: fallbackResolved.provider, model: fallbackResolved.model, baseUrl: fallbackResolved.baseUrl }
     : null;
 
-  const attempts: AiConfig[] = [primary, ...(fallback ? [fallback] : [])];
+  const attempts: AiConfig[] =
+    options?.preferFallback && fallback
+      ? [fallback, primary]
+      : [primary, ...(fallback ? [fallback] : [])];
   let lastError: Error | null = null;
 
   for (const cfg of attempts) {

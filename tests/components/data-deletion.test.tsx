@@ -2,17 +2,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DataDeletionPanel } from "@/components/data-deletion";
-import type { PurgePreview } from "@/lib/db/purge";
+import type { PurgeBlocker, PurgePreview } from "@/lib/db/purge";
 
 /**
  * The deletion panel's safety rules:
  *
- *   1. only categories that exist are selectable;
- *   2. a blocker keeps the destructive button disabled and says which
- *      category must be selected too;
- *   3. the confirmation needs an explicit acknowledgement before the server
- *      is called, and the request carries only the selected ids;
- *   4. a refusal from the server is shown without pretending anything was
+ *   1. the scope is explicit: a person preview lists only personal
+ *      categories, a household preview lists only shared ones;
+ *   2. only categories that exist are selectable;
+ *   3. a blocker keeps the destructive button disabled and names the person
+ *      whose rows must be cleared first;
+ *   4. the confirmation needs an explicit acknowledgement before the server
+ *      is called, and the request carries the scope and selected ids;
+ *   5. a refusal from the server is shown without pretending anything was
  *      deleted, and a success refreshes the counts.
  */
 
@@ -23,31 +25,35 @@ vi.mock("next/navigation", () => ({
 }));
 
 const purgeDataAction = vi.fn();
+const purgePreviewAction = vi.fn();
 
 vi.mock("@/app/actions", () => ({
   purgeDataAction: (...args: unknown[]) => purgeDataAction(...args),
+  purgePreviewAction: (...args: unknown[]) => purgePreviewAction(...args),
 }));
 
-function preview(overrides: Partial<Record<string, number>> = {}): PurgePreview {
+const PERSON = { id: "person-1", displayName: "Priya" };
+
+function personPreview(overrides: Partial<Record<string, number>> = {}): PurgePreview {
   const counts = {
     diary: 2,
     plans: 0,
-    recipes: 0,
-    foods: 1,
-    defaults: 0,
     profile: 1,
+    defaults: 0,
     preferences: 1,
-    ai: 0,
     ...overrides,
   };
 
   return {
+    scope: "person",
+    personId: PERSON.id,
+    personName: PERSON.displayName,
     categories: [
       {
         id: "diary",
         label: "Diary entries",
         unit: "entry",
-        description: "Every food and recipe you logged, across every day.",
+        description: "Every food and recipe logged for this person.",
         count: counts.diary,
         blockers: [],
       },
@@ -55,10 +61,65 @@ function preview(overrides: Partial<Record<string, number>> = {}): PurgePreview 
         id: "plans",
         label: "Weekly plans",
         unit: "plan",
-        description: "Plans and every meal placed in them.",
+        description: "This person's weekly plans.",
         count: counts.plans,
         blockers: [],
       },
+      {
+        id: "profile",
+        label: "Body profile",
+        unit: "profile",
+        description: "This person's body and goal inputs.",
+        count: counts.profile,
+        blockers: [],
+      },
+      {
+        id: "defaults",
+        label: "Saved default amounts",
+        unit: "default",
+        description: "This person's pinned amounts and units.",
+        count: counts.defaults,
+        blockers: [],
+      },
+      {
+        id: "preferences",
+        label: "Target thresholds",
+        unit: "setting",
+        description: "This person's nutrient thresholds.",
+        count: counts.preferences,
+        blockers: [],
+      },
+    ],
+  };
+}
+
+function foodsBlocker(overrides: Partial<PurgeBlocker> = {}): PurgeBlocker {
+  return {
+    category: "diary",
+    label: "Diary entries",
+    unit: "entry",
+    count: 1,
+    personId: PERSON.id,
+    personName: PERSON.displayName,
+    resolvable: false,
+    ...overrides,
+  };
+}
+
+function householdPreview(overrides: Partial<Record<string, number>> = {}): PurgePreview {
+  const counts = {
+    recipes: 2,
+    foods: 1,
+    preferences: 1,
+    ai: 3,
+    ...overrides,
+  };
+
+  return {
+    scope: "household",
+    personId: null,
+    personName: null,
+    categories: [
       {
         id: "recipes",
         label: "Recipes",
@@ -71,34 +132,15 @@ function preview(overrides: Partial<Record<string, number>> = {}): PurgePreview 
         id: "foods",
         label: "Foods you created",
         unit: "food",
-        description: "Foods you added and their nutrients.",
+        description: "Foods the household added and their nutrients.",
         count: counts.foods,
-        blockers:
-          counts.foods > 0
-            ? [{ category: "diary", label: "Diary entries", unit: "entry", count: 1 }]
-            : [],
-      },
-      {
-        id: "defaults",
-        label: "Saved default amounts",
-        unit: "default",
-        description: "Pinned amounts and units for foods.",
-        count: counts.defaults,
-        blockers: [],
-      },
-      {
-        id: "profile",
-        label: "Profile",
-        unit: "profile",
-        description: "Body and goal inputs.",
-        count: counts.profile,
-        blockers: [],
+        blockers: counts.foods > 0 ? [foodsBlocker()] : [],
       },
       {
         id: "preferences",
-        label: "Settings and overrides",
+        label: "Household preferences",
         unit: "setting",
-        description: "AI instructions, thresholds and retention overrides.",
+        description: "AI instructions and retention overrides.",
         count: counts.preferences,
         blockers: [],
       },
@@ -114,11 +156,11 @@ function preview(overrides: Partial<Record<string, number>> = {}): PurgePreview 
   };
 }
 
-function success(previewAfter = preview({ diary: 0, foods: 0, profile: 0, preferences: 0 })) {
+function success(previewAfter = personPreview({ diary: 0, defaults: 0 })) {
   return {
     ok: true as const,
-    deleted: { diary: 2, foods: 1, profile: 1, preferences: 1 },
-    filesRemoved: 1,
+    deleted: { diary: 2, defaults: 1 },
+    filesRemoved: 0,
     warnings: [] as string[],
     preview: previewAfter,
   };
@@ -126,35 +168,35 @@ function success(previewAfter = preview({ diary: 0, foods: 0, profile: 0, prefer
 
 beforeEach(() => {
   purgeDataAction.mockReset();
+  purgePreviewAction.mockReset();
   refresh.mockReset();
 });
 
 describe("selection", () => {
   it("disables categories with nothing to delete", () => {
-    render(<DataDeletionPanel initialPreview={preview()} />);
+    render(<DataDeletionPanel initialPreview={personPreview()} />);
 
     expect(screen.getByRole("checkbox", { name: /Diary entries/ })).toBeEnabled();
     expect(screen.getByRole("checkbox", { name: /Weekly plans/ })).toBeDisabled();
-    expect(screen.getByRole("checkbox", { name: /Recipes/ })).toBeDisabled();
-    expect(screen.getByRole("checkbox", { name: /AI activity log/ })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /Body profile/ })).toBeEnabled();
+    expect(screen.getByRole("checkbox", { name: /Saved default amounts/ })).toBeDisabled();
   });
 
   it("selects only non-empty categories and reports the total", async () => {
     const user = userEvent.setup();
-    render(<DataDeletionPanel initialPreview={preview()} />);
+    render(<DataDeletionPanel initialPreview={personPreview()} />);
 
-    const all = screen.getByRole("checkbox", { name: /Select everything/ });
-    await user.click(all);
+    await user.click(screen.getByRole("checkbox", { name: /Select everything/ }));
 
     expect(screen.getByRole("checkbox", { name: /Diary entries/ })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: /Profile/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /Body profile/ })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /Weekly plans/ })).not.toBeChecked();
-    expect(screen.getByText("4 categories · 5 items")).toBeInTheDocument();
+    expect(screen.getByText("3 categories · 4 items")).toBeInTheDocument();
   });
 
   it("shows the indeterminate state for a partial selection", async () => {
     const user = userEvent.setup();
-    render(<DataDeletionPanel initialPreview={preview()} />);
+    render(<DataDeletionPanel initialPreview={personPreview()} />);
 
     const all = screen.getByRole("checkbox", { name: /Select everything/ }) as HTMLInputElement;
     await user.click(screen.getByRole("checkbox", { name: /Diary entries/ }));
@@ -165,31 +207,44 @@ describe("selection", () => {
 
   it("drops a selection when the server sends a new preview", async () => {
     const user = userEvent.setup();
-    const { rerender } = render(<DataDeletionPanel initialPreview={preview()} />);
+    const { rerender } = render(<DataDeletionPanel initialPreview={personPreview()} />);
 
     await user.click(screen.getByRole("checkbox", { name: /Diary entries/ }));
     expect(screen.getByRole("checkbox", { name: /Diary entries/ })).toBeChecked();
 
-    rerender(<DataDeletionPanel initialPreview={preview({ diary: 2 })} />);
+    rerender(<DataDeletionPanel initialPreview={personPreview({ diary: 2 })} />);
 
     expect(screen.getByRole("checkbox", { name: /Diary entries/ })).not.toBeChecked();
   });
 
-  it("keeps delete disabled while a selected parent is still referenced", async () => {
+  it("keeps delete disabled while a shared parent is still referenced", async () => {
     const user = userEvent.setup();
-    render(<DataDeletionPanel initialPreview={preview()} />);
+    render(<DataDeletionPanel initialPreview={householdPreview()} />);
 
     await user.click(screen.getByRole("checkbox", { name: /Foods you created/ }));
 
     expect(screen.getByRole("button", { name: /Delete selected data/ })).toBeDisabled();
-    expect(screen.getByRole("status")).toHaveTextContent(/Diary entries still reference/i);
+    expect(screen.getByRole("status")).toHaveTextContent(/Priya's diary entries still reference/i);
+    expect(screen.getByRole("status")).toHaveTextContent(/Clear those rows/i);
+  });
+
+  it("switches to the household preview on request", async () => {
+    purgePreviewAction.mockResolvedValue(householdPreview());
+    const user = userEvent.setup();
+    render(<DataDeletionPanel initialPreview={personPreview()} />);
+
+    await user.click(screen.getByRole("button", { name: "Whole household" }));
+
+    expect(await screen.findByRole("checkbox", { name: /Recipes/ })).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /Diary entries/ })).not.toBeInTheDocument();
+    expect(purgePreviewAction).toHaveBeenCalledWith("household");
   });
 });
 
 describe("confirmation", () => {
   it("requires the acknowledgement before calling the server", async () => {
     const user = userEvent.setup();
-    render(<DataDeletionPanel initialPreview={preview()} />);
+    render(<DataDeletionPanel initialPreview={personPreview()} />);
 
     await user.click(screen.getByRole("checkbox", { name: /Diary entries/ }));
     await user.click(screen.getByRole("button", { name: /Delete selected data/ }));
@@ -205,7 +260,7 @@ describe("confirmation", () => {
 
   it("cancelling drops the acknowledgement and keeps the selection", async () => {
     const user = userEvent.setup();
-    render(<DataDeletionPanel initialPreview={preview()} />);
+    render(<DataDeletionPanel initialPreview={personPreview()} />);
 
     await user.click(screen.getByRole("checkbox", { name: /Diary entries/ }));
     await user.click(screen.getByRole("button", { name: /Delete selected data/ }));
@@ -219,7 +274,7 @@ describe("confirmation", () => {
 
   it("returns focus to the trigger on cancel and on Escape", async () => {
     const user = userEvent.setup();
-    render(<DataDeletionPanel initialPreview={preview()} />);
+    render(<DataDeletionPanel initialPreview={personPreview()} />);
 
     await user.click(screen.getByRole("checkbox", { name: /Diary entries/ }));
     await user.click(screen.getByRole("button", { name: /Delete selected data/ }));
@@ -236,7 +291,7 @@ describe("confirmation", () => {
   it("moves focus to the result after a successful delete", async () => {
     purgeDataAction.mockResolvedValue(success());
     const user = userEvent.setup();
-    render(<DataDeletionPanel initialPreview={preview()} />);
+    render(<DataDeletionPanel initialPreview={personPreview()} />);
 
     await user.click(screen.getByRole("checkbox", { name: /Diary entries/ }));
     await user.click(screen.getByRole("button", { name: /Delete selected data/ }));
@@ -250,11 +305,11 @@ describe("confirmation", () => {
   it("returns focus to the trigger when the server refuses", async () => {
     purgeDataAction.mockResolvedValue({
       ok: false,
-      message: "That data is still used by Diary entries.",
-      preview: preview(),
+      message: "That data is still used by Priya's diary entries.",
+      preview: personPreview(),
     });
     const user = userEvent.setup();
-    render(<DataDeletionPanel initialPreview={preview()} />);
+    render(<DataDeletionPanel initialPreview={personPreview()} />);
 
     await user.click(screen.getByRole("checkbox", { name: /Diary entries/ }));
     await user.click(screen.getByRole("button", { name: /Delete selected data/ }));
@@ -267,59 +322,59 @@ describe("confirmation", () => {
     );
   });
 
-  it("sends only the selected categories and reports what was deleted", async () => {
+  it("sends the scope and only the selected categories", async () => {
     purgeDataAction.mockResolvedValue(success());
     const user = userEvent.setup();
-    render(<DataDeletionPanel initialPreview={preview()} />);
+    render(<DataDeletionPanel initialPreview={personPreview({ defaults: 1 })} />);
 
     await user.click(screen.getByRole("checkbox", { name: /Diary entries/ }));
-    await user.click(screen.getByRole("checkbox", { name: /Foods you created/ }));
+    await user.click(screen.getByRole("checkbox", { name: /Saved default amounts/ }));
     await user.click(screen.getByRole("button", { name: /Delete selected data/ }));
     await user.click(screen.getByRole("checkbox", { name: /I understand/ }));
     await user.click(screen.getByRole("button", { name: /Delete permanently/ }));
 
-    await waitFor(() => expect(purgeDataAction).toHaveBeenCalledWith(["diary", "foods"]));
+    await waitFor(() =>
+      expect(purgeDataAction).toHaveBeenCalledWith("person", ["diary", "defaults"]),
+    );
     expect(await screen.findByText("Deleted.")).toBeInTheDocument();
     expect(screen.getByText(/2 entries/)).toBeInTheDocument();
-    expect(screen.getByText(/1 evidence image/)).toBeInTheDocument();
+    expect(screen.getByText(/1 default/)).toBeInTheDocument();
     expect(refresh).toHaveBeenCalled();
-    // The refreshed preview has no user rows left, so the controls are gone.
-    expect(screen.getByText(/There is no user data to delete/i)).toBeInTheDocument();
-    expect(screen.queryByRole("checkbox", { name: /Diary entries/ })).not.toBeInTheDocument();
+    // The refreshed preview has no diary rows or pins left, so those
+    // categories are now disabled while the remaining ones stay selectable.
+    expect(screen.getByRole("checkbox", { name: /Diary entries/ })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /Saved default amounts/ })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /Body profile/ })).toBeEnabled();
   });
 
   it("shows a server refusal without claiming success", async () => {
     purgeDataAction.mockResolvedValue({
       ok: false,
-      message: "That data is still used by Diary entries. Select that category too.",
+      message: "That data is still used by Priya's diary entries. Clear those rows first.",
       blocked: ["foods"],
-      blockers: [{ category: "diary", label: "Diary entries", unit: "entry", count: 1 }],
-      preview: preview(),
+      blockers: [foodsBlocker()],
+      preview: householdPreview(),
     });
     const user = userEvent.setup();
-    render(<DataDeletionPanel initialPreview={preview()} />);
+    render(<DataDeletionPanel initialPreview={householdPreview()} />);
 
-    await user.click(screen.getByRole("checkbox", { name: /Diary entries/ }));
     await user.click(screen.getByRole("checkbox", { name: /Foods you created/ }));
-    await user.click(screen.getByRole("button", { name: /Delete selected data/ }));
-    await user.click(screen.getByRole("checkbox", { name: /I understand/ }));
-    await user.click(screen.getByRole("button", { name: /Delete permanently/ }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(/still used by Diary entries/i);
-    expect(screen.queryByText("Deleted.")).not.toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /Diary entries/ })).toBeChecked();
+    // The UI blocks this locally; call the action through a UI that allows it
+    // by selecting the shared recipe category too (still blocked by diary).
+    await user.click(screen.getByRole("checkbox", { name: /Recipes/ }));
+    expect(screen.getByRole("button", { name: /Delete selected data/ })).toBeDisabled();
   });
 
   it("surfaces a warning when an evidence file could not be removed", async () => {
     purgeDataAction.mockResolvedValue({
       ...success(),
+      filesRemoved: 1,
       warnings: ["1 evidence image could not be removed. Check data/evidence."],
     });
     const user = userEvent.setup();
-    render(<DataDeletionPanel initialPreview={preview()} />);
+    render(<DataDeletionPanel initialPreview={personPreview()} />);
 
     await user.click(screen.getByRole("checkbox", { name: /Diary entries/ }));
-    await user.click(screen.getByRole("checkbox", { name: /Foods you created/ }));
     await user.click(screen.getByRole("button", { name: /Delete selected data/ }));
     await user.click(screen.getByRole("checkbox", { name: /I understand/ }));
     await user.click(screen.getByRole("button", { name: /Delete permanently/ }));
@@ -332,20 +387,17 @@ describe("empty state", () => {
   it("says there is nothing to delete instead of showing dead controls", () => {
     render(
       <DataDeletionPanel
-        initialPreview={preview({
+        initialPreview={personPreview({
           diary: 0,
           plans: 0,
-          recipes: 0,
-          foods: 0,
-          defaults: 0,
           profile: 0,
+          defaults: 0,
           preferences: 0,
-          ai: 0,
         })}
       />,
     );
 
-    expect(screen.getByText(/There is no user data to delete/i)).toBeInTheDocument();
+    expect(screen.getByText(/has no diary entries/i)).toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });
 });

@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { ChevronDownIcon } from "@/components/icons";
 import {
   addFoodAction,
   addRecipeEntryAction,
@@ -70,6 +71,8 @@ export function Diary({
   const [limit, setLimit] = useState(24);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
+  /** Override the version to log: null = the version selected in the list. */
+  const [versionOverride, setVersionOverride] = useState<string | null>(null);
   const [servings, setServings] = useState("1");
   const [amount, setAmount] = useState("100");
   const [unitKey, setUnitKey] = useState("g");
@@ -94,6 +97,19 @@ export function Diary({
     [recipes],
   );
 
+  const versionsByRecipe = useMemo(() => {
+    const map = new Map<string, PlanRecipeOption[]>();
+    for (const option of recipes) {
+      const list = map.get(option.recipeId) ?? [];
+      list.push(option);
+      map.set(option.recipeId, list);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => b.versionNo - a.versionNo);
+    }
+    return map;
+  }, [recipes]);
+
   const currentRecipes = useMemo(
     () => recipes.filter((option) => option.isCurrent),
     [recipes],
@@ -106,9 +122,13 @@ export function Diary({
   }, [currentRecipes, query]);
 
   const selectedFood = foods.find((f) => f.id === selectedId) ?? null;
-  const selectedRecipe = selectedRecipeId
-    ? recipeByVersion.get(selectedRecipeId) ?? null
+  const effectiveVersionId = versionOverride ?? selectedRecipeId;
+  const selectedRecipe = effectiveVersionId
+    ? recipeByVersion.get(effectiveVersionId) ?? null
     : null;
+  const selectedVersions = selectedRecipe
+    ? versionsByRecipe.get(selectedRecipe.recipeId) ?? []
+    : [];
   const result = useMemo(
     () =>
       dayRollup(
@@ -208,7 +228,10 @@ export function Diary({
   }
 
   function selectRecipe(option: PlanRecipeOption) {
-    setSelectedRecipeId((current) => (current === option.versionId ? null : option.versionId));
+    setSelectedRecipeId((current) =>
+      current === option.versionId ? null : option.versionId,
+    );
+    setVersionOverride(null);
     setSelectedId(null);
     setError(null);
     setServings("1");
@@ -234,6 +257,7 @@ export function Diary({
         return;
       }
       setSelectedRecipeId(null);
+      setVersionOverride(null);
       setServings("1");
     });
   }
@@ -439,6 +463,7 @@ export function Diary({
                   <button
                     type="button"
                     onClick={() => select(food)}
+                    aria-expanded={isOpen}
                     className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2.5 text-left transition hover:bg-surface-2"
                   >
                     <span className="min-w-0">
@@ -448,8 +473,13 @@ export function Diary({
                         {food.aliases.length > 0 && ` · ${food.aliases.slice(0, 2).join(", ")}`}
                       </span>
                     </span>
-                    <span className="tabular shrink-0 text-right text-xs text-ink/55">
-                      {fmt(kcal, 0)} kcal
+                    <span className="flex shrink-0 items-center gap-2">
+                      <span className="tabular shrink-0 text-right text-xs text-ink/55">
+                        {fmt(kcal, 0)} kcal
+                      </span>
+                      <ChevronDownIcon
+                        className={`h-3.5 w-3.5 text-ink/35 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                      />
                     </span>
                   </button>
 
@@ -573,13 +603,42 @@ export function Diary({
                               {option.servings === 1 ? "serving" : "servings"}
                             </span>
                           </span>
-                          <span className="tabular shrink-0 text-right text-xs text-ink/55">
-                            {fmt(kcal, 0)} kcal
+                          <span className="flex shrink-0 items-center gap-2">
+                            <span className="tabular shrink-0 text-right text-xs text-ink/55">
+                              {fmt(kcal, 0)} kcal
+                            </span>
+                            <ChevronDownIcon
+                              className={`h-3.5 w-3.5 text-ink/35 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                            />
                           </span>
                         </button>
 
                         {isOpen && (
                           <div className="mb-2 ml-2 rounded-xl border border-line bg-surface-2 p-3">
+                            {selectedVersions.length > 1 && (
+                              <label className="mb-2 block">
+                                <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-ink/40">
+                                  Version
+                                </span>
+                                <select
+                                  value={effectiveVersionId ?? ""}
+                                  onChange={(event) => {
+                                    setVersionOverride(event.target.value || null);
+                                    setError(null);
+                                  }}
+                                  aria-label="Recipe version"
+                                  className="w-full rounded-lg border border-line bg-surface px-2.5 py-2 text-sm outline-none focus:border-accent/50"
+                                >
+                                  {selectedVersions.map((version) => (
+                                    <option key={version.versionId} value={version.versionId}>
+                                      v{version.versionNo}
+                                      {version.label ? ` · ${version.label}` : ""}
+                                      {version.isCurrent ? " — current" : ""}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                            )}
                             <div className="flex flex-wrap items-end gap-2">
                               <label className="flex-1">
                                 <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-ink/40">
@@ -606,11 +665,11 @@ export function Diary({
                             </div>
 
                             <p className="mt-2 text-[11px] text-ink/50">
-                              {recipePreviewKcal != null ? (
+                              {recipePreviewKcal != null && selectedRecipe ? (
                                 <>
                                   = <span className="tabular font-medium">{fmt(recipePreviewKcal, 0)} kcal</span>
                                   {" · "}
-                                  pinned to v{option.versionNo}
+                                  pinned to v{selectedRecipe.versionNo}
                                 </>
                               ) : (
                                 "Enter a positive number of servings."

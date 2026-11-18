@@ -12,12 +12,14 @@ import path from "node:path";
  * rather than re-derived later.
  */
 let dir: string;
+let personId: string;
 let repo: typeof import("@/lib/db/entries");
 
 beforeAll(async () => {
   dir = mkdtempSync(path.join(tmpdir(), "nutriplan-test-"));
   vi.stubEnv("NUTRIPLAN_DB_PATH", path.join(dir, "test.sqlite"));
   repo = await import("@/lib/db/entries");
+  personId = (await import("@/lib/db/people")).defaultPersonId();
 });
 
 afterAll(() => {
@@ -27,7 +29,7 @@ afterAll(() => {
 
 describe("entries repository", () => {
   it("stores and reads back an entry", () => {
-    const entry = repo.addEntry({
+    const entry = repo.addEntry(personId, {
       foodId: "paneer",
       grams: 100,
       amount: 1,
@@ -35,7 +37,7 @@ describe("entries repository", () => {
       day: "2026-11-14",
     });
 
-    const entries = repo.listEntries("2026-11-14");
+    const entries = repo.listEntries(personId, "2026-11-14");
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({
       id: entry.id,
@@ -47,7 +49,7 @@ describe("entries repository", () => {
   });
 
   it("keeps days separate", () => {
-    repo.addEntry({
+    repo.addEntry(personId, {
       foodId: "egg",
       grams: 50,
       amount: 1,
@@ -55,14 +57,14 @@ describe("entries repository", () => {
       day: "2026-11-15",
     });
 
-    expect(repo.listEntries("2026-11-14")).toHaveLength(1);
-    expect(repo.listEntries("2026-11-15")).toHaveLength(1);
+    expect(repo.listEntries(personId, "2026-11-14")).toHaveLength(1);
+    expect(repo.listEntries(personId, "2026-11-15")).toHaveLength(1);
   });
 
   it("removes an entry", () => {
-    const entries = repo.listEntries("2026-11-14");
-    repo.removeEntry(entries[0].id);
-    expect(repo.listEntries("2026-11-14")).toHaveLength(0);
+    const entries = repo.listEntries(personId, "2026-11-14");
+    repo.removeEntry(personId, entries[0].id);
+    expect(repo.listEntries(personId, "2026-11-14")).toHaveLength(0);
   });
 
   it("returns today as a local calendar day", () => {

@@ -24,11 +24,18 @@ const LABEL = "mb-1 block text-[10px] font-medium uppercase tracking-wide text-i
  * numbers become targets. The browser's `min`/`max` attributes are a
  * courtesy, not the guard.
  */
-export function ProfileForm({ profile }: { profile: Profile }) {
+export function ProfileForm({
+  personId,
+  profile,
+}: {
+  personId: string;
+  profile: Profile;
+}) {
   const [state, action, pending] = useActionState(saveProfileAction, INITIAL);
 
   return (
     <form action={action} className="space-y-4">
+      <input type="hidden" name="expectedPersonId" value={personId} />
       <div className="grid gap-3 sm:grid-cols-2">
         <label>
           <span className={LABEL}>Sex</span>

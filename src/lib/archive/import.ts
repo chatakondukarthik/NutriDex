@@ -2,9 +2,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { db } from "@/lib/db/client";
+import { defaultPersonId, getHousehold, getPerson } from "@/lib/db/people";
 import { dataFile, ensureDataDir } from "@/lib/data-dir";
 import { PRIVATE_FILE_MODE, ensurePrivateDir } from "@/lib/security/private-files";
 import {
+  ARCHIVE_SCOPES,
   type ArchiveManifest,
   FILES_DIR,
   MANIFEST_PATH,
@@ -14,7 +16,10 @@ import {
 } from "./manifest";
 import {
   IMPORT_LIMITS,
+  IMPORTABLE_PERSON_SETTINGS,
   IMPORTABLE_SETTINGS,
+  LEGACY_PERSON_SETTINGS,
+  type ArchiveScope,
   type TableSpec,
   TABLE_BY_NAME,
   tablesForImport,
@@ -35,8 +40,13 @@ import { ZipError, ZIP_LIMITS, readZip } from "./zip";
  *      before commit;
  *   5. evidence files are written last, owner-only.
  *
- * A dry run executes steps 1–4 and rolls back, so "check this archive" is
- * the same code as "apply this archive" and cannot drift from it.
+ * A dry run executes steps 1–4 and rolls back, so "check this archive" is the
+ * same code as "apply this archive" and cannot drift from it.
+ *
+ * Version 2 adds scopes. A person archive is filtered to that person and the
+ * shared library; a shared archive carries no people at all. A v1 archive is
+ * mapped to one person before it is applied, and replace is refused in a
+ * multi-person household because a v1 archive cannot name whose rows it owns.
  */
 
 export type ImportMode = "replace" | "merge";
@@ -68,6 +78,8 @@ export type ImportReport = {
   mode: ImportMode;
   dryRun: boolean;
   formatVersion: number;
+  scope: ArchiveScope;
+  personId: string | null;
   appVersion: string;
   exportedAt: string;
   tables: TableReport[];
@@ -81,6 +93,16 @@ export class ImportError extends Error {
     this.name = "ImportError";
   }
 }
+
+export type ApplyOptions = {
+  mode: ImportMode;
+  dryRun?: boolean;
+  /**
+   * Write a person archive's rows to this person. Used by a v1 archive and by
+   * "restore this person as me". The id is validated against the roster.
+   */
+  targetPersonId?: string;
+};
 
 const EVIDENCE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
@@ -147,6 +169,35 @@ function validateManifest(raw: Buffer): ArchiveManifest {
   if (!isPlainObject(manifest.columns)) fail("The manifest has no column list.");
   if (!Array.isArray(manifest.files)) fail("The manifest has no file list.");
   if (!isPlainObject(manifest.includes)) fail("The manifest has no inclusion flags.");
+
+  if (manifest.formatVersion === 1) {
+    // A v1 archive predates households. It is one person's archive whether or
+    // not it says so; the importer assigns it to a target person.
+    manifest.scope = "person";
+    manifest.householdId = "";
+    manifest.personId = null;
+  } else {
+    if (!ARCHIVE_SCOPES.includes(manifest.scope as ArchiveScope)) {
+      fail("The archive has an unknown scope.");
+    }
+    if (typeof manifest.householdId !== "string" || manifest.householdId.trim() === "") {
+      fail("The archive does not name its household.");
+    }
+    if (manifest.scope === "person") {
+      if (typeof manifest.personId !== "string" || manifest.personId.trim() === "") {
+        fail("This is a person archive, but it does not name the person.");
+      }
+    } else if (manifest.personId != null) {
+      fail("This archive's scope does not carry a person.");
+    }
+    if (manifest.scope !== "household" && manifest.includes.snapshot === true) {
+      fail("A person or shared archive cannot contain a full database snapshot.");
+    }
+  }
+
+  if (manifest.includes.secrets !== false) {
+    fail("The manifest claims to include secrets. Refusing to import it.");
+  }
 
   for (const file of manifest.files) {
     if (!isPlainObject(file) || typeof file.path !== "string") {
@@ -264,6 +315,7 @@ export function parseArchive(buffer: Buffer): ParsedArchive {
   const manifestBytes = zip.get(MANIFEST_PATH);
   if (!manifestBytes) fail("That ZIP is not a NutriPlan archive (no manifest.json).");
   const manifest = validateManifest(manifestBytes);
+  const isV1 = manifest.formatVersion === 1;
 
   // Verify the archive is exactly what the manifest describes: no missing
   // entries, no extra entries, no checksum mismatch.
@@ -290,9 +342,6 @@ export function parseArchive(buffer: Buffer): ParsedArchive {
   // Every data file must name a table this build knows. An unknown table at
   // a supported format version is either tampering or a newer build's table,
   // and dropping it would lose data silently.
-  const tables: ParsedTable[] = [];
-  let totalRows = 0;
-
   for (const [entryPath] of zip) {
     if (!entryPath.startsWith("data/")) continue;
     const table = tableFromDataPath(entryPath);
@@ -300,6 +349,9 @@ export function parseArchive(buffer: Buffer): ParsedArchive {
       fail(`The archive contains data for an unknown table: "${entryPath}".`);
     }
   }
+
+  const tables: ParsedTable[] = [];
+  let totalRows = 0;
 
   for (const [entryPath, data] of zip) {
     if (!entryPath.startsWith("data/")) continue;
@@ -376,9 +428,14 @@ export function parseArchive(buffer: Buffer): ParsedArchive {
       }
       if (table === "app_settings") {
         const key = clean.key;
-        if (typeof key !== "string" || !IMPORTABLE_SETTINGS.has(key)) {
-          return null;
-        }
+        const allowed =
+          typeof key === "string" &&
+          (IMPORTABLE_SETTINGS.has(key) || (isV1 && LEGACY_PERSON_SETTINGS.has(key)));
+        if (!allowed) return null;
+      }
+      if (table === "person_settings") {
+        const key = clean.key;
+        if (typeof key !== "string" || !IMPORTABLE_PERSON_SETTINGS.has(key)) return null;
       }
       return clean;
     });
@@ -460,15 +517,431 @@ function validateRequired(
   }
 }
 
+function tableRows(parsed: ParsedArchive, table: string): Array<Record<string, unknown>> {
+  return parsed.tables.find((entry) => entry.spec.table === table)?.rows ?? [];
+}
+
+/**
+ * Reject a v2 archive whose rows disagree with the scope it declares.
+ *
+ * Checksums prove the archive was not corrupted; they do not prove the
+ * manifest's scope is honest. These checks make a person archive unable to
+ * carry another person's diary into a replace, and a shared archive unable to
+ * carry people at all.
+ */
+function assertScopeShape(parsed: ParsedArchive): void {
+  const isV1 = parsed.manifest.formatVersion === 1;
+  if (isV1) return;
+
+  const scope = parsed.manifest.scope;
+  const personId = parsed.manifest.personId;
+
+  if (scope === "shared") {
+    for (const table of parsed.tables) {
+      if (table.spec.scope !== "shared" && table.rows.length > 0) {
+        fail(
+          `This archive says it is a shared library, but it contains ${table.spec.label.toLowerCase()}. Nothing was changed.`,
+        );
+      }
+    }
+    return;
+  }
+
+  if (scope === "person") {
+    const households = tableRows(parsed, "households");
+    const people = tableRows(parsed, "people");
+    if (households.length !== 1) {
+      fail("This person archive does not contain exactly one household row.");
+    }
+    if (people.length !== 1 || people[0].id !== personId) {
+      fail("This person archive does not contain exactly one matching person row.");
+    }
+
+    const check = (table: string, column: string) => {
+      for (const row of tableRows(parsed, table)) {
+        if (row[column] !== personId) {
+          fail(
+            `This person archive contains ${table} rows for another person. Nothing was changed.`,
+          );
+        }
+      }
+    };
+    check("profile", "id");
+    check("plans", "person_id");
+    check("entries", "person_id");
+    check("food_default_amounts", "person_id");
+    check("person_settings", "person_id");
+
+    // A crafted plan entry must not point at an existing plan that belongs to
+    // someone else. The archive's own plans table is the allowlist.
+    const planIds = new Set(tableRows(parsed, "plans").map((row) => String(row.id)));
+    for (const row of tableRows(parsed, "plan_entries")) {
+      if (!planIds.has(String(row.plan_id))) {
+        fail("This person archive contains a plan entry whose plan is not in the archive.");
+      }
+    }
+    return;
+  }
+
+  const households = tableRows(parsed, "households");
+  if (households.length !== 1) {
+    fail("This household archive does not contain exactly one household row.");
+  }
+
+  // The archive's own plans table is the only allowlist for plan entries.
+  // Without this, a crafted household archive could name a local plan that is
+  // not in the archive and attach rows to another person's week.
+  const planIds = new Set(tableRows(parsed, "plans").map((row) => String(row.id)));
+  for (const row of tableRows(parsed, "plan_entries")) {
+    if (!planIds.has(String(row.plan_id))) {
+      fail("This household archive contains a plan entry whose plan is not in the archive.");
+    }
+  }
+}
+
+/**
+ * Move a v1 `app_settings.target_rules` row to `person_settings`.
+ *
+ * v1 had one person and stored target rules in `app_settings`. The row is
+ * removed from `app_settings` and appended to `person_settings` so the rest of
+ * the pipeline has one shape.
+ */
+function normaliseLegacySettings(
+  parsed: ParsedArchive,
+  personId: string,
+  warnings: string[],
+): void {
+  const appSettings = parsed.tables.find((table) => table.spec.table === "app_settings");
+  if (!appSettings) return;
+
+  const moved: Array<Record<string, unknown>> = [];
+  const kept: Array<Record<string, unknown>> = [];
+  for (const row of appSettings.rows) {
+    if (row.key === "target_rules") {
+      moved.push({
+        person_id: personId,
+        key: "target_rules",
+        value: row.value,
+        updated_at: new Date().toISOString(),
+      });
+    } else {
+      kept.push(row);
+    }
+  }
+  appSettings.rows = kept;
+  if (moved.length === 0) return;
+
+  let personSettings = parsed.tables.find((table) => table.spec.table === "person_settings");
+  if (!personSettings) {
+    const spec = TABLE_BY_NAME.get("person_settings");
+    if (!spec) fail("This build cannot restore personal settings.");
+    personSettings = {
+      spec,
+      columns: ["person_id", "key", "value", "updated_at"],
+      rows: [],
+    };
+    parsed.tables.push(personSettings);
+  }
+  personSettings.rows.push(...moved);
+  warnings.push("Moved target rules from v1 settings to the target person.");
+}
+
+type PersonContext = {
+  /** The person every personal row is written to. */
+  id: string;
+  /** True when `id` did not exist and a people row must be inserted. */
+  needsRow: boolean;
+  source: Record<string, unknown> | null;
+};
+
+function resolvePersonTarget(
+  parsed: ParsedArchive,
+  options: ApplyOptions,
+): PersonContext {
+  const isV1 = parsed.manifest.formatVersion === 1;
+
+  if (isV1) {
+    const id = options.targetPersonId ?? defaultPersonId();
+    if (!getPerson(id)) fail("The person to restore this v1 archive into no longer exists.");
+    return { id, needsRow: false, source: null };
+  }
+
+  const archivePersonId = parsed.manifest.personId as string;
+  const source = tableRows(parsed, "people").find((row) => row.id === archivePersonId) ?? null;
+
+  if (options.targetPersonId) {
+    if (!getPerson(options.targetPersonId)) {
+      fail("The person to restore this archive into no longer exists.");
+    }
+    return { id: options.targetPersonId, needsRow: false, source };
+  }
+
+  if (getPerson(archivePersonId)) {
+    return { id: archivePersonId, needsRow: false, source };
+  }
+
+  return { id: archivePersonId, needsRow: true, source };
+}
+
+/**
+ * Transform rows for the target scope.
+ *
+ * Shared rows are unchanged. Personal rows are rewritten to the import
+ * person. A household merge keeps this installation's household row and
+ * folds the archive's people into it; a household replace keeps the archive's
+ * household row because every table is replaced together.
+ *
+ * When a person archive is restored into a *different* person, the personal
+ * rows get fresh primary keys. The archive usually comes from this same
+ * installation, so its plan and diary ids already exist; reusing them would
+ * either collide or attach the target person's new plan entries to the source
+ * person's plan. Shared rows keep their ids because they are merged by
+ * identity, not copied.
+ */
+function prepareTables(
+  parsed: ParsedArchive,
+  scope: ArchiveScope,
+  mode: ImportMode,
+  person: PersonContext | null,
+  currentHouseholdId: string,
+): ParsedTable[] {
+  const isV1 = parsed.manifest.formatVersion === 1;
+  const result: ParsedTable[] = [];
+
+  // A v1 archive has no source person id. The original person is this
+  // installation's default; any other target is a copy.
+  const remapPersonalIds =
+    scope === "person" &&
+    person !== null &&
+    (isV1 ? person.id !== defaultPersonId() : person.id !== parsed.manifest.personId);
+
+  const remappedPlans = new Map<string, string>();
+  if (remapPersonalIds) {
+    const plans = parsed.tables.find((table) => table.spec.table === "plans");
+    for (const row of plans?.rows ?? []) {
+      remappedPlans.set(String(row.id), randomUUID());
+    }
+  }
+
+  // A household merge can receive plan ids that already exist here for a
+  // different person (a copy of the same installation, or a crafted archive).
+  // Reusing the id would insert the archive's plan entries into the local
+  // person's plan. Re-key those plans, and fold a foreign plan that lands on
+  // the same person/week onto the plan that already exists.
+  const mergedPlans = new Map<string, string>();
+  if (scope === "household" && mode === "merge") {
+    const plans = parsed.tables.find((table) => table.spec.table === "plans");
+    const byId = db.prepare(
+      "SELECT id, person_id, starts_on FROM plans WHERE id = ?",
+    );
+    const byWeek = db.prepare(
+      "SELECT id FROM plans WHERE person_id = ? AND starts_on = ?",
+    );
+    for (const row of plans?.rows ?? []) {
+      const id = String(row.id);
+      let mapped = id;
+      const existing = byId.get(id) as unknown as
+        | { id: string; person_id: string; starts_on: string }
+        | undefined;
+      if (
+        existing &&
+        (existing.person_id !== row.person_id || existing.starts_on !== row.starts_on)
+      ) {
+        mapped = randomUUID();
+      }
+      const sameWeek = byWeek.get(
+        String(row.person_id),
+        String(row.starts_on),
+      ) as unknown as { id: string } | undefined;
+      if (sameWeek) mapped = sameWeek.id;
+      if (mapped !== id) mergedPlans.set(id, mapped);
+    }
+  }
+
+  for (const table of parsed.tables) {
+    if (isV1 && table.spec.table === "profile") {
+      table.rows = table.rows.map((row) => ({ ...row, id: person?.id }));
+    } else if (isV1 && table.spec.table === "households") {
+      continue;
+    }
+
+    if (scope === "shared") {
+      if (table.spec.scope === "shared") result.push(table);
+      continue;
+    }
+
+    if (scope === "person") {
+      if (table.spec.table === "households" || table.spec.table === "people") continue;
+      if (table.spec.scope === "operational") continue;
+
+      if (table.spec.scope === "personal" && person) {
+        if (table.spec.table === "profile") {
+          table.rows = table.rows.map((row) => ({ ...row, id: person.id }));
+        } else if (table.spec.table !== "plan_entries") {
+          // `plan_entries` has no person column: its plan owns it.
+          table.rows = table.rows.map((row) => ({ ...row, person_id: person.id }));
+        }
+
+        if (remapPersonalIds) {
+          if (table.spec.table === "plans") {
+            table.rows = table.rows.map((row) => ({
+              ...row,
+              id: remappedPlans.get(String(row.id)) ?? row.id,
+            }));
+          } else if (table.spec.table === "plan_entries") {
+            table.rows = table.rows.map((row) => ({
+              ...row,
+              id: randomUUID(),
+              plan_id: remappedPlans.get(String(row.plan_id)) ?? row.plan_id,
+            }));
+          } else if (table.spec.table === "entries") {
+            table.rows = table.rows.map((row) => ({ ...row, id: randomUUID() }));
+          }
+        }
+      }
+      result.push(table);
+      continue;
+    }
+
+    // Household scope.
+    if (table.spec.table === "households") {
+      if (mode === "merge") continue;
+      result.push(table);
+      continue;
+    }
+    if (table.spec.table === "people") {
+      // `households` always has exactly one row. A merge must not create a
+      // second household; the archived people join this installation's.
+      table.rows = table.rows.map((row) => ({
+        ...row,
+        household_id: mode === "merge" ? currentHouseholdId : row.household_id,
+      }));
+      result.push(table);
+      continue;
+    }
+    if (mergedPlans.size > 0) {
+      if (table.spec.table === "plans") {
+        table.rows = table.rows.map((row) => ({
+          ...row,
+          id: mergedPlans.get(String(row.id)) ?? row.id,
+        }));
+      } else if (table.spec.table === "plan_entries") {
+        table.rows = table.rows.map((row) => ({
+          ...row,
+          plan_id: mergedPlans.get(String(row.plan_id)) ?? row.plan_id,
+        }));
+      }
+    }
+    result.push(table);
+  }
+
+  return result;
+}
+
+function deleteScoped(
+  scope: ArchiveScope,
+  person: PersonContext | null,
+  present: ReadonlySet<string>,
+): void {
+  if (scope === "person") {
+    if (!person) fail("A person archive needs a target person.");
+    const id = person.id;
+    db.prepare(
+      "DELETE FROM plan_entries WHERE plan_id IN (SELECT id FROM plans WHERE person_id = ?)",
+    ).run(id);
+    db.prepare("DELETE FROM plans WHERE person_id = ?").run(id);
+    db.prepare("DELETE FROM entries WHERE person_id = ?").run(id);
+    db.prepare("DELETE FROM food_default_amounts WHERE person_id = ?").run(id);
+    db.prepare("DELETE FROM person_settings WHERE person_id = ?").run(id);
+    db.prepare("DELETE FROM profile WHERE id = ?").run(id);
+    return;
+  }
+
+  if (scope === "shared") {
+    db.exec("DELETE FROM component_inputs");
+    db.exec("DELETE FROM components");
+    db.exec("DELETE FROM recipe_versions");
+    db.exec("DELETE FROM recipes");
+    db.exec("DELETE FROM captured_food_nutrients");
+    db.exec("DELETE FROM captured_food_portions");
+    db.exec("DELETE FROM captured_foods");
+    db.exec("DELETE FROM retention_factors WHERE origin = 'user'");
+    const keys = [...IMPORTABLE_SETTINGS];
+    if (keys.length > 0) {
+      db.prepare(
+        `DELETE FROM app_settings WHERE key IN (${keys.map(() => "?").join(", ")})`,
+      ).run(...keys);
+    }
+    return;
+  }
+
+  // Household replace. Children before parents. The optional AI log is only
+  // cleared when the archive carried it, so a content archive does not
+  // silently erase operational history.
+  db.exec("DELETE FROM person_settings");
+  for (const table of [
+    "food_default_amounts",
+    "captured_food_portions",
+    "captured_food_nutrients",
+    "captured_foods",
+    "entries",
+    "plan_entries",
+    "plans",
+    "component_inputs",
+    "components",
+    "recipe_versions",
+    "recipes",
+    "profile",
+  ]) {
+    const spec = TABLE_BY_NAME.get(table);
+    if (!spec) continue;
+    db.exec(spec.where ? `DELETE FROM ${table} WHERE ${spec.where}` : `DELETE FROM ${table}`);
+  }
+  if (present.has("people")) db.exec("DELETE FROM people");
+  if (present.has("households")) db.exec("DELETE FROM households");
+  db.exec("DELETE FROM retention_factors WHERE origin = 'user'");
+  const keys = [...IMPORTABLE_SETTINGS];
+  if (keys.length > 0) {
+    db.prepare(
+      `DELETE FROM app_settings WHERE key IN (${keys.map(() => "?").join(", ")})`,
+    ).run(...keys);
+  }
+  if (present.has("ai_calls")) db.exec("DELETE FROM ai_calls");
+}
+
 export function applyArchive(
   parsed: ParsedArchive,
-  options: { mode: ImportMode; dryRun?: boolean } = { mode: "merge" },
+  options: ApplyOptions = { mode: "merge" },
 ): ImportReport {
   const mode = options.mode;
   const dryRun = options.dryRun ?? false;
   const warnings = [...parsed.warnings];
   const report: TableReport[] = [];
-  const present = new Set(parsed.tables.map((table) => table.spec.table));
+  const isV1 = parsed.manifest.formatVersion === 1;
+  const scope: ArchiveScope = isV1 ? "person" : parsed.manifest.scope;
+
+  assertScopeShape(parsed);
+
+  if (isV1 && mode === "replace") {
+    const people = (
+      db.prepare("SELECT COUNT(*) AS n FROM people").get() as unknown as { n: number }
+    ).n;
+    if (people !== 1) {
+      fail(
+        "This archive predates household support. Merge it, or restore it on a single-person installation.",
+      );
+    }
+  }
+
+  const currentHousehold = getHousehold();
+  const person = scope === "person" ? resolvePersonTarget(parsed, options) : null;
+
+  if (isV1 && person) {
+    normaliseLegacySettings(parsed, person.id, warnings);
+  }
+
+  const prepared = prepareTables(parsed, scope, mode, person, currentHousehold.id);
+  const present = new Set(prepared.map((table) => table.spec.table));
   const ordered = tablesForImport(present);
 
   let written = 0;
@@ -476,26 +949,38 @@ export function applyArchive(
   // Files created by this import. If the transaction rolls back, they are
   // removed so a failed import leaves no half-restored evidence behind.
   const createdFiles: string[] = [];
+  // Captured foods inserted by this import. Evidence rewrite-by-value is
+  // restricted to these ids, so a person-scope import cannot repoint another
+  // person's shared row.
+  const insertedFoodIds = new Set<string>();
 
   db.exec("BEGIN IMMEDIATE");
   try {
+    if (person?.needsRow) {
+      const now = new Date().toISOString();
+      db.prepare(
+        `INSERT INTO people (id, household_id, display_name, created_at, archived_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).run(
+        person.id,
+        currentHousehold.id,
+        String(person.source?.display_name ?? "Me"),
+        String(person.source?.created_at ?? now),
+        person.source?.archived_at == null ? null : String(person.source.archived_at),
+      );
+    }
+
     if (mode === "replace") {
-      // Reverse FK order. Retention overrides are deleted selectively: the
-      // seeded factors are code fixtures and must survive. Settings use the
-      // allowlist predicate, so a replace cannot delete a setting this
-      // build would refuse to restore.
-      for (const spec of [...ordered].reverse()) {
-        db.exec(spec.where ? `DELETE FROM ${spec.table} WHERE ${spec.where}` : `DELETE FROM ${spec.table}`);
-      }
+      deleteScoped(scope, person, present);
     }
 
     for (const spec of ordered) {
-      const parsedTable = parsed.tables.find((table) => table.spec.table === spec.table);
+      const parsedTable = prepared.find((table) => table.spec.table === spec.table);
       if (!parsedTable) continue;
 
       if (parsedTable.rows.length === 0) {
         // An empty table still appears in the report, and in `replace` mode
-        // it was already cleared by the delete loop above. There is no
+        // it was already cleared by the delete step above. There is no
         // INSERT to build: `INSERT INTO t () VALUES ()` is a syntax error.
         report.push({
           table: spec.table,
@@ -549,6 +1034,13 @@ export function applyArchive(
          WHERE ${keys.map((key) => `${key} = ?`).join(" AND ")}`,
       );
 
+      // Shared rows in a person archive are merged even in replace mode. A
+      // person replace must never delete the household library.
+      const tableMode: ImportMode =
+        mode === "replace" && scope === "person" && spec.scope === "shared"
+          ? "merge"
+          : mode;
+
       let added = 0;
       let kept = 0;
       let conflicts = 0;
@@ -560,7 +1052,7 @@ export function applyArchive(
           (column) => (row[column] ?? null) as string | number | null,
         );
 
-        if (mode === "merge") {
+        if (tableMode === "merge") {
           const keyValues = keys.map((key) => (row[key] ?? null) as string | number | null);
           const existing = find.get(...keyValues) as unknown as
             | Record<string, unknown>
@@ -575,12 +1067,15 @@ export function applyArchive(
         try {
           insertFor(rowColumns).run(...values);
           added += 1;
+          if (spec.table === "captured_foods" && row.id != null) {
+            insertedFoodIds.add(String(row.id));
+          }
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
           // Merge never overwrites. A row that collides on a unique field
           // (for example a plan for the same week under a different id) is
           // a conflict to report, not a row to drop silently.
-          if (mode === "merge" && /UNIQUE constraint failed/i.test(detail)) {
+          if (tableMode === "merge" && /UNIQUE constraint failed/i.test(detail)) {
             conflicts += 1;
             continue;
           }
@@ -622,9 +1117,12 @@ export function applyArchive(
       ensureDataDir();
       const dir = dataFile("evidence");
       ensurePrivateDir(dir);
-      const rewrite = db.prepare(
-        "UPDATE captured_foods SET image_path = ? WHERE image_path = ?",
-      );
+      const rewrite = insertedFoodIds.size
+        ? db.prepare(
+            `UPDATE captured_foods SET image_path = ?
+              WHERE image_path = ? AND id IN (${[...insertedFoodIds].map(() => "?").join(", ")})`,
+          )
+        : null;
 
       for (const [name, data] of parsed.evidence) {
         let target = path.join(dir, name);
@@ -647,7 +1145,7 @@ export function applyArchive(
           continue;
         }
 
-        if (mode === "merge") {
+        if (!rewrite) {
           warnings.push(
             `Evidence image "${name}" already exists with different content; ` +
               "the existing file was kept.",
@@ -656,14 +1154,14 @@ export function applyArchive(
           continue;
         }
 
-        // Replace mode: the archive wins. Store the new bytes under a new
-        // name and repoint the rows that were just inserted, rather than
-        // overwriting a file another row may still reference.
+        // Write the archive's bytes under a new name and repoint only the
+        // captured foods this import inserted. Existing shared rows keep
+        // their image, which is what makes a person import safe.
         const renamed = uniqueEvidenceName(dir, name);
         target = path.join(dir, renamed);
         writeFileSync(target, data, { mode: PRIVATE_FILE_MODE, flag: "wx" });
         createdFiles.push(target);
-        rewrite.run(`data/evidence/${renamed}`, `data/evidence/${name}`);
+        rewrite.run(`data/evidence/${renamed}`, `data/evidence/${name}`, ...insertedFoodIds);
         written += 1;
       }
     } else if (dryRun) {
@@ -707,6 +1205,8 @@ export function applyArchive(
     mode,
     dryRun,
     formatVersion: parsed.manifest.formatVersion,
+    scope,
+    personId: person?.id ?? null,
     appVersion: parsed.manifest.appVersion,
     exportedAt: parsed.manifest.exportedAt,
     tables: report,
@@ -716,9 +1216,6 @@ export function applyArchive(
 }
 
 /** Convenience: parse and apply in one call. */
-export function importArchive(
-  buffer: Buffer,
-  options: { mode: ImportMode; dryRun?: boolean },
-): ImportReport {
+export function importArchive(buffer: Buffer, options: ApplyOptions): ImportReport {
   return applyArchive(parseArchive(buffer), options);
 }

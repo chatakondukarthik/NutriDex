@@ -5,16 +5,26 @@ import type { PlanEntry, Slot } from "@/lib/plan";
 /**
  * Plan persistence.
  *
- * A plan is a week. Entries reference either a food or a **pinned recipe
- * version**, so correcting a recipe or a food record never rewrites a
- * week that was already planned (D-024, definition of done #4).
+ * A plan is a week and belongs to one person. Entries reference either a food
+ * or a **pinned recipe version**, so correcting a recipe or a food record
+ * never rewrites a week that was already planned (D-024, definition of done
+ * #4).
  *
- * There is one implicit local plan per week until accounts exist.
+ * `plan_entries` has no `person_id`: its plan is the single source of truth,
+ * and every query joins through `plans`. Two people may have a plan for the
+ * same week; the unique key is `(person_id, starts_on)`.
  */
 
 export interface Plan {
   id: string;
+  personId: string;
   startsOn: string;
+}
+
+interface PlanRow {
+  id: string;
+  person_id: string;
+  starts_on: string;
 }
 
 interface EntryRow {
@@ -29,6 +39,10 @@ interface EntryRow {
   amount: number | null;
   unit: string | null;
   servings: number | null;
+}
+
+function toPlan(row: PlanRow): Plan {
+  return { id: row.id, personId: row.person_id, startsOn: row.starts_on };
 }
 
 function toEntry(row: EntryRow): PlanEntry {
@@ -47,37 +61,56 @@ function toEntry(row: EntryRow): PlanEntry {
   };
 }
 
-/** The week's plan if it exists, without creating one. */
-export function getPlan(startsOn: string): Plan | null {
+/** The person's plan for a week, if it exists, without creating one. */
+export function getPlan(personId: string, startsOn: string): Plan | null {
   const row = db
-    .prepare("SELECT id, starts_on FROM plans WHERE starts_on = ?")
-    .get(startsOn) as unknown as { id: string; starts_on: string } | undefined;
-
-  return row ? { id: row.id, startsOn: row.starts_on } : null;
+    .prepare(
+      "SELECT id, person_id, starts_on FROM plans WHERE person_id = ? AND starts_on = ?",
+    )
+    .get(personId, startsOn) as unknown as PlanRow | undefined;
+  return row ? toPlan(row) : null;
 }
 
-/** The week's plan, created on first write. */
-export function getOrCreatePlan(startsOn: string): Plan {
-  const existing = getPlan(startsOn);
+/** Resolve a plan only when it belongs to this person. */
+export function getPlanForPerson(personId: string, planId: string): Plan | null {
+  const row = db
+    .prepare("SELECT id, person_id, starts_on FROM plans WHERE id = ? AND person_id = ?")
+    .get(planId, personId) as unknown as PlanRow | undefined;
+  return row ? toPlan(row) : null;
+}
+
+/** The person's plan for the week, created on first write. */
+export function getOrCreatePlan(personId: string, startsOn: string): Plan {
+  const existing = getPlan(personId, startsOn);
   if (existing) return existing;
 
   const id = randomUUID();
-  db.prepare("INSERT INTO plans (id, starts_on, created_at) VALUES (?, ?, ?)").run(
-    id,
-    startsOn,
-    new Date().toISOString(),
-  );
+  db.prepare(
+    `INSERT INTO plans (id, person_id, starts_on, created_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT (person_id, starts_on) DO NOTHING`,
+  ).run(id, personId, startsOn, new Date().toISOString());
 
-  return { id, startsOn };
+  const created = getPlan(personId, startsOn);
+  if (!created) throw new Error("The plan could not be created.");
+  return created;
 }
 
-export function listPlanEntries(planId: string): PlanEntry[] {
+/**
+ * Entries for one of this person's plans.
+ *
+ * A foreign or missing plan id returns nothing rather than leaking another
+ * diary. The mutating functions below refuse instead.
+ */
+export function listPlanEntries(personId: string, planId: string): PlanEntry[] {
   const rows = db
     .prepare(
-      `SELECT * FROM plan_entries WHERE plan_id = ?
-       ORDER BY day ASC, position ASC, created_at ASC`,
+      `SELECT pe.* FROM plan_entries pe
+         JOIN plans p ON p.id = pe.plan_id
+        WHERE pe.plan_id = ? AND p.person_id = ?
+        ORDER BY pe.day ASC, pe.position ASC, pe.created_at ASC`,
     )
-    .all(planId) as unknown as EntryRow[];
+    .all(planId, personId) as unknown as EntryRow[];
 
   return rows.map(toEntry);
 }
@@ -94,7 +127,11 @@ export interface AddEntryInput {
   servings?: number | null;
 }
 
-export function addPlanEntry(input: AddEntryInput): PlanEntry {
+export function addPlanEntry(personId: string, input: AddEntryInput): PlanEntry {
+  if (!getPlanForPerson(personId, input.planId)) {
+    throw new Error("That plan no longer exists.");
+  }
+
   const isFood = input.foodId != null;
   const isRecipe = input.recipeVersionId != null;
 
@@ -154,36 +191,47 @@ export function addPlanEntry(input: AddEntryInput): PlanEntry {
   return entry;
 }
 
+/** The person's copy of one plan entry, joined through `plans`. */
+function findPlanEntry(personId: string, id: string): EntryRow | null {
+  const row = db
+    .prepare(
+      `SELECT pe.* FROM plan_entries pe
+         JOIN plans p ON p.id = pe.plan_id
+        WHERE pe.id = ? AND p.person_id = ?`,
+    )
+    .get(id, personId) as unknown as EntryRow | undefined;
+  return row ?? null;
+}
+
 /** Change the quantity of an existing entry, leaving what it points at alone. */
 export function updatePlanEntryQuantity(
+  personId: string,
   id: string,
   patch:
     | { grams: number; amount?: number | null; unit?: string | null }
     | { servings: number },
 ): void {
-  const row = db
-    .prepare("SELECT food_id, recipe_version_id FROM plan_entries WHERE id = ?")
-    .get(id) as unknown as { food_id: string | null; recipe_version_id: string | null } | undefined;
-
+  const row = findPlanEntry(personId, id);
   if (!row) throw new Error("That plan entry no longer exists.");
 
   if (row.food_id) {
     if (!("grams" in patch) || !Number.isFinite(patch.grams) || patch.grams <= 0) {
       throw new Error("Weight must be a positive number.");
     }
-    db.prepare("UPDATE plan_entries SET grams = ?, amount = ?, unit = ? WHERE id = ?").run(
-      patch.grams,
-      patch.amount ?? null,
-      patch.unit ?? null,
-      id,
-    );
+    db.prepare(
+      `UPDATE plan_entries SET grams = ?, amount = ?, unit = ?
+        WHERE id = ? AND plan_id IN (SELECT id FROM plans WHERE person_id = ?)`,
+    ).run(patch.grams, patch.amount ?? null, patch.unit ?? null, id, personId);
     return;
   }
 
   if (!("servings" in patch) || !Number.isFinite(patch.servings) || patch.servings <= 0) {
     throw new Error("Servings must be a positive number.");
   }
-  db.prepare("UPDATE plan_entries SET servings = ? WHERE id = ?").run(patch.servings, id);
+  db.prepare(
+    `UPDATE plan_entries SET servings = ?
+      WHERE id = ? AND plan_id IN (SELECT id FROM plans WHERE person_id = ?)`,
+  ).run(patch.servings, id, personId);
 }
 
 /**
@@ -194,13 +242,11 @@ export function updatePlanEntryQuantity(
  * destination, which keeps the existing order stable.
  */
 export function movePlanEntry(
+  personId: string,
   id: string,
   destination: { day: string; slot: Slot },
 ): PlanEntry {
-  const row = db
-    .prepare("SELECT * FROM plan_entries WHERE id = ?")
-    .get(id) as unknown as EntryRow | undefined;
-
+  const row = findPlanEntry(personId, id);
   if (!row) throw new Error("That plan entry no longer exists.");
 
   const next = db
@@ -211,12 +257,10 @@ export function movePlanEntry(
     position: number;
   };
 
-  db.prepare("UPDATE plan_entries SET day = ?, slot = ?, position = ? WHERE id = ?").run(
-    destination.day,
-    destination.slot,
-    next.position,
-    id,
-  );
+  db.prepare(
+    `UPDATE plan_entries SET day = ?, slot = ?, position = ?
+      WHERE id = ? AND plan_id IN (SELECT id FROM plans WHERE person_id = ?)`,
+  ).run(destination.day, destination.slot, next.position, id, personId);
 
   return toEntry({
     ...row,
@@ -226,13 +270,34 @@ export function movePlanEntry(
   });
 }
 
-export function removePlanEntry(id: string): void {
-  db.prepare("DELETE FROM plan_entries WHERE id = ?").run(id);
+export function removePlanEntry(personId: string, id: string): void {
+  const result = db
+    .prepare(
+      `DELETE FROM plan_entries
+        WHERE id = ? AND plan_id IN (SELECT id FROM plans WHERE person_id = ?)`,
+    )
+    .run(id, personId);
+  if (result.changes === 0) throw new Error("That plan entry no longer exists.");
 }
 
-export function countPlanEntries(planId: string): number {
+export function countPlanEntries(personId: string, planId: string): number {
   const row = db
-    .prepare("SELECT COUNT(*) AS count FROM plan_entries WHERE plan_id = ?")
-    .get(planId) as unknown as { count: number };
+    .prepare(
+      `SELECT COUNT(*) AS count FROM plan_entries pe
+         JOIN plans p ON p.id = pe.plan_id
+        WHERE pe.plan_id = ? AND p.person_id = ?`,
+    )
+    .get(planId, personId) as unknown as { count: number };
+  return row.count;
+}
+
+/** Household-wide count for one person's plans; used by person deletion. */
+export function countPlanEntriesForPerson(personId: string): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS count FROM plan_entries
+        WHERE plan_id IN (SELECT id FROM plans WHERE person_id = ?)`,
+    )
+    .get(personId) as unknown as { count: number };
   return row.count;
 }

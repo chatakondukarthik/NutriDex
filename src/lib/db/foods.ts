@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { db, transaction } from "./client";
+import { defaultPersonId } from "./people";
 import { SEED_FOODS, getSeedFood } from "@/lib/data/foods";
 import { capturedFoodToFood, type PreparedCapturedFood } from "@/lib/captured-food";
 import type { Food } from "@/lib/nutrition/types";
@@ -29,6 +30,9 @@ interface CapturedRow {
   source_code: string | null;
   image_path: string | null;
   confidence: number | null;
+  source_kind: string | null;
+  source_published: string | null;
+  created_by: string;
   created_at: string;
   archived_at: string | null;
 }
@@ -76,8 +80,12 @@ function rowToFood(row: CapturedRow): Food {
     servingsPerPack: row.servings_per_pack,
     source: row.source,
     sourceCode: row.source_code,
+    sourceKind: row.source_kind,
+    sourcePublished: row.source_published,
     imagePath: row.image_path,
     confidence: row.confidence,
+    createdBy: row.created_by ?? null,
+    createdAt: row.created_at,
     nutrients: nutrientsFor(row.id).map((entry) => ({
       nutrient: entry.nutrient as PreparedCapturedFood["nutrients"][number]["nutrient"],
       amount: entry.amount,
@@ -145,7 +153,7 @@ export type SaveCapturedResult =
 /** Create a captured food. The input is already validated and normalised. */
 export function saveCapturedFood(
   prepared: PreparedCapturedFood,
-  options: { id?: string; allowDuplicate?: boolean } = {},
+  options: { id?: string; allowDuplicate?: boolean; createdBy?: string } = {},
 ): SaveCapturedResult {
   const duplicate = findCapturedByName(prepared.name);
   if (duplicate && !options.allowDuplicate) {
@@ -158,14 +166,17 @@ export function saveCapturedFood(
 
   const id = options.id ?? randomUUID();
   const createdAt = new Date().toISOString();
+  // Provenance only: captures are shared library content, and this records
+  // which person added it. It is never an authorization check.
+  const createdBy = options.createdBy ?? defaultPersonId();
 
   transaction(() => {
     db.prepare(
       `INSERT INTO captured_foods
          (id, name, aliases, category, kind, state, density_g_ml, basis,
           serving_size_g, servings_per_pack, source, source_code, image_path,
-          confidence, created_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local', ?)`,
+          confidence, source_kind, source_published, created_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       prepared.name,
@@ -181,6 +192,9 @@ export function saveCapturedFood(
       prepared.sourceCode,
       prepared.imagePath,
       prepared.confidence,
+      prepared.sourceKind,
+      prepared.sourcePublished,
+      createdBy,
       createdAt,
     );
 
@@ -230,7 +244,8 @@ export function updateCapturedFood(
       `UPDATE captured_foods SET
          name = ?, aliases = ?, category = ?, kind = ?, state = ?, density_g_ml = ?,
          basis = ?, serving_size_g = ?, servings_per_pack = ?, source = ?,
-         source_code = ?, image_path = ?, confidence = ?
+         source_code = ?, image_path = ?, confidence = ?,
+         source_kind = ?, source_published = ?
        WHERE id = ?`,
     ).run(
       prepared.name,
@@ -246,6 +261,8 @@ export function updateCapturedFood(
       prepared.sourceCode,
       prepared.imagePath,
       prepared.confidence,
+      prepared.sourceKind,
+      prepared.sourcePublished,
       id,
     );
 

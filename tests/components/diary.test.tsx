@@ -62,6 +62,7 @@ const RECIPES: PlanRecipeOption[] = [
 
 const FOOD_ENTRY: Entry = {
   id: "e-food",
+  personId: "person-1",
   foodId: SEED_FOODS[0].id,
   recipeVersionId: null,
   grams: 100,
@@ -73,6 +74,7 @@ const FOOD_ENTRY: Entry = {
 
 const RECIPE_ENTRY: Entry = {
   id: "e-recipe",
+  personId: "person-1",
   foodId: null,
   recipeVersionId: "v-1",
   grams: 180,

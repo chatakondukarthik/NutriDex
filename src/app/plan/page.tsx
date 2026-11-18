@@ -5,6 +5,7 @@ import { getPlan, listPlanEntries } from "@/lib/db/plan";
 import { getProfile } from "@/lib/db/profile";
 import { getTargetRules } from "@/lib/db/settings";
 import { listRecipeOptions } from "@/lib/db/recipes";
+import { getActivePerson } from "@/lib/person-server";
 import { weekStart } from "@/lib/plan";
 import { isDefaultProfile } from "@/lib/profile";
 import { targetsFor } from "@/lib/targets";
@@ -24,24 +25,28 @@ interface PlanPageProps {
  * the same thing to the user.
  */
 export default async function PlanPage({ searchParams }: PlanPageProps) {
+  const person = await getActivePerson();
   const params = await searchParams;
   const requested = isDay(params.week) ? params.week : today();
   const week = weekStart(requested);
 
-  const plan = getPlan(week);
-  const entries = plan ? listPlanEntries(plan.id) : [];
-  const profile = getProfile();
+  const plan = getPlan(person.id, week);
+  const entries = plan ? listPlanEntries(person.id, plan.id) : [];
+  const profile = getProfile(person.id);
 
   return (
     <PlanBoard
+      // The board holds the person's entries in client state; remount it on
+      // a person switch so a draft can never belong to the wrong diary.
+      key={person.id}
       week={week}
       today={today()}
       foods={listFoods()}
       recipes={listRecipeOptions()}
       entries={entries}
-      targets={targetsFor(profile, getTargetRules())}
+      targets={targetsFor(profile, getTargetRules(person.id))}
       profileIsDefault={isDefaultProfile(profile)}
-      hasDiaryEntries={listEntries(today()).length > 0}
+      hasDiaryEntries={listEntries(person.id, today()).length > 0}
     />
   );
 }

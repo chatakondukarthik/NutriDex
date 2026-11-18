@@ -104,11 +104,12 @@ describe("interrupted entries rebuild", () => {
         .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'entries_v1'`)
         .get(),
     ).toBeUndefined();
-    // The index followed the RENAME and was dropped with entries_v1.
+    // The index followed the RENAME and was dropped with entries_v1. The
+    // household migration then replaces it with the person-aware index.
     const indexes = client.db
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'entries'`)
       .all() as Array<{ name: string }>;
-    expect(indexes.map((row) => row.name)).toContain("entries_day_idx");
+    expect(indexes.map((row) => row.name)).toContain("entries_person_day_idx");
   });
 
   it("keeps the live table when the copy already ran", async () => {

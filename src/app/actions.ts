@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, refresh } from "next/cache";
 import { after } from "next/server";
 import { addEntry, removeEntry, today } from "@/lib/db/entries";
 import { transaction } from "@/lib/db/client";
@@ -16,6 +16,20 @@ import { saveProfile } from "@/lib/db/profile";
 import { getRecipe, getVersion } from "@/lib/db/recipes";
 import { getFood } from "@/lib/db/foods";
 import { resolveDefaultAmount, getFoodDefaultPin, setFoodDefaultPin } from "@/lib/db/defaults";
+import {
+  getActivePerson,
+  getActivePersonId,
+  assertExpectedPerson,
+  setActivePersonCookie,
+} from "@/lib/person-server";
+import {
+  archivePerson,
+  createPerson,
+  deletePerson,
+  getPerson,
+  unarchivePerson,
+  updatePerson,
+} from "@/lib/db/people";
 import { toGrams, parseUnitKey, MAX_GRAMS, UNITS, type Unit } from "@/lib/nutrition/units";
 import { SLOTS, weekDays, weekStart, type PlanEntry, type Slot } from "@/lib/plan";
 import { parseProfile } from "@/lib/profile";
@@ -88,6 +102,7 @@ export async function addFoodAction(input: {
   unit: string;
   portionLabel?: string;
 }): Promise<AddResult> {
+  const personId = await getActivePersonId();
   const food = getFood(input.foodId);
   if (!food) {
     return { ok: false, message: "That food does not exist." };
@@ -108,7 +123,7 @@ export async function addFoodAction(input: {
     return { ok: false, message: converted.reason };
   }
 
-  addEntry({
+  addEntry(personId, {
     foodId: food.id,
     grams: converted.grams,
     amount: input.amount,
@@ -117,12 +132,15 @@ export async function addFoodAction(input: {
   });
 
   revalidatePath("/");
+  refresh();
   return { ok: true };
 }
 
 export async function removeEntryAction(id: string): Promise<void> {
-  removeEntry(id);
+  const personId = await getActivePersonId();
+  removeEntry(personId, id);
   revalidatePath("/");
+  refresh();
 }
 
 export interface SaveRecipeResult {
@@ -146,7 +164,9 @@ export async function saveRecipeAction(draft: RecipeDraft): Promise<SaveRecipeRe
     if (!result.ok) return result;
 
     revalidatePath("/recipes");
+    refresh();
     revalidatePath(`/recipes/${result.recipeId}`);
+    refresh();
 
     return {
       ok: true,
@@ -198,6 +218,7 @@ export async function addPlanEntryAction(input: {
   unit?: string | null;
   servings?: number | null;
 }): Promise<PlanActionResult> {
+  const personId = await getActivePersonId();
   if (!isDay(input.week)) return { ok: false, message: "That week is not valid." };
 
   const start = weekStart(input.week);
@@ -267,7 +288,7 @@ export async function addPlanEntryAction(input: {
     } else {
       // No quantity from the client: the default chain answers
       // (pin → last-used → portion → serving → rules → 100 g).
-      const resolved = resolveDefaultAmount(food.id) ?? { amount: 100, unit: "g" };
+      const resolved = resolveDefaultAmount(personId, food.id) ?? { amount: 100, unit: "g" };
       amount = resolved.amount;
       unit = resolved.unit;
       const parsed = parseUnitKey(unit);
@@ -297,8 +318,8 @@ export async function addPlanEntryAction(input: {
   }
 
   try {
-    const plan = getOrCreatePlan(start);
-    const entry = addPlanEntry({
+    const plan = getOrCreatePlan(personId, start);
+    const entry = addPlanEntry(personId, {
       planId: plan.id,
       day: input.day,
       slot: input.slot as Slot,
@@ -325,6 +346,7 @@ export async function updatePlanEntryQuantityAction(
     | { grams: number; amount?: number | null; unit?: string | null }
     | { servings: number },
 ): Promise<PlanActionResult> {
+  const personId = await getActivePersonId();
   try {
     if ("grams" in patch) {
       const grams = Number(patch.grams);
@@ -349,13 +371,13 @@ export async function updatePlanEntryQuantityAction(
           return { ok: false, message: "Unsupported unit." };
         }
       }
-      updatePlanEntryQuantity(id, { grams, amount: patch.amount ?? null, unit });
+      updatePlanEntryQuantity(personId, id, { grams, amount: patch.amount ?? null, unit });
     } else {
       const servings = Number(patch.servings);
       if (!Number.isFinite(servings) || servings <= 0 || servings > MAX_SERVINGS) {
         return { ok: false, message: "Servings must be a positive number." };
       }
-      updatePlanEntryQuantity(id, { servings });
+      updatePlanEntryQuantity(personId, id, { servings });
     }
     return { ok: true };
   } catch (error) {
@@ -367,7 +389,8 @@ export async function updatePlanEntryQuantityAction(
 }
 
 export async function removePlanEntryAction(id: string): Promise<void> {
-  removePlanEntry(id);
+  const personId = await getActivePersonId();
+  removePlanEntry(personId, id);
 }
 
 /**
@@ -383,6 +406,7 @@ export async function movePlanEntryAction(input: {
   day: string;
   slot: string;
 }): Promise<PlanActionResult> {
+  const personId = await getActivePersonId();
   if (!isDay(input.week)) return { ok: false, message: "That week is not valid." };
 
   const start = weekStart(input.week);
@@ -395,7 +419,7 @@ export async function movePlanEntryAction(input: {
   }
 
   try {
-    const entry = movePlanEntry(input.id, {
+    const entry = movePlanEntry(personId, input.id, {
       day: input.day,
       slot: input.slot as Slot,
     });
@@ -426,6 +450,17 @@ export async function saveProfileAction(
   _previous: ProfileFormState,
   formData: FormData,
 ): Promise<ProfileFormState> {
+  const person = await getActivePerson();
+  const expected = formData.get("expectedPersonId");
+  try {
+    assertExpectedPerson(typeof expected === "string" ? expected : null, person);
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Review this form and submit it again.",
+    };
+  }
+
   const parsed = parseProfile({
     sex: formData.get("sex"),
     ageYears: formData.get("ageYears"),
@@ -441,11 +476,13 @@ export async function saveProfileAction(
 
   if (!parsed.ok) return { ok: false, message: parsed.message };
 
-  saveProfile(parsed.profile);
+  saveProfile(person.id, parsed.profile);
   revalidatePath("/");
+  refresh();
   revalidatePath("/plan");
-  revalidatePath("/");
+  refresh();
   revalidatePath("/profile");
+  refresh();
 
   return { ok: true, message: "Saved. Targets now use these numbers." };
 }
@@ -471,12 +508,15 @@ export interface SaveFoodResult {
 
 export async function saveCapturedFoodAction(input: CapturedFoodInput): Promise<SaveFoodResult> {
   try {
+    const personId = await getActivePersonId();
     const prepared = prepareCapturedFood(input);
     if (!prepared.ok) return { ok: false, message: prepared.message };
-    const result = saveCapturedFood(prepared.food);
+    const result = saveCapturedFood(prepared.food, { createdBy: personId });
     if (!result.ok) return { ok: false, message: result.message, duplicateOf: result.duplicateOf };
     revalidatePath("/");
+    refresh();
     revalidatePath("/foods");
+    refresh();
     return { ok: true, foodId: result.food.id };
   } catch (error) {
     return { ok: false, message: publicError("Could not save that food.", error, "saveCapturedFoodAction") };
@@ -494,7 +534,9 @@ export async function updateCapturedFoodAction(
     const result = updateCapturedFood(id, prepared.food);
     if (!result.ok) return { ok: false, message: result.message, duplicateOf: result.duplicateOf };
     revalidatePath("/");
+    refresh();
     revalidatePath("/foods");
+    refresh();
     return { ok: true, foodId: result.food.id };
   } catch (error) {
     return { ok: false, message: publicError("Could not update that food.", error, "updateCapturedFoodAction") };
@@ -515,7 +557,8 @@ export async function defaultAmountAction(foodId: string): Promise<{
   message?: string;
 }> {
   try {
-    const resolved = resolveDefaultAmount(foodId);
+    const personId = await getActivePersonId();
+    const resolved = resolveDefaultAmount(personId, foodId);
     if (!resolved) return { ok: false, message: "That food does not exist." };
     return { ok: true, amount: resolved.amount, unit: resolved.unit, source: resolved.source };
   } catch (error) {
@@ -530,7 +573,8 @@ export async function getFoodDefaultAction(foodId: string): Promise<{
   unit?: string;
 }> {
   try {
-    const pin = getFoodDefaultPin(foodId);
+    const personId = await getActivePersonId();
+    const pin = getFoodDefaultPin(personId, foodId);
     return pin ? { ok: true, ...pin } : { ok: true };
   } catch {
     return { ok: false };
@@ -563,8 +607,9 @@ export async function saveFoodDefaultAction(
         return { ok: false, message: "Unsupported unit." };
       }
     }
-    setFoodDefaultPin(foodId, pin);
+    setFoodDefaultPin((await getActivePersonId()), foodId, pin);
     revalidatePath("/foods");
+    refresh();
     return { ok: true, foodId };
   } catch (error) {
     return { ok: false, message: publicError("Could not save the default.", error) };
@@ -575,6 +620,7 @@ export async function archiveCapturedFoodAction(id: string): Promise<SaveFoodRes
   const result = archiveCapturedFood(id);
   if (!result.ok) return { ok: false, message: result.message };
   revalidatePath("/foods");
+  refresh();
   return { ok: true };
 }
 
@@ -682,6 +728,7 @@ export async function saveAiConfigAction(input: {
     }
     writeAiConfig(config as any);
     revalidatePath("/settings");
+    refresh();
     return { ok: true };
   } catch (error) {
     return fail("Could not save the AI settings.", error, "saveAiConfigAction");
@@ -692,6 +739,7 @@ export async function removeAiKeyAction(provider: string): Promise<AiConfigResul
   try {
     setKey(provider, null);
     revalidatePath("/settings");
+    refresh();
     return { ok: true };
   } catch (error) {
     return fail("Could not remove the key.", error, "removeAiKeyAction");
@@ -728,6 +776,7 @@ export async function setAiKeyAction(
     // key to the endpoint it was entered for (fallback/image roles).
     setKey(providerId, value, hostFromUrl(endpoint));
     revalidatePath("/settings");
+    refresh();
     return { ok: true };
   } catch (error) {
     return fail(
@@ -1032,6 +1081,7 @@ export async function duplicateRecipeAction(recipeId: string): Promise<{ ok: boo
   const result = saveRecipeDraft(draft);
   if (!result.ok) return { ok: false, message: result.message };
   revalidatePath("/recipes");
+  refresh();
   return { ok: true, recipeId: result.recipeId };
 }
 
@@ -1047,14 +1097,15 @@ export async function copyPlanDayAction(
     return { ok: false, message: "That date is not valid." };
   }
   try {
+    const personId = await getActivePersonId();
     const sourceWeek = weekStart(sourceDay);
     const targetWeek = weekStart(targetDay);
     if (!weekDays(sourceWeek).includes(sourceDay)) return { ok: false, message: "Invalid source day." };
     if (!weekDays(targetWeek).includes(targetDay)) return { ok: false, message: "Invalid target day." };
 
-    const sourcePlan = getOrCreatePlan(sourceWeek);
-    const targetPlan = getOrCreatePlan(targetWeek);
-    const entries = listPlanEntries(sourcePlan.id).filter((e) => e.day === sourceDay);
+    const sourcePlan = getOrCreatePlan(personId, sourceWeek);
+    const targetPlan = getOrCreatePlan(personId, targetWeek);
+    const entries = listPlanEntries(personId, sourcePlan.id).filter((e) => e.day === sourceDay);
 
     // One transaction: a failure halfway through used to leave the target
     // day with a partial copy, which looks like data loss to the user.
@@ -1062,7 +1113,7 @@ export async function copyPlanDayAction(
       let copied = 0;
       for (const entry of entries) {
         if (entry.foodId) {
-          addPlanEntry({
+          addPlanEntry(personId, {
             planId: targetPlan.id,
             day: targetDay,
             slot: entry.slot,
@@ -1072,7 +1123,7 @@ export async function copyPlanDayAction(
             unit: entry.unit ?? undefined,
           });
         } else if (entry.recipeVersionId) {
-          addPlanEntry({
+          addPlanEntry(personId, {
             planId: targetPlan.id,
             day: targetDay,
             slot: entry.slot,
@@ -1086,7 +1137,9 @@ export async function copyPlanDayAction(
     });
 
     revalidatePath("/plan");
+    refresh();
     revalidatePath("/");
+    refresh();
     return { ok: true, count };
   } catch (error) {
     return { ...fail("Could not copy that day.", error, "copyPlanDayAction") };
@@ -1105,6 +1158,7 @@ export async function copyPlanWeekAction(
     // Normalise to the Monday of each week. The plan row is keyed by the
     // raw string, so a non-Monday input used to create an orphan plan and
     // copy nothing while still reporting success.
+    const personId = await getActivePersonId();
     const sourceWeek = weekStart(sourceWeekStart);
     const targetWeek = weekStart(targetWeekStart);
     if (sourceWeek === targetWeek) {
@@ -1116,9 +1170,9 @@ export async function copyPlanWeekAction(
       return { ok: false, message: "Invalid week." };
     }
 
-    const sourcePlan = getOrCreatePlan(sourceWeek);
-    const targetPlan = getOrCreatePlan(targetWeek);
-    const sourceEntries = listPlanEntries(sourcePlan.id);
+    const sourcePlan = getOrCreatePlan(personId, sourceWeek);
+    const targetPlan = getOrCreatePlan(personId, targetWeek);
+    const sourceEntries = listPlanEntries(personId, sourcePlan.id);
 
     // One transaction so a mid-week failure cannot leave a partial copy.
     const count = transaction(() => {
@@ -1128,7 +1182,7 @@ export async function copyPlanWeekAction(
         if (dayIndex < 0) continue;
         const targetDay = targetDays[dayIndex];
         if (entry.foodId) {
-          addPlanEntry({
+          addPlanEntry(personId, {
             planId: targetPlan.id,
             day: targetDay,
             slot: entry.slot,
@@ -1138,7 +1192,7 @@ export async function copyPlanWeekAction(
             unit: entry.unit ?? undefined,
           });
         } else if (entry.recipeVersionId) {
-          addPlanEntry({
+          addPlanEntry(personId, {
             planId: targetPlan.id,
             day: targetDay,
             slot: entry.slot,
@@ -1152,7 +1206,9 @@ export async function copyPlanWeekAction(
     });
 
     revalidatePath("/plan");
+    refresh();
     revalidatePath("/");
+    refresh();
     return { ok: true, count };
   } catch (error) {
     return { ...fail("Could not copy that week.", error, "copyPlanWeekAction") };
@@ -1160,9 +1216,10 @@ export async function copyPlanWeekAction(
 }
 
 export async function promoteFoodToRecipeAction(foodId: string): Promise<{ ok: boolean; recipeId?: string; message?: string }> {
+  const personId = await getActivePersonId();
   const food = getFood(foodId);
   if (!food) return { ok: false, message: "That food does not exist." };
-  const resolved = resolveDefaultAmount(food.id) ?? { amount: 100, unit: "g" };
+  const resolved = resolveDefaultAmount(personId, food.id) ?? { amount: 100, unit: "g" };
   const parsed = parseUnitKey(resolved.unit);
   const converted = toGrams(food, {
     amount: resolved.amount,
@@ -1171,6 +1228,7 @@ export async function promoteFoodToRecipeAction(foodId: string): Promise<{ ok: b
   });
   const draft: RecipeDraft = {
     name: food.name,
+    versionLabel: "promoted",
     instructions: "",
     servings: 1,
     blocks: [
@@ -1218,11 +1276,40 @@ export async function lookupBarcodeAction(barcode: string): Promise<{
   }
 }
 
-import { searchUsda, usdaToInput } from "@/lib/food-sources/usda";
+import { searchUsda, usdaToInput, UsdaHttpError } from "@/lib/food-sources/usda";
 
-export async function searchUsdaAction(query: string): Promise<{
+/** Map a USDA HTTP failure to something the user can act on. */
+function usdaHttpMessage(status: number): string {
+  if (status === 429) {
+    return "USDA rate limit — the shared DEMO key allows about 30 requests an hour. Wait a few minutes, or set NUTRIPLAN_USDA_KEY in your environment.";
+  }
+  if (status === 403 || status === 401) {
+    return "USDA refused the request — check the NUTRIPLAN_USDA_KEY value.";
+  }
+  if (status >= 500) {
+    return "USDA is having trouble on their end (HTTP " + status + ") — try again in a bit.";
+  }
+  return `USDA could not complete this request (HTTP ${status}).`;
+}
+
+export async function searchUsdaAction(
+  query: string,
+  options?: { dataType?: string; sortBy?: string },
+): Promise<{
   ok: boolean;
-  results?: { fdcId: number; name: string; category?: string; nutrients: number }[];
+  results?: {
+    fdcId: number;
+    name: string;
+    brand?: string;
+    brandOwner?: string;
+    category?: string;
+    dataType?: string;
+    publishedDate?: string;
+    ingredients?: string;
+    gtinUpc?: string;
+    packageWeight?: string;
+    nutrients: number;
+  }[];
   message?: string;
 }> {
   try {
@@ -1231,17 +1318,30 @@ export async function searchUsdaAction(query: string): Promise<{
     if (!budget.ok) {
       return { ok: false, message: `Too many searches — try again in ${budget.retryAfter}s.` };
     }
-    const foods = await searchUsda(String(query ?? "").slice(0, 200));
+    const foods = await searchUsda(String(query ?? "").slice(0, 200), {
+      dataType: typeof options?.dataType === "string" ? options.dataType : undefined,
+      sortBy: typeof options?.sortBy === "string" ? options.sortBy : undefined,
+    });
     return {
       ok: true,
       results: foods.map((f) => ({
         fdcId: f.fdcId,
         name: f.name,
+        brand: f.brand,
+        brandOwner: f.brandOwner,
         category: f.category,
+        dataType: f.dataType,
+        publishedDate: f.publishedDate,
+        ingredients: f.ingredients,
+        gtinUpc: f.gtinUpc,
+        packageWeight: f.packageWeight,
         nutrients: Object.keys(f.nutrients).length,
       })),
     };
   } catch (error) {
+    if (error instanceof UsdaHttpError) {
+      return { ok: false, message: usdaHttpMessage(error.status) };
+    }
     return { ...fail("Search failed.", error, "searchUsdaAction") };
   }
 }
@@ -1265,6 +1365,9 @@ export async function importUsdaAction(fdcId: number): Promise<{ ok: boolean; pr
     if (!food) return { ok: false, message: "That food could not be loaded." };
     return { ok: true, proposal: usdaToInput(food) };
   } catch (error) {
+    if (error instanceof UsdaHttpError) {
+      return { ok: false, message: usdaHttpMessage(error.status) };
+    }
     return { ...fail("Import failed.", error, "importUsdaAction") };
   }
 }
@@ -1327,6 +1430,7 @@ export async function importInndbAction(
     }
     const result = importInndb(csvText, mapping);
     revalidatePath("/foods");
+    refresh();
     return {
       ok: true,
       imported: result.imported,
@@ -1347,7 +1451,9 @@ export async function deleteRecipeAction(recipeId: string): Promise<{ ok: boolea
   const result = deleteRecipe(recipeId);
   if (!result.ok) return { ok: false, message: result.message };
   revalidatePath("/recipes");
+  refresh();
   revalidatePath(`/recipes/${recipeId}`);
+  refresh();
   return { ok: true, outcome: result.outcome };
 }
 
@@ -1357,6 +1463,7 @@ export async function deleteCapturedFoodAction(foodId: string): Promise<{ ok: bo
   const result = deleteCapturedFood(foodId);
   if (!result.ok) return { ok: false, message: result.message };
   revalidatePath("/foods");
+  refresh();
   return { ok: true, outcome: result.outcome };
 }
 
@@ -1422,7 +1529,9 @@ export async function saveGraphAction(input: {
     });
     if (!result.ok) return { ok: false, message: result.message };
     revalidatePath("/recipes");
+    refresh();
     revalidatePath(`/recipes/${result.recipeId}`);
+    refresh();
     return { ok: true, recipeId: result.recipeId };
   } catch (error) {
     return { ...fail("Could not save that recipe.", error, "saveGraphAction") };
@@ -1465,6 +1574,7 @@ export async function convertAllRecipesToV2Action(): Promise<{ ok: boolean; conv
   try {
     const result = convertAllLegacyRecipes();
     revalidatePath("/recipes");
+    refresh();
     return { ok: true, ...result };
   } catch (error) {
     return { ok: false, message: publicError("Conversion failed.", error) };
@@ -1473,15 +1583,26 @@ export async function convertAllRecipesToV2Action(): Promise<{ ok: boolean; conv
 
 import { planRecipeFromPrompt, materializeRecipe, type RecipePlan } from "@/lib/ai-generate-recipe";
 import { resolvePlanFoods, type PlanFoodResolution } from "@/lib/ai/food-resolve";
+import { parseImageParts } from "@/lib/ai/images";
 
 export async function previewRecipeFromPromptAction(
-  input: { prompt: string; recipeId?: string | null },
+  input: {
+    prompt: string;
+    recipeId?: string | null;
+    /** A photo of a recipe card or dish the request should use. */
+    images?: unknown;
+  },
 ): Promise<{ ok: boolean; plan?: RecipePlan; resolutions?: PlanFoodResolution[]; message?: string }> {
-  if (typeof input?.prompt !== "string" || !input.prompt.trim()) {
-    return { ok: false, message: "Ask for a dish first." };
-  }
-  if (input.prompt.length > 8_000) {
+  const prompt = typeof input?.prompt === "string" ? input.prompt : "";
+  if (prompt.length > 8_000) {
     return { ok: false, message: "Keep the request under 8,000 characters." };
+  }
+  const parsed = parseImageParts(input?.images);
+  if (!parsed.ok) return { ok: false, message: parsed.message };
+  const images = parsed.images;
+
+  if (!prompt.trim() && images.length === 0) {
+    return { ok: false, message: "Ask for a dish or attach a photo." };
   }
   try {
     const limited = await aiThrottle("plan", 10);
@@ -1502,7 +1623,7 @@ export async function previewRecipeFromPromptAction(
         };
       }
     }
-    const plan = await planRecipeFromPrompt(input.prompt, existing);
+    const plan = await planRecipeFromPrompt(prompt, existing, images.length ? images : undefined);
     const { listFoods } = await import("@/lib/db/foods");
     const { resolutions } = await resolvePlanFoods(plan, listFoods(), { persist: false });
     return { ok: true, plan, resolutions };
@@ -1521,6 +1642,11 @@ export async function createRecipeFromPlanAction(
     replaceVersionId?: string | null;
     /** Fill missing ingredient nutrition with AI after the save (default: true). */
     fillMissingNutrition?: boolean;
+    /**
+     * Restrict that fill to these nutrient codes (validated server-side).
+     * Omitted = every unknown nutrient; empty array = fill nothing.
+     */
+    fillNutrientCodes?: string[] | null;
   },
 ): Promise<{ ok: boolean; recipeId?: string; message?: string }> {
   try {
@@ -1550,6 +1676,7 @@ export async function createRecipeFromPlanAction(
     });
     const { recipeId, fillTargets } = saved;
     revalidatePath("/recipes");
+    refresh();
     if (input.recipeId) revalidatePath(`/recipes/${input.recipeId}`);
 
     // Nutrition fill is one LLM call per unknown ingredient — slow, and
@@ -1557,16 +1684,25 @@ export async function createRecipeFromPlanAction(
     // the recipe (and the button) never wait on the model. Failures are
     // non-fatal: foods stay unknown and can be filled from Foods later.
     if (input.fillMissingNutrition !== false && fillTargets.length > 0) {
-      after(async () => {
-        try {
-          const { fillAllWithAi } = await import("@/lib/ai/estimate-food");
-          await fillAllWithAi({ foodIds: fillTargets });
-        } catch {
-          /* nutrition stayed as-is */
-        }
-        revalidatePath("/recipes");
-        revalidatePath(`/recipes/${recipeId}`);
-      });
+      const { sanitizeNutrientCodes } = await import("@/lib/ai/estimate-food");
+      const nutrientCodes =
+        input.fillNutrientCodes == null ? undefined : sanitizeNutrientCodes(input.fillNutrientCodes);
+      if (nutrientCodes !== undefined && nutrientCodes.length === 0) {
+        // Explicit empty selection — the user chose to fill nothing.
+      } else {
+        after(async () => {
+          try {
+            const { fillAllWithAi } = await import("@/lib/ai/estimate-food");
+            await fillAllWithAi({ foodIds: fillTargets, nutrientCodes });
+          } catch {
+            /* nutrition stayed as-is */
+          }
+          revalidatePath("/recipes");
+          refresh();
+          revalidatePath(`/recipes/${recipeId}`);
+          refresh();
+        });
+      }
     }
 
     return { ok: true, recipeId };
@@ -1585,6 +1721,7 @@ export async function addRecipeEntryAction(input: {
   recipeVersionId: string;
   servings: number;
 }): Promise<AddResult> {
+  const personId = await getActivePersonId();
   const version = getVersion(input.recipeVersionId);
   if (!version) return { ok: false, message: "That recipe version no longer exists." };
 
@@ -1601,7 +1738,7 @@ export async function addRecipeEntryAction(input: {
   const perServing = input.servings === 0 ? 1 : snapshot.inputGrams ? snapshot.inputGrams / version.servings : 0;
   const totalGrams = Number.isFinite(perServing * servings) ? perServing * servings : 0;
 
-  addRecipeDiaryEntry({
+  addRecipeDiaryEntry(personId, {
     recipeVersionId: input.recipeVersionId,
     servings,
     grams: totalGrams,
@@ -1611,6 +1748,7 @@ export async function addRecipeEntryAction(input: {
   });
 
   revalidatePath("/");
+  refresh();
   return { ok: true };
 }
 
@@ -1628,7 +1766,9 @@ export async function deleteRecipeVersionAction(input: {
   const result = deleteVersion(input.versionId);
   if (!result.ok) return { ok: false, message: result.message };
   revalidatePath("/recipes");
+  refresh();
   revalidatePath(`/recipes/${input.recipeId}`);
+  refresh();
   return { ok: true };
 }
 
@@ -1641,21 +1781,26 @@ export async function makeCurrentRecipeVersionAction(input: {
   const result = promoteVersion(input.recipeId, input.versionId);
   if (!result.ok) return { ok: false, message: result.message };
   revalidatePath("/recipes");
+  refresh();
   revalidatePath(`/recipes/${input.recipeId}`);
+  refresh();
   revalidatePath("/plan");
+  refresh();
   revalidatePath("/");
+  refresh();
   return { ok: true };
 }
 
 import { fillEstimatedCapturedFood } from "@/lib/db/foods";
 import { listFoods } from "@/lib/db/foods";
-import { getMasterPrompt, setMasterPrompt, resetMasterPrompt, setTargetRules, resetTargetRules } from "@/lib/db/settings";
+import { getMasterPrompt, setMasterPrompt, resetMasterPrompt, getTargetRules, setTargetRules, resetTargetRules } from "@/lib/db/settings";
 import { DEFAULT_TARGET_RULES, type TargetRules } from "@/lib/targets";
 import { DEFAULT_MASTER_PROMPT } from "@/lib/ai/master-prompt";
 import { estimateNutrients } from "@/lib/ai/estimate-food";
 
 export async function estimateFoodNutrientsAction(
   foodId: string,
+  nutrientCodes?: string[],
 ): Promise<{ ok: boolean; filled?: number; missing?: number; total?: number; message?: string }> {
   const { isAiEnabled, getAiConfig } = await import("@/lib/ai/client");
   if (!isAiEnabled()) {
@@ -1665,6 +1810,11 @@ export async function estimateFoodNutrientsAction(
   const config = getAiConfig();
   if (!hasKey(config.provider)) {
     return { ok: false, message: "No AI key configured. Add one in Settings." };
+  }
+  const { sanitizeNutrientCodes } = await import("@/lib/ai/estimate-food");
+  const codes = nutrientCodes === undefined ? undefined : sanitizeNutrientCodes(nutrientCodes);
+  if (codes !== undefined && codes.length === 0) {
+    return { ok: false, message: "Select at least one nutrient to estimate." };
   }
 
   const limited = await aiThrottle("estimate-food", 20);
@@ -1681,14 +1831,19 @@ export async function estimateFoodNutrientsAction(
   const target = fresh ?? food;
 
   try {
-    const estimate = await estimateNutrients(target, { masterPrompt: getMasterPrompt() });
+    const estimate = await estimateNutrients(target, {
+      masterPrompt: getMasterPrompt(),
+      codes: codes ? new Set(codes) : undefined,
+    });
     if (estimate.fills.length === 0) {
       return {
         ok: true,
         filled: 0,
         missing: 0,
         total: 0,
-        message: "Every nutrient is filled in, or the model had nothing confident to add.",
+        message: codes
+          ? "Nothing you selected is missing — the known values stay as they are."
+          : "Every nutrient is filled in, or the model had nothing confident to add.",
       };
     }
     const result = fillEstimatedCapturedFood(foodId, estimate.fills.map((fill) => ({
@@ -1699,7 +1854,9 @@ export async function estimateFoodNutrientsAction(
       model: estimate.model,
     })));
     revalidatePath(`/foods/${foodId}`);
+    refresh();
     revalidatePath("/foods");
+    refresh();
     return {
       ok: true,
       filled: result.filled,
@@ -1729,12 +1886,14 @@ export async function saveMasterPromptAction(
   }
   setMasterPrompt(trimmed ? trimmed : DEFAULT_MASTER_PROMPT);
   revalidatePath("/settings");
+  refresh();
   return { ok: true };
 }
 
 export async function resetMasterPromptAction(): Promise<{ ok: boolean }> {
   resetMasterPrompt();
   revalidatePath("/settings");
+  refresh();
   return { ok: true };
 }
 
@@ -1748,37 +1907,214 @@ export async function resetMasterPromptAction(): Promise<{ ok: boolean }> {
  */
 export async function saveTargetRulesAction(
   input: unknown,
+  expectedPersonId?: string,
 ): Promise<{ ok: boolean; message?: string; rules?: TargetRules }> {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return { ok: false, message: "Those thresholds are not valid." };
   }
 
-  const rules = setTargetRules(input);
+  const person = await getActivePerson();
+  try {
+    assertExpectedPerson(expectedPersonId, person);
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Review this form and submit it again.",
+    };
+  }
+
+  const rules = setTargetRules(person.id, input);
   revalidatePath("/");
+  refresh();
   revalidatePath("/plan");
+  refresh();
   revalidatePath("/profile");
+  refresh();
   revalidatePath("/settings");
+  refresh();
   revalidatePath("/about");
+  refresh();
   return { ok: true, rules };
 }
 
-export async function resetTargetRulesAction(): Promise<{ ok: boolean; rules: TargetRules }> {
-  resetTargetRules();
+export async function resetTargetRulesAction(
+  expectedPersonId?: string,
+): Promise<{ ok: boolean; message?: string; rules: TargetRules }> {
+  const person = await getActivePerson();
+  try {
+    assertExpectedPerson(expectedPersonId, person);
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Review this form and submit it again.",
+      rules: DEFAULT_TARGET_RULES,
+    };
+  }
+
+  resetTargetRules(person.id);
   revalidatePath("/");
+  refresh();
   revalidatePath("/plan");
+  refresh();
   revalidatePath("/profile");
+  refresh();
   revalidatePath("/settings");
+  refresh();
   revalidatePath("/about");
+  refresh();
   return { ok: true, rules: DEFAULT_TARGET_RULES };
+}
+
+/* -------------------------------------------------------------- people */
+
+export interface PersonActionResult {
+  ok: boolean;
+  message?: string;
+  personId?: string;
+}
+
+/**
+ * Person scope changed. `revalidatePath` invalidates the server-side cache
+ * tags; `refresh()` is the server action's own signal to the client that the
+ * dynamic data on this route must be re-fetched. Both are needed: the client
+ * does not reliably re-render a shared layout from `router.refresh()` alone.
+ */
+function revalidatePeople(): void {
+  revalidatePath("/", "layout");
+  refresh();
+  revalidatePath("/");
+  refresh();
+  revalidatePath("/plan");
+  refresh();
+  revalidatePath("/profile");
+  refresh();
+  revalidatePath("/settings");
+  refresh();
+  refresh();
+}
+
+/**
+ * Switch the active person.
+ *
+ * The id is a roster pointer, not a credential: it is validated against the
+ * active people and written to an opaque cookie. The redirect/refresh is the
+ * caller's job so the switcher can stay on the page it is on.
+ */
+export async function switchPersonAction(personId: string): Promise<PersonActionResult> {
+  try {
+    const person = getPerson(personId);
+    if (!person || person.archivedAt) {
+      return { ok: false, message: "That person is not available." };
+    }
+    await setActivePersonCookie(person.id);
+    revalidatePeople();
+    return { ok: true, personId: person.id };
+  } catch (error) {
+    return fail("Could not switch people.", error, "switchPerson");
+  }
+}
+
+/**
+ * Add a person with their own body profile.
+ *
+ * The body fields are validated by the same `parseProfile` the profile page
+ * uses. "Copy targets from" copies only that person's status thresholds and
+ * per-nutrient overrides, never their diary, plans, profile or pinned
+ * amounts. The new person becomes active so the next screen is theirs.
+ */
+export async function createPersonAction(formData: FormData): Promise<PersonActionResult> {
+  try {
+    const displayName = String(formData.get("displayName") ?? "");
+    const parsed = parseProfile({
+      sex: formData.get("sex"),
+      ageYears: formData.get("ageYears"),
+      heightCm: formData.get("heightCm"),
+      weightKg: formData.get("weightKg"),
+      activity: formData.get("activity"),
+      goal: formData.get("goal"),
+      bodyFatPercent: formData.get("bodyFatPercent"),
+      pace: formData.get("pace"),
+      targetWeightKg: formData.get("targetWeightKg"),
+      targetEnergyKcal: formData.get("targetEnergyKcal"),
+    });
+    if (!parsed.ok) return { ok: false, message: parsed.message };
+
+    const copyFromRaw = formData.get("copyTargetsFrom");
+    const copyFrom =
+      typeof copyFromRaw === "string" && copyFromRaw.trim() !== "" ? copyFromRaw : null;
+    if (copyFrom && !getPerson(copyFrom)) {
+      return { ok: false, message: "The person to copy thresholds from no longer exists." };
+    }
+
+    const person = createPerson({ displayName });
+    saveProfile(person.id, parsed.profile);
+    if (copyFrom) setTargetRules(person.id, getTargetRules(copyFrom));
+
+    await setActivePersonCookie(person.id);
+    revalidatePeople();
+    return { ok: true, personId: person.id };
+  } catch (error) {
+    return fail("Could not add that person.", error, "createPerson");
+  }
+}
+
+export async function renamePersonAction(
+  personId: string,
+  displayName: string,
+): Promise<PersonActionResult> {
+  try {
+    const person = updatePerson(personId, { displayName });
+    revalidatePeople();
+    return { ok: true, personId: person.id };
+  } catch (error) {
+    return fail("Could not rename that person.", error, "renamePerson");
+  }
+}
+
+export async function archivePersonAction(personId: string): Promise<PersonActionResult> {
+  try {
+    archivePerson(personId);
+    revalidatePeople();
+    return { ok: true, personId };
+  } catch (error) {
+    return fail("Could not deactivate that person.", error, "archivePerson");
+  }
+}
+
+export async function unarchivePersonAction(personId: string): Promise<PersonActionResult> {
+  try {
+    unarchivePerson(personId);
+    revalidatePeople();
+    return { ok: true, personId };
+  } catch (error) {
+    return fail("Could not reactivate that person.", error, "unarchivePerson");
+  }
+}
+
+/** Hard delete. The panel's two-step confirmation is the guard, not a token. */
+export async function deletePersonAction(personId: string): Promise<PersonActionResult> {
+  try {
+    deletePerson(personId);
+    revalidatePeople();
+    return { ok: true, personId };
+  } catch (error) {
+    // The last-person and last-active rules are user-facing refusals, not
+    // driver failures, so they keep their sentence.
+    if (error instanceof Error && /last (active )?person/i.test(error.message)) {
+      return { ok: false, message: error.message };
+    }
+    return fail("Could not delete that person.", error, "deletePerson");
+  }
 }
 
 import {
   getPurgePreview,
+  purgeCategories,
   purgeData,
-  PURGE_CATEGORIES,
   type PurgeBlocker,
   type PurgeCategoryId,
   type PurgePreview,
+  type PurgeScope,
 } from "@/lib/db/purge";
 
 export type PurgeActionResult =
@@ -1797,17 +2133,28 @@ export type PurgeActionResult =
       preview: PurgePreview;
     };
 
+function isPurgeScope(value: unknown): value is PurgeScope {
+  return value === "person" || value === "household";
+}
+
 /**
  * A preview is always part of the reply, even when the database is locked or
  * corrupt enough that the read itself fails. The panel can then show a fixed
  * message instead of throwing while trying to render its own error.
  */
-function safePurgePreview(): PurgePreview {
+function safePurgePreview(
+  scope: PurgeScope,
+  personId: string | null,
+  personName: string | null = null,
+): PurgePreview {
   try {
-    return getPurgePreview();
+    return getPurgePreview(scope, personId);
   } catch {
     return {
-      categories: PURGE_CATEGORIES.map((spec) => ({
+      scope,
+      personId: scope === "person" ? personId : null,
+      personName: scope === "person" ? personName : null,
+      categories: purgeCategories(scope).map((spec) => ({
         id: spec.id,
         label: spec.label,
         unit: spec.unit,
@@ -1820,24 +2167,55 @@ function safePurgePreview(): PurgePreview {
 }
 
 /**
+ * Re-read a preview for the scope the panel is showing.
+ *
+ * The active person always comes from the cookie, never from the client: a
+ * person is a filter, not a credential, but the action still does not accept
+ * a caller-chosen id for a destructive read.
+ */
+export async function purgePreviewAction(scope: PurgeScope): Promise<PurgePreview> {
+  if (!isPurgeScope(scope) || scope === "household") {
+    return safePurgePreview("household", null);
+  }
+  const person = await getActivePerson();
+  return safePurgePreview("person", person.id, person.displayName);
+}
+
+/**
  * Delete selected categories of user data.
  *
- * The category ids are the allowlist; `purgeData` rejects an unknown one
- * instead of guessing. Everything else the action does is containment: a
- * shape check before the database is touched, a small rate limit, a catch
- * that turns a low-level failure into a fixed sentence, and a fresh preview
- * in every reply so the panel never shows counts from before the delete.
+ * The scope decides which category ids are legal, and `purgeData` rejects an
+ * unknown one instead of guessing. For a person purge the person is the
+ * active person resolved from the cookie; the client never names whose data
+ * to delete. Everything else the action does is containment: a shape check
+ * before the database is touched, a small rate limit, a catch that turns a
+ * low-level failure into a fixed sentence, and a fresh preview in every reply
+ * so the panel never shows counts from before the delete.
  *
  * There is no confirmation token here. The UI's two-step flow is a guard
  * against a mis-click, not an authorisation: this app has one user, and the
  * gate in `proxy.ts` decides whether the request reaches the app at all.
  */
-export async function purgeDataAction(categories: string[]): Promise<PurgeActionResult> {
-  const preview = safePurgePreview();
+export async function purgeDataAction(
+  scope: PurgeScope,
+  categories: string[],
+): Promise<PurgeActionResult> {
+  if (!isPurgeScope(scope)) {
+    return {
+      ok: false,
+      message: "That deletion scope is not recognised.",
+      preview: safePurgePreview("household", null),
+    };
+  }
+
+  const person = scope === "person" ? await getActivePerson() : null;
+  const personId = person?.id ?? null;
+  const personName = person?.displayName ?? null;
+  const preview = safePurgePreview(scope, personId, personName);
 
   // Validate before charging the bucket: a malformed request from the UI
   // should not lock the legitimate user out of their own delete button.
-  if (!Array.isArray(categories) || categories.length > PURGE_CATEGORIES.length) {
+  if (!Array.isArray(categories) || categories.length > purgeCategories(scope).length) {
     return {
       ok: false,
       message: "That deletion request is not valid.",
@@ -1858,32 +2236,46 @@ export async function purgeDataAction(categories: string[]): Promise<PurgeAction
   }
 
   try {
-    const result = purgeData(categories);
+    const result = purgeData(scope, personId, categories);
     if (!result.ok) {
-      return { ...result, preview: safePurgePreview() };
+      return {
+        ...result,
+        preview: safePurgePreview(scope, personId, personName),
+      };
     }
 
     revalidatePath("/");
+    refresh();
     revalidatePath("/plan");
+    refresh();
     revalidatePath("/recipes");
+    refresh();
     revalidatePath("/foods");
+    refresh();
     revalidatePath("/profile");
+    refresh();
     revalidatePath("/settings");
+    refresh();
 
-    return { ...result, preview: safePurgePreview() };
+    return {
+      ...result,
+      preview: safePurgePreview(scope, personId, personName),
+    };
   } catch {
     // `purgeData` already rolls back its transaction. A failure here is a
     // locked or corrupt database, not a reason to leak a driver message.
     return {
       ok: false,
       message: "The deletion could not be completed. Check the counts and try again.",
-      preview: safePurgePreview(),
+      preview: safePurgePreview(scope, personId, personName),
     };
   }
 }
 
 export async function estimateFoodsAction(input?: {
   foodIds?: string[];
+  /** Restrict the fill to these nutrient codes. Omitted = every unknown nutrient. */
+  nutrientCodes?: string[];
 }): Promise<{
   ok: boolean;
   filled?: number;
@@ -1899,14 +2291,20 @@ export async function estimateFoodsAction(input?: {
     return { ok: false, message: "No AI key configured. Add one in Settings." };
   }
 
-  const { fillAllWithAi } = await import("@/lib/ai/estimate-food");
+  const { fillAllWithAi, sanitizeNutrientCodes } = await import("@/lib/ai/estimate-food");
+  const nutrientCodes = input?.nutrientCodes === undefined ? undefined : sanitizeNutrientCodes(input.nutrientCodes);
+  if (nutrientCodes !== undefined && nutrientCodes.length === 0) {
+    return { ok: false, message: "Select at least one nutrient to estimate." };
+  }
   try {
     const limited = await aiThrottle("estimate-batch", 5);
     if (limited) return { ok: false, message: limited };
-    const result = await fillAllWithAi({ masterPrompt: getMasterPrompt(), foodIds: input?.foodIds });
+    const result = await fillAllWithAi({ masterPrompt: getMasterPrompt(), foodIds: input?.foodIds, nutrientCodes });
     const failedNames = result.failed.length;
     revalidatePath("/foods");
+    refresh();
     revalidatePath("/");
+    refresh();
     return {
       ok: true,
       filled: result.foodsEstimated,

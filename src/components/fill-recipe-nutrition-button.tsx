@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { estimateFoodsAction } from "@/app/actions";
 import { EstimateFoodsDialog } from "@/components/estimate-foods-dialog";
+import type { NutrientCode } from "@/lib/nutrition/types";
 
 /**
  * "Fill the leftover nutrition of this recipe's ingredients with AI."
@@ -14,7 +15,7 @@ import { EstimateFoodsDialog } from "@/components/estimate-foods-dialog";
 export function FillRecipeNutritionButton({
   foods,
 }: {
-  foods: Array<{ id: string; name: string; missing: number }>;
+  foods: Array<{ id: string; name: string; missingCodes: NutrientCode[] }>;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -23,11 +24,14 @@ export function FillRecipeNutritionButton({
 
   if (foods.length === 0) return null;
 
-  function go() {
+  function go(codes: NutrientCode[]) {
     setOpen(false);
     setMessage(null);
     startTransition(async () => {
-      const result = await estimateFoodsAction({ foodIds: foods.map((f) => f.id) });
+      const result = await estimateFoodsAction({
+        foodIds: foods.map((f) => f.id),
+        nutrientCodes: codes,
+      });
       setMessage(result.message ?? (result.ok ? "Done." : "Failed."));
       router.refresh();
     });

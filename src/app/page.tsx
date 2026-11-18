@@ -7,6 +7,7 @@ import { isDefaultProfile } from "@/lib/profile";
 import { targetsFor } from "@/lib/targets";
 import { getPlan, listPlanEntries } from "@/lib/db/plan";
 import { listRecipeOptions } from "@/lib/db/recipes";
+import { getActivePerson } from "@/lib/person-server";
 import { weekStart, SLOTS, SLOT_LABELS, entryRollup, entriesForDay, versionName } from "@/lib/plan";
 
 export const dynamic = "force-dynamic";
@@ -16,19 +17,22 @@ export default async function HomePage({
 }: {
   searchParams: Promise<{ day?: string }>;
 }) {
+  const person = await getActivePerson();
   const { day: requested } = await searchParams;
   const day = requested && /^\d{4}-\d{2}-\d{2}$/.test(requested) ? requested : today();
-  const entries = listEntries(day);
-  const profile = getProfile();
-  const targets = targetsFor(profile, getTargetRules());
+  const entries = listEntries(person.id, day);
+  const profile = getProfile(person.id);
+  const targets = targetsFor(profile, getTargetRules(person.id));
   const foods = listFoods();
 
   // Planned for this day, so the Diary reflects the plan live.
-  const plan = getPlan(weekStart(day));
+  const plan = getPlan(person.id, weekStart(day));
   const allRecipes = listRecipeOptions();
   const foodById = new Map(foods.map((f) => [f.id, f]));
   const recipeByVersion = new Map(listRecipeOptions().map((o) => [o.versionId, o]));
-  const plannedRaw = plan ? entriesForDay(listPlanEntries(plan.id), day) : [];
+  const plannedRaw = plan
+    ? entriesForDay(listPlanEntries(person.id, plan.id), day)
+    : [];
   const planned = plannedRaw.map((entry) => {
     const kcal = entryRollup(entry, foodById, recipeByVersion)?.totals.ENERC_KCAL ?? null;
     let name = "Unknown";

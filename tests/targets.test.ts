@@ -185,6 +185,7 @@ describe("persistence", () => {
   let settings: typeof import("@/lib/db/settings");
   let registry: typeof import("@/lib/archive/registry");
   let db: typeof import("@/lib/db/client")["db"];
+  let personId: string;
 
   beforeAll(async () => {
     dir = mkdtempSync(path.join(tmpdir(), "nutriplan-target-rules-"));
@@ -193,6 +194,7 @@ describe("persistence", () => {
     settings = await import("@/lib/db/settings");
     registry = await import("@/lib/archive/registry");
     ({ db } = await import("@/lib/db/client"));
+    personId = (await import("@/lib/db/people")).defaultPersonId();
   });
 
   afterAll(() => {
@@ -201,12 +203,12 @@ describe("persistence", () => {
   });
 
   it("reads the defaults when nothing is stored", () => {
-    settings.resetTargetRules();
-    expect(settings.getTargetRules()).toEqual(DEFAULT_TARGET_RULES);
+    settings.resetTargetRules(personId);
+    expect(settings.getTargetRules(personId)).toEqual(DEFAULT_TARGET_RULES);
   });
 
   it("round-trips a normalized rule set", () => {
-    settings.setTargetRules({
+    settings.setTargetRules(personId, {
       amberOver: 0.1,
       redAt: 0.1,
       tolerance: 0.2,
@@ -214,7 +216,7 @@ describe("persistence", () => {
       overrides: { NA: 1800, SUGAR: 40 },
     });
 
-    expect(settings.getTargetRules()).toEqual({
+    expect(settings.getTargetRules(personId)).toEqual({
       amberOver: 0.1,
       redAt: 0.1,
       tolerance: 0.2,
@@ -225,20 +227,22 @@ describe("persistence", () => {
 
   it("falls back to the defaults when the stored row is not valid JSON", () => {
     db.prepare(
-      `INSERT INTO app_settings (key, value) VALUES ('target_rules', '{not json')
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-    ).run();
+      `INSERT INTO person_settings (person_id, key, value, updated_at)
+       VALUES (?, 'target_rules', '{not json', ?)
+       ON CONFLICT(person_id, key) DO UPDATE SET value = excluded.value`,
+    ).run(personId, new Date().toISOString());
 
-    expect(settings.getTargetRules()).toEqual(DEFAULT_TARGET_RULES);
+    expect(settings.getTargetRules(personId)).toEqual(DEFAULT_TARGET_RULES);
   });
 
   it("reset removes the row", () => {
-    settings.setTargetRules({ ...DEFAULT_TARGET_RULES, amberOver: 0.15 });
-    settings.resetTargetRules();
-    expect(settings.getTargetRules()).toEqual(DEFAULT_TARGET_RULES);
+    settings.setTargetRules(personId, { ...DEFAULT_TARGET_RULES, amberOver: 0.15 });
+    settings.resetTargetRules(personId);
+    expect(settings.getTargetRules(personId)).toEqual(DEFAULT_TARGET_RULES);
   });
 
-  it("lets an archive restore the setting", () => {
-    expect(registry.IMPORTABLE_SETTINGS.has("target_rules")).toBe(true);
+  it("lets a person archive restore the setting", () => {
+    expect(registry.IMPORTABLE_PERSON_SETTINGS.has("target_rules")).toBe(true);
+    expect(registry.IMPORTABLE_SETTINGS.has("target_rules")).toBe(false);
   });
 });

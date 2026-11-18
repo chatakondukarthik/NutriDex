@@ -32,19 +32,21 @@ export function resetMasterPrompt(): void {
 }
 
 /**
- * Status thresholds and per-nutrient overrides.
+ * Status thresholds and per-nutrient overrides, stored per person.
  *
- * Stored as one JSON setting so a half-written pair of percentages cannot
- * exist. Reading runs the same parser as an archive import, which means a
- * hand-edited database row, a restored archive and a submitted form all go
- * through one set of rules.
+ * Stored as one JSON value in `person_settings` so a half-written pair of
+ * percentages cannot exist. Reading runs the same parser as an archive
+ * import, which means a hand-edited database row, a restored archive and a
+ * submitted form all go through one set of rules.
+ *
+ * The AI master prompt above stays household-wide (D-051).
  */
 const TARGET_RULES_KEY = "target_rules";
 
-export function getTargetRules(): TargetRules {
+export function getTargetRules(personId: string): TargetRules {
   const row = db
-    .prepare("SELECT value FROM app_settings WHERE key = ?")
-    .get(TARGET_RULES_KEY) as unknown as { value: string } | undefined;
+    .prepare("SELECT value FROM person_settings WHERE person_id = ? AND key = ?")
+    .get(personId, TARGET_RULES_KEY) as unknown as { value: string } | undefined;
   if (!row) return DEFAULT_TARGET_RULES;
 
   try {
@@ -56,15 +58,21 @@ export function getTargetRules(): TargetRules {
   }
 }
 
-export function setTargetRules(rules: unknown): TargetRules {
+export function setTargetRules(personId: string, rules: unknown): TargetRules {
   const normalized = normalizeTargetRules(rules);
   db.prepare(
-    `INSERT INTO app_settings (key, value) VALUES (?, ?)
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-  ).run(TARGET_RULES_KEY, JSON.stringify(normalized));
+    `INSERT INTO person_settings (person_id, key, value, updated_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT (person_id, key) DO UPDATE SET
+       value = excluded.value,
+       updated_at = excluded.updated_at`,
+  ).run(personId, TARGET_RULES_KEY, JSON.stringify(normalized), new Date().toISOString());
   return normalized;
 }
 
-export function resetTargetRules(): void {
-  db.prepare("DELETE FROM app_settings WHERE key = ?").run(TARGET_RULES_KEY);
+export function resetTargetRules(personId: string): void {
+  db.prepare("DELETE FROM person_settings WHERE person_id = ? AND key = ?").run(
+    personId,
+    TARGET_RULES_KEY,
+  );
 }

@@ -122,6 +122,13 @@ export interface Food {
   source?: string;
   /** Barcode or external id the record came from. */
   sourceCode?: string;
+  /** Normalised provenance tag for UIs (see @/lib/provenance). */
+  sourceKind?: string | null;
+  /** Free-text date of the source row, e.g. publication date for USDA. */
+  sourcePublished?: string | null;
+  /** When this row record was captured (captured foods only). */
+  createdBy?: string | null;
+  createdAt?: string | null;
   /** The basis the captured values were declared on (D-020). */
   basis?: "per_100g" | "per_serving" | "per_pack";
   servingSizeG?: number;

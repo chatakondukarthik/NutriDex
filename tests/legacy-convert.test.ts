@@ -16,6 +16,7 @@ let dir: string;
 let db: typeof import("@/lib/db/client")["db"];
 let convert: typeof import("@/lib/legacy-convert");
 let getVersion: typeof import("@/lib/db/recipes")["getVersion"];
+let personId: string;
 
 const NOW = "2026-11-18T09:00:00.000Z";
 
@@ -52,6 +53,7 @@ beforeAll(async () => {
   ({ db } = await import("@/lib/db/client"));
   convert = await import("@/lib/legacy-convert");
   ({ getVersion } = await import("@/lib/db/recipes"));
+  personId = (await import("@/lib/db/people")).defaultPersonId();
 });
 
 afterAll(() => {
@@ -101,7 +103,9 @@ describe("convertAllLegacyRecipes", () => {
   });
 
   it("keeps a plan pinned to the legacy version on that version", () => {
-    db.prepare(`INSERT INTO plans (id, starts_on, created_at) VALUES ('p-legacy', '2026-11-16', ?)`).run(NOW);
+    db.prepare(
+      `INSERT INTO plans (id, person_id, starts_on, created_at) VALUES ('p-legacy', ?, '2026-11-16', ?)`,
+    ).run(personId, NOW);
     db.prepare(
       `INSERT INTO plan_entries (id, plan_id, day, slot, position, recipe_version_id, servings, created_at)
        VALUES ('pe-legacy', 'p-legacy', '2026-11-16', 'lunch', 0, 'v-legacy', 1, ?)`,

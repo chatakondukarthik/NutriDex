@@ -164,12 +164,17 @@
 
 /* ---------------------------------------------------------------- base */
 
-html,
-body {
+html {
   height: 100%;
 }
 
 body {
+  /*
+    Not `height: 100%`: a definite height clamps body to one viewport, and
+    `position: sticky` can only keep the header pinned inside its containing
+    block — which body is. The header then scrolled away with the page.
+    `min-height` still guarantees a full-height canvas.
+  */
   min-height: 100%;
   background-color: var(--canvas);
   background-image:

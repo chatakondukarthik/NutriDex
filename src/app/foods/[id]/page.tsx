@@ -1,12 +1,12 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getFood } from "@/lib/db/foods";
-import { deleteCapturedFoodAction } from "@/app/actions";
-import { DeleteButton } from "@/components/delete-button";
 import { NUTRIENT_CODES, NUTRIENTS } from "@/lib/nutrition/types";
 import { fmt } from "@/lib/format";
-import { EstimateWithAiButton } from "@/components/estimate-with-ai-button";
+import { FoodDetailActions } from "@/components/food-detail-actions";
 import { aiStatus } from "@/lib/ai/client";
+import { listPeople } from "@/lib/db/people";
+import { ProvenanceChip } from "@/components/provenance-chip";
+import { foodProvenance } from "@/lib/provenance";
 
 export const dynamic = "force-dynamic";
 
@@ -27,43 +27,38 @@ export default async function FoodDetailPage({ params }: { params: Promise<{ id:
   );
   const ai = aiStatus();
   const isCaptured = !!food.source;
+  const missingCodes = NUTRIENT_CODES.filter((code) => food.nutrients[code]?.amount == null);
+  const provenance = foodProvenance(food.source ?? null, food.sourceKind ?? null);
+  const capturedBy = food.createdBy
+    ? (listPeople({ includeArchived: true }).find((person) => person.id === food.createdBy)?.displayName ??
+       (food.createdBy === "local" ? "you (before households)" : "a member who left"))
+    : null;
+  const capturedOn = food.createdAt ? new Date(food.createdAt) : null;
 
   return (
     <main className="mx-auto max-w-5xl px-5 py-6">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{food.name}</h1>
-          <p className="mt-1 text-xs text-muted">
-            {food.category} · {food.kind} · {food.state}
-            {food.aliases?.length ? ` · ${food.aliases.join(", ")}` : ""}
+          <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted">
+            {food.source && <ProvenanceChip provenance={provenance} />}
+            <span>
+              {food.category} · {food.kind} · {food.state}
+              {food.aliases?.length ? ` · ${food.aliases.join(", ")}` : ""}
+            </span>
           </p>
         </div>
-        <div className="flex gap-2">
-          {isCaptured && (
-            <EstimateWithAiButton
-              foodId={food.id}
-              missingCount={counts.unknown}
-              aiEnabled={ai.enabled}
-              hasKey={ai.hasKey}
-            />
-          )}
-          {food.source ? (
-            <>
-              <Link href={`/foods/${food.id}/edit`} className="rounded-md border border-line px-3 py-1.5 text-xs font-medium">
-                Edit
-              </Link>
-              <DeleteButton
-                label="Delete"
-                redirectTo="/foods"
-                action={deleteCapturedFoodAction}
-                arg={food.id}
-              />
-            </>
-          ) : null}
-          <Link href="/foods" className="rounded-md border border-line px-3 py-1.5 text-xs font-medium">
-            Back
-          </Link>
-        </div>
+        <FoodDetailActions
+          layout="row"
+          foodId={food.id}
+          foodName={food.name}
+          isCaptured={isCaptured}
+          missingCount={counts.unknown}
+          missingCodes={missingCodes}
+          aiEnabled={ai.enabled}
+          hasKey={ai.hasKey}
+          source={food.source}
+        />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -73,7 +68,25 @@ export default async function FoodDetailPage({ params }: { params: Promise<{ id:
             <div className="flex justify-between"><dt className="text-muted">Basis</dt><dd>{food.basis ?? "per 100 g"}</dd></div>
             {food.servingSizeG != null && <div className="flex justify-between"><dt className="text-muted">Serving size</dt><dd>{food.servingSizeG} g</dd></div>}
             {food.densityGPerMl != null && <div className="flex justify-between"><dt className="text-muted">Density</dt><dd>{food.densityGPerMl} g/ml</dd></div>}
-            {food.source && <div className="flex justify-between"><dt className="text-muted">Source</dt><dd>{food.source}{food.sourceCode ? ` (${food.sourceCode})` : ""}</dd></div>}
+            {food.source && (
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted">Source</dt>
+                <dd className="text-right">
+                  <span title={provenance.title}>{provenance.short}</span>
+                  {food.sourceCode ? ` · ${food.sourceCode}` : ""}
+                  {food.sourcePublished ? ` · pub ${food.sourcePublished}` : ""}
+                </dd>
+              </div>
+            )}
+            {isCaptured && capturedOn && (
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted">Captured</dt>
+                <dd className="text-right">
+                  {capturedOn.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                  {capturedBy ? ` · by ${capturedBy}` : ""}
+                </dd>
+              </div>
+            )}
             {food.confidence != null && <div className="flex justify-between"><dt className="text-muted">Confidence</dt><dd>{Math.round(food.confidence * 100)}%</dd></div>}
           </dl>
 
@@ -139,6 +152,17 @@ export default async function FoodDetailPage({ params }: { params: Promise<{ id:
           </ul>
         </section>
       </div>
+      <FoodDetailActions
+        layout="stack"
+        foodId={food.id}
+        foodName={food.name}
+        isCaptured={isCaptured}
+        missingCount={counts.unknown}
+        missingCodes={missingCodes}
+        aiEnabled={ai.enabled}
+        hasKey={ai.hasKey}
+        source={food.source}
+      />
     </main>
   );
 }

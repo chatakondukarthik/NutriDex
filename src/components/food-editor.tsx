@@ -13,6 +13,7 @@ import {
   promoteFoodToRecipeAction,
   saveFoodDefaultAction,
 } from "@/app/actions";
+import { ImageCapture, type CapturedImage } from "@/components/image-capture";
 import type { CapturedFoodInput } from "@/lib/captured-food";
 import { NUTRIENT_CODES, NUTRIENTS, type NutrientCode } from "@/lib/nutrition/types";
 import type { Food } from "@/lib/nutrition/types";
@@ -81,9 +82,24 @@ export function FoodEditor({ initial, mode, ai, defaultPin }: Props) {
   const [aiNote, setAiNote] = useState("");
   const [barcode, setBarcode] = useState("");
   const [usdaQuery, setUsdaQuery] = useState("");
-  const [usdaResults, setUsdaResults] = useState<{ fdcId: number; name: string; category?: string; nutrients: number }[]>([]);
-  const [aiImage, setAiImage] = useState<string | null>(null);
-  const [aiImageMime, setAiImageMime] = useState<string>("image/jpeg");
+  /** The state the visible results were actually produced from. */
+  /** USDA data source filter, comma-joined for the API. "" means all. */
+  const [usdaDataType, setUsdaDataType] = useState("");
+  const [usdaSort, setUsdaSort] = useState<"score" | "publishedDate" | "description">("score");
+  const [usdaResults, setUsdaResults] = useState<{
+    fdcId: number;
+    name: string;
+    brand?: string;
+    brandOwner?: string;
+    category?: string;
+    dataType?: string;
+    publishedDate?: string;
+    ingredients?: string;
+    gtinUpc?: string;
+    packageWeight?: string;
+    nutrients: number;
+  }[]>([]);
+  const [aiImages, setAiImages] = useState<CapturedImage[]>([]);
   const [rationale, setRationale] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [draftBanner, setDraftBanner] = useState<"hidden" | "restore" | "restoring">("hidden");
@@ -219,7 +235,15 @@ export function FoodEditor({ initial, mode, ai, defaultPin }: Props) {
     if (Array.isArray(proposal.estimated)) setEstimated(new Set(proposal.estimated));
     if (proposal.source) setSource(proposal.source);
     if (proposal.rationale) setRationale(proposal.rationale);
-    setMessage("Filled from the proposal. Review before saving.");
+    const filledNutrients =
+      proposal.nutrients && typeof proposal.nutrients === "object"
+        ? Object.keys(proposal.nutrients).length
+        : 0;
+    setMessage(
+      filledNutrients
+        ? "Filled from the proposal. Review before saving."
+        : "Filled the basics, but the model read no nutrients. Try a closer, sharper photo of the panel, or use Fill from text.",
+    );
   }
 
   function runTextExtract() {
@@ -232,12 +256,12 @@ export function FoodEditor({ initial, mode, ai, defaultPin }: Props) {
   }
 
   function runImageExtract() {
-    if (!aiImage) { setMessage("Choose an image first."); return; }
+    if (aiImages.length === 0) { setMessage("Choose an image first."); return; }
     setMessage(null);
     startTransition(async () => {
       const result = await extractFoodAction({
         mode: "image",
-        images: [{ mimeType: aiImageMime, data: aiImage }],
+        images: aiImages,
         note: aiNote || undefined,
       });
       if (!result.ok) setMessage(result.message ?? "Extraction failed.");
@@ -255,13 +279,22 @@ export function FoodEditor({ initial, mode, ai, defaultPin }: Props) {
     });
   }
 
+  /** The state the visible results were actually produced from. */
+  const [usdaSearchState, setUsdaSearchState] = useState<{ query: string; dataType: string; sortBy: typeof usdaSort } | null>(null);
+
   function runUsdaSearch() {
     if (!usdaQuery.trim()) { setMessage("Enter a search term."); return; }
     setMessage(null);
     startTransition(async () => {
-      const result = await searchUsdaAction(usdaQuery.trim());
+      const result = await searchUsdaAction(usdaQuery.trim(), {
+        dataType: usdaDataType === "" ? undefined : usdaDataType,
+        sortBy: usdaSort,
+      });
       if (!result.ok) setMessage(result.message ?? "Search failed.");
-      else setUsdaResults(result.results ?? []);
+      else {
+        setUsdaResults(result.results ?? []);
+        setUsdaSearchState({ query: usdaQuery.trim(), dataType: usdaDataType, sortBy: usdaSort });
+      }
     });
   }
 
@@ -272,26 +305,6 @@ export function FoodEditor({ initial, mode, ai, defaultPin }: Props) {
       if (!result.ok) setMessage(result.message ?? "Import failed.");
       else applyProposal(result.proposal);
     });
-  }
-
-  function onImageFile(file: File | null) {
-    if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      setMessage("That image is larger than 5 MB. Pick a smaller one.");
-      return;
-    }
-    if (!file.type.startsWith("image/")) {
-      setMessage("That does not look like an image.");
-      return;
-    }
-    setAiImageMime(file.type || "image/jpeg");
-    const reader = new FileReader();
-    reader.onload = () => {
-      const r = reader.result as string;
-      const comma = r.indexOf(",");
-      setAiImage(comma >= 0 ? r.slice(comma + 1) : r);
-    };
-    reader.readAsDataURL(file);
   }
 
   function save() {
@@ -438,23 +451,30 @@ export function FoodEditor({ initial, mode, ai, defaultPin }: Props) {
                 className="rounded-md border border-line bg-surface px-2 py-1.5 text-sm"
               />
             </label>
+            <div className="mt-2">
+              <ImageCapture
+                label="Label photos"
+                hint="A screenshot of the panel works well. Up to 3."
+                disabled={pending}
+                onChange={setAiImages}
+              />
+            </div>
+            {aiImages.length > 0 && (
+              <input
+                value={aiNote}
+                onChange={(e) => setAiNote(e.target.value)}
+                placeholder="note (per 100 g, front of pack…)"
+                className="mt-2 w-full rounded-md border border-line bg-surface px-2 py-1.5 text-[11px]"
+              />
+            )}
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <button type="button" onClick={runTextExtract} disabled={pending || !aiText.trim()} className="rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium disabled:opacity-50">
                 Fill from text
               </button>
               <span className="text-[10px] text-muted">or</span>
-              <label className="cursor-pointer rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium hover:bg-ink/5">
-                {aiImage ? "Label photo ready ✓" : "Upload label photo"}
-                <input type="file" accept="image/*" className="hidden" onChange={(e) => onImageFile(e.target.files?.[0] ?? null)} />
-              </label>
-              {aiImage && (
-                <>
-                  <input value={aiNote} onChange={(e) => setAiNote(e.target.value)} placeholder="note (per 100 g, front of pack…)" className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1.5 text-[11px]" />
-                  <button type="button" onClick={runImageExtract} disabled={pending} className="rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium disabled:opacity-50">
-                    Fill from photo
-                  </button>
-                </>
-              )}
+              <button type="button" onClick={runImageExtract} disabled={pending || aiImages.length === 0} className="rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium disabled:opacity-50">
+                Fill from photo
+              </button>
             </div>
             {rationale && <p className="mt-2 text-[11px] italic text-muted">{rationale}</p>}
           </div>
@@ -492,20 +512,116 @@ export function FoodEditor({ initial, mode, ai, defaultPin }: Props) {
                 placeholder="paneer, chicken, moong dal…"
                 className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1.5 text-xs"
               />
-              <button type="button" onClick={runUsdaSearch} disabled={pending || !usdaQuery.trim()} className="rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium disabled:opacity-50">
+              <button type="button" onClick={() => runUsdaSearch()} disabled={pending || !usdaQuery.trim()} className="rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium disabled:opacity-50">
                 Search
               </button>
             </div>
+            <div className="mt-2 flex flex-wrap items-end gap-2">
+              <label className="flex flex-col gap-0.5 text-[10px] font-medium text-muted">
+                Data source
+                <select
+                  value={usdaDataType}
+                  onChange={(event) => setUsdaDataType(event.target.value)}
+                  className="rounded-md border border-line bg-surface px-2 py-1.5 text-[11px] text-ink"
+                >
+                  <option value="">All sources</option>
+                  <option value="SR Legacy,Foundation">Generic reference (SR Legacy + Foundation)</option>
+                  <option value="Foundation">Foundation only</option>
+                  <option value="Survey (FNDDS)">Survey (FNDDS)</option>
+                  <option value="Branded">Branded products</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-0.5 text-[10px] font-medium text-muted">
+                Sort
+                <select
+                  value={usdaSort}
+                  onChange={(event) => setUsdaSort(event.target.value as typeof usdaSort)}
+                  className="rounded-md border border-line bg-surface px-2 py-1.5 text-[11px] text-ink"
+                >
+                  <option value="score">Best match</option>
+                  <option value="publishedDate">Newest first</option>
+                  <option value="description">A–Z</option>
+                </select>
+              </label>
+              <p className="max-w-52 text-[9px] leading-snug text-faint">
+                USDA has no cuisine or region tags; the dataset is US-based. For Indian foods, use the{" "}
+                <Link href="/foods/import" className="text-accent underline underline-offset-2">
+                  INDB importer
+                </Link>
+                .
+              </p>
+            </div>
+            {(() => {
+              const pristineSearch =
+                usdaSearchState !== null &&
+                usdaSearchState.query === usdaQuery.trim() &&
+                usdaSearchState.dataType === usdaDataType &&
+                usdaSearchState.sortBy === usdaSort;
+              if (usdaResults.length > 0 && !pristineSearch) {
+                return (
+                  <p className="mt-1 text-[10px] leading-snug text-faint">
+                    Showing your last search — press{" "}
+                    <span className="font-medium text-ink/70">Search</span> to apply these filters.
+                  </p>
+                );
+              }
+              if (
+                usdaResults.length === 0 &&
+                !pending &&
+                usdaSearchState !== null &&
+                usdaQuery.trim() !== "" &&
+                pristineSearch
+              ) {
+                return (
+                  <p className="mt-1 text-[10px] leading-snug text-faint">
+                    No USDA matches for “{usdaQuery.trim()}”. Try a simpler or more generic name — or
+                    the <Link href="/foods/import" className="text-accent underline underline-offset-2">INDB importer</Link> for
+                    Indian foods.
+                  </p>
+                );
+              }
+              return null;
+            })()}
             {usdaResults.length > 0 && (
-              <ul className="mt-2 max-h-44 overflow-auto rounded-md border border-line bg-surface p-1 text-xs">
-                {usdaResults.map((r) => (
-                  <li key={r.fdcId} className="flex items-center justify-between gap-2 rounded px-1.5 py-1 hover:bg-ink/5">
-                    <span className="min-w-0 truncate">{r.name}{r.category ? ` · ${r.category}` : ""}</span>
-                    <button type="button" onClick={() => runUsdaImport(r.fdcId)} className="shrink-0 rounded-md border border-line px-2 py-0.5 text-[10px] font-medium">
-                      Import ({r.nutrients} nutrients)
-                    </button>
-                  </li>
-                ))}
+              <ul className="mt-2 max-h-52 divide-y divide-line overflow-auto rounded-md border border-line bg-surface p-1 text-xs">
+                {usdaResults.map((r) => {
+                  const meta = [
+                    r.dataType,
+                    r.category,
+                    r.publishedDate ? `pub ${r.publishedDate}` : null,
+                    r.brandOwner ? `owner ${r.brandOwner}` : null,
+                    r.gtinUpc ? `UPC ${r.gtinUpc}` : null,
+                    r.packageWeight ? String(r.packageWeight) : null,
+                    r.ingredients ? `ingredients ${r.ingredients.slice(0, 160)}` : null,
+                    `fdc ${r.fdcId}`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ");
+                  return (
+                    <li
+                      key={r.fdcId}
+                      title={meta}
+                      className="flex items-start justify-between gap-2 px-1.5 py-1.5 hover:bg-ink/5"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium leading-snug">{r.name}</span>
+                        <span className="mt-0.5 block truncate text-[9px] leading-snug text-muted">
+                          {r.dataType && (
+                            <span className="mr-1 rounded bg-ink/5 px-1 py-px font-medium">{r.dataType}</span>
+                          )}
+                          {r.category}
+                          {r.brand ? ` · ${r.brand}` : ""}
+                          {r.publishedDate ? ` · ${r.publishedDate}` : ""}
+                          {r.gtinUpc ? ` · UPC ${r.gtinUpc}` : ""}
+                          {` · fdc ${r.fdcId}`}
+                        </span>
+                      </span>
+                      <button type="button" onClick={() => runUsdaImport(r.fdcId)} className="mt-0.5 shrink-0 rounded-md border border-line px-2 py-0.5 text-[10px] font-medium">
+                        Import ({r.nutrients})
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             )}
             <p className="mt-1 text-[10px] text-muted">Public-domain USDA FoodData Central.</p>

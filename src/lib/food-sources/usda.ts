@@ -31,14 +31,52 @@ export interface UsdaFood {
   fdcId: number;
   name: string;
   brand?: string;
+  brandOwner?: string;
   category?: string;
+  /** "Branded" | "Foundation" | "SR Legacy" | "Survey (FNDDS)". */
+  dataType?: string;
+  /** YYYY-MM-DD, as USDA publishes it. */
+  publishedDate?: string;
+  /** Label owner, for branded rows. */
+  ingredients?: string;
+  gtinUpc?: string;
+  packageWeight?: string;
   nutrients: Partial<Record<NutrientCode, number>>;
   /** Household measures the USDA publishes for this food ("1 cup = 237 g"). */
   portions?: { label: string; grams: number; source: string }[];
 }
 
+/** USDA's canonical data sources, collapsed for display. */
+export const USDA_DATA_TYPES = [
+  { value: "Foundation", label: "Foundation (research-grade)" },
+  { value: "SR Legacy", label: "Reference (SR Legacy)" },
+  { value: "Survey (FNDDS)", label: "Survey (FNDDS)" },
+  { value: "Branded", label: "Branded products" },
+] as const;
+
+export type UsdaDataType = (typeof USDA_DATA_TYPES)[number]["value"];
+
+export const USDA_SORTS = [
+  { value: "score", label: "Best match" },
+  { value: "publishedDate", label: "Newest first" },
+  { value: "description", label: "A–Z" },
+] as const;
+
+export type UsdaSort = (typeof USDA_SORTS)[number]["value"];
+
+const DATA_TYPE_VALUES = new Set<string>(USDA_DATA_TYPES.map((t) => t.value));
+const SORT_VALUES = new Set<string>(USDA_SORTS.map((t) => t.value));
+
 /** Past this the body is not a food record — refuse before JSON.parse. */
 const MAX_RESPONSE_CHARS = 5_000_000;
+
+/** USDA answered with an HTTP error — never silently downgraded to "no results". */
+export class UsdaHttpError extends Error {
+  constructor(public readonly status: number) {
+    super(`USDA answered with HTTP ${status}.`);
+    this.name = "UsdaHttpError";
+  }
+}
 
 /**
  * Read and parse a response with a size cap. `res.json()` would buffer
@@ -55,15 +93,32 @@ async function readBoundedJson(res: Response): Promise<any> {
   return JSON.parse(text);
 }
 
-export async function searchUsda(query: string): Promise<UsdaFood[]> {
+export async function searchUsda(
+  query: string,
+  options: { dataType?: string; sortBy?: string } = {},
+): Promise<UsdaFood[]> {
   const q = query.trim();
   if (!q) return [];
   const key = process.env.NUTRIPLAN_USDA_KEY ?? "DEMO_KEY";
-  const url = `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(q)}&pageSize=12&api_key=${encodeURIComponent(key)}`;
+  const params = new URLSearchParams({
+    query: q,
+    pageSize: "12",
+    api_key: key,
+  });
+  const dataType = (options.dataType ?? "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => DATA_TYPE_VALUES.has(part))
+    .join(",");
+  if (dataType) params.set("dataType", dataType);
+  const sortBy = SORT_VALUES.has(options.sortBy ?? "") ? options.sortBy! : "score";
+  params.set("sortBy", sortBy);
+  params.set("sortOrder", sortBy === "description" ? "asc" : "desc");
+  const url = `https://api.nal.usda.gov/fdc/v1/foods/search?${params.toString()}`;
   // Bounded: this runs inside recipe saves and searches — a stalled
   // connection must fail fast, not hang the request indefinitely.
   const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-  if (!res.ok) return [];
+  if (!res.ok) throw new UsdaHttpError(res.status);
   const data = await readBoundedJson(res);
   const foods = (data?.foods ?? []) as any[];
   return foods.map((f) => {
@@ -78,7 +133,13 @@ export async function searchUsda(query: string): Promise<UsdaFood[]> {
       fdcId: f.fdcId,
       name: f.description ?? f.lowercaseDescription ?? `Food ${f.fdcId}`,
       brand: f.brandName,
+      brandOwner: f.brandOwner,
       category: f.foodCategory,
+      dataType: f.dataType,
+      publishedDate: f.publishedDate,
+      ingredients: typeof f.ingredients === "string" ? f.ingredients.slice(0, 500) : undefined,
+      gtinUpc: f.gtinUpc,
+      packageWeight: f.packageWeight,
       nutrients,
     };
   });
@@ -122,7 +183,7 @@ export async function getUsdaFood(fdcId: number): Promise<UsdaFood | null> {
   const key = process.env.NUTRIPLAN_USDA_KEY ?? "DEMO_KEY";
   const url = `https://api.nal.usda.gov/fdc/v1/food/${fdcId}?api_key=${encodeURIComponent(key)}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-  if (!res.ok) return null;
+  if (!res.ok) throw new UsdaHttpError(res.status);
   const f = await readBoundedJson(res);
   const nutrients: Partial<Record<NutrientCode, number>> = {};
   for (const n of f.foodNutrients ?? []) {
@@ -137,13 +198,25 @@ export async function getUsdaFood(fdcId: number): Promise<UsdaFood | null> {
     fdcId: f.fdcId,
     name: f.description ?? `Food ${f.fdcId}`,
     brand: f.brandName,
-    category: f.foodCategory?.description,
+    brandOwner: f.brandOwner,
+    category: f.foodCategory?.description ?? f.foodCategory,
+    dataType: f.dataType,
+    publishedDate: f.publishedDate,
+    ingredients: typeof f.ingredients === "string" ? f.ingredients.slice(0, 500) : undefined,
+    gtinUpc: f.gtinUpc,
+    packageWeight: f.packageWeight,
     nutrients,
     portions: portions.length > 0 ? portions : undefined,
   };
 }
 
 export function usdaToInput(food: UsdaFood): CapturedFoodInput {
+  const USDA_TYPES: Record<string, string> = {
+    Foundation: "foundation",
+    "SR Legacy": "sr_legacy",
+    "Survey (FNDDS)": "fndds",
+    Branded: "branded",
+  };
   return {
     name: food.brand ? `${food.name} (${food.brand})` : food.name,
     aliases: food.brand ? [food.brand] : [],
@@ -153,6 +226,8 @@ export function usdaToInput(food: UsdaFood): CapturedFoodInput {
     basis: "per_100g",
     source: "usda",
     sourceCode: String(food.fdcId),
+    sourceKind: (food.dataType && USDA_TYPES[food.dataType]) ?? null,
+    sourcePublished: food.publishedDate ?? null,
     nutrients: food.nutrients,
     portions: food.portions,
   };

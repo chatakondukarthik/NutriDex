@@ -1,6 +1,9 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { useDialogFocus } from "@/components/use-dialog-focus";
+import { NutrientPicker } from "@/components/nutrient-picker";
+import type { NutrientCode } from "@/lib/nutrition/types";
 
 /**
  * The scare, on purpose.
@@ -8,7 +11,8 @@ import { useDialogFocus } from "@/components/use-dialog-focus";
  * Filling food nutrients with AI writes estimates into the shared food
  * records — every recipe, plan and diary entry that uses those foods will
  * reuse them silently. The user gets the full list of what will change
- * before committing, plus the rule that known values are never touched.
+ * before committing, picks exactly which nutrients the AI may propose, and
+ * knows known values are never touched.
  */
 export function EstimateFoodsDialog({
   open,
@@ -16,16 +20,43 @@ export function EstimateFoodsDialog({
   busy,
   onCancel,
   onConfirm,
+  provenanceNote,
 }: {
   open: boolean;
-  foods: Array<{ id: string; name: string; missing: number }>;
+  foods: Array<{ id: string; name: string; missingCodes: NutrientCode[] }>;
   busy: boolean;
   onCancel: () => void;
-  onConfirm: () => void;
+  onConfirm: (codes: NutrientCode[]) => void;
+  /** Optional context line, e.g. where this food came from. */
+  provenanceNote?: string;
 }) {
   const panelRef = useDialogFocus(open, onCancel);
+  const [selected, setSelected] = useState<Set<NutrientCode>>(() =>
+    new Set(foods.flatMap((food) => food.missingCodes)),
+  );
+
+  // Reset to "everything missing" every time the dialog is reopened.
+  useEffect(() => {
+    if (open) setSelected(new Set(foods.flatMap((food) => food.missingCodes)));
+  }, [open, foods]);
+
+  const options = useMemo(
+    () => [...new Set(foods.flatMap((food) => food.missingCodes))],
+    [foods],
+  );
+
+  const perFood = useMemo(
+    () =>
+      foods.map((food) => ({
+        ...food,
+        picked: food.missingCodes.filter((code) => selected.has(code)).length,
+      })),
+    [foods, selected],
+  );
+  const total = perFood.reduce((sum, food) => sum + food.picked, 0);
+  const foodsToRun = perFood.filter((food) => food.picked > 0).length;
+
   if (!open) return null;
-  const total = foods.reduce((sum, food) => sum + food.missing, 0);
 
   return (
     <div
@@ -39,7 +70,7 @@ export function EstimateFoodsDialog({
         aria-modal="true"
         aria-labelledby="estimate-foods-title"
         tabIndex={-1}
-        className="max-h-[80vh] w-full max-w-lg overflow-hidden rounded-2xl border border-warn-line bg-surface shadow-2xl outline-none"
+        className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-warn-line bg-surface shadow-2xl outline-none"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="border-b border-warn-line bg-warn-soft px-5 py-3">
@@ -50,26 +81,55 @@ export function EstimateFoodsDialog({
 
         <div className="px-5 py-4">
           <p className="text-[11px] leading-relaxed text-muted">
-            The food records below will be filled in with AI estimates. Every recipe, plan and
-            diary entry that uses these foods will reuse them <strong>permanently</strong>.
+            {foods.length === 1
+              ? "This food record will be filled in with AI estimates."
+              : "The food records below will be filled in with AI estimates."}{" "}
+            Every recipe, plan and diary entry that uses{" "}
+            {foods.length === 1 ? "it" : "these foods"} will reuse them <strong>permanently</strong>.
             Known values are never overwritten, and you can edit any value afterwards — but a
             bad estimate here is not undoable for existing saved plans.
           </p>
+          {provenanceNote && (
+            <p className="mt-2 text-[10px] leading-snug text-ink/50">{provenanceNote}</p>
+          )}
 
-          <ul className="mt-3 max-h-56 divide-y divide-line overflow-y-auto rounded-lg border border-line bg-bg text-[11px]">
-            {foods.map((food) => (
+          <ul className="mt-3 max-h-40 divide-y divide-line overflow-y-auto rounded-lg border border-line bg-bg text-[11px]">
+            {perFood.map((food) => (
               <li key={food.id} className="flex items-baseline justify-between gap-2 px-2.5 py-1.5">
                 <span className="min-w-0 truncate">{food.name}</span>
-                <span className="tabular shrink-0 text-ink/40">
-                  {food.missing} unknown{food.missing === 1 ? "" : "s"}
+                <span
+                  className="tabular shrink-0 text-ink/40"
+                  title={`${food.picked} of ${food.missingCodes.length} missing nutrient${food.missingCodes.length === 1 ? "" : "s"} selected`}
+                >
+                  {food.picked}/{food.missingCodes.length} selected
                 </span>
               </li>
             ))}
           </ul>
 
+          <div className="mt-3">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-ink/40">
+              Fill which nutrients?
+            </p>
+            <div className="mt-1.5">
+              <NutrientPicker
+                options={options}
+                value={selected}
+                onChange={setSelected}
+                disabled={busy}
+                idPrefix="batch"
+              />
+            </div>
+            <p className="mt-1.5 text-[10px] leading-snug text-ink/45">
+              Only the nutrients you select are estimated — unselected ones stay exactly as they
+              are, and known values are never replaced.
+            </p>
+          </div>
+
           <p className="mt-3 text-[10px] leading-relaxed text-ink/45">
-            {foods.length} food{foods.length === 1 ? "" : "s"} · about {total} estimated
-            value{total === 1 ? "" : "s"} · one AI call each
+            {total === 0
+              ? "Select at least one missing nutrient above."
+              : `${foods.length} food${foods.length === 1 ? "" : "s"} · about ${total} estimated value${total === 1 ? "" : "s"} · one AI call per food that still has something to fill`}
           </p>
         </div>
 
@@ -84,11 +144,12 @@ export function EstimateFoodsDialog({
           </button>
           <button
             type="button"
-            onClick={onConfirm}
-            disabled={busy}
+            onClick={() => onConfirm([...selected])}
+            disabled={busy || total === 0}
+            title={total === 0 ? "Select at least one missing nutrient above." : undefined}
             className="rounded-lg bg-danger px-4 py-2 text-xs font-semibold text-white transition hover:bg-danger-strong disabled:opacity-50"
           >
-            {busy ? "Estimating…" : `Yes, estimate ${foods.length} food${foods.length === 1 ? "" : "s"}`}
+            {busy ? "Estimating…" : `Yes, estimate ${foodsToRun} food${foodsToRun === 1 ? "" : "s"}`}
           </button>
         </div>
       </div>

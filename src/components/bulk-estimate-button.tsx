@@ -4,13 +4,15 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { estimateFoodsAction } from "@/app/actions";
 import { EstimateFoodsDialog } from "@/components/estimate-foods-dialog";
+import type { NutrientCode } from "@/lib/nutrition/types";
 
 interface PendingFood {
   id: string;
   name: string;
   /** True when the food came from the user's capture, not the seed fixtures. */
   captured: boolean;
-  missing: number;
+  /** Which nutrients are currently unknown — the dialog's pickable set. */
+  missingCodes: NutrientCode[];
 }
 
 /**
@@ -84,12 +86,12 @@ export function BulkEstimateButton({
     );
   }
 
-  function go() {
+  function go(codes: NutrientCode[]) {
     setOpen(false);
     setMessage(null);
     startTransition(async () => {
       const ids = target.map((food) => food.id);
-      const result = await estimateFoodsAction({ foodIds: ids });
+      const result = await estimateFoodsAction({ foodIds: ids, nutrientCodes: codes });
       setMessage(result.message ?? (result.ok ? "Done." : "Failed."));
       router.refresh();
     });
@@ -109,7 +111,7 @@ export function BulkEstimateButton({
 
       <EstimateFoodsDialog
         open={open}
-        foods={target.map((food) => ({ id: food.id, name: food.name, missing: food.missing }))}
+        foods={target.map((food) => ({ id: food.id, name: food.name, missingCodes: food.missingCodes }))}
         busy={pending}
         onCancel={() => setOpen(false)}
         onConfirm={go}

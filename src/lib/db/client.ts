@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { dataFile, ensureDataDir } from "@/lib/data-dir";
 import { ensurePrivateDir, restrictFile } from "@/lib/security/private-files";
@@ -29,8 +29,28 @@ const SCHEMA = `
   PRAGMA journal_mode = WAL;
   PRAGMA foreign_keys = ON;
 
+  -- One installation is one household (D-051). The row exists so an archive
+  -- can name its origin and so a future import can tell two households apart.
+  CREATE TABLE IF NOT EXISTS households (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL DEFAULT 'Household',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  -- People are convenience scopes, never a privacy boundary. The body profile
+  -- lives in the profile table keyed by this id; a person can exist without one.
+  CREATE TABLE IF NOT EXISTS people (
+    id           TEXT PRIMARY KEY,
+    household_id TEXT NOT NULL REFERENCES households (id),
+    display_name TEXT NOT NULL,
+    created_at   TEXT NOT NULL,
+    archived_at  TEXT
+  );
+
   CREATE TABLE IF NOT EXISTS entries (
     id                TEXT PRIMARY KEY,
+    person_id         TEXT NOT NULL REFERENCES people (id),
     food_id           TEXT,
     -- A diary entry is a food OR a pinned recipe version, never both.
     recipe_version_id TEXT REFERENCES recipe_versions (id),
@@ -42,7 +62,10 @@ const SCHEMA = `
     CHECK ((food_id IS NOT NULL) <> (recipe_version_id IS NOT NULL))
   );
 
-  CREATE INDEX IF NOT EXISTS entries_day_idx ON entries (day, created_at);
+  -- The old entries_day_idx is created for pre-household databases by
+  -- SCHEMA and replaced by a person-aware index during the household
+  -- migration. It is not declared here: person_id does not exist until then.
+
 
   CREATE TABLE IF NOT EXISTS recipes (
     id                 TEXT PRIMARY KEY,
@@ -117,7 +140,7 @@ const SCHEMA = `
   );
 
   CREATE TABLE IF NOT EXISTS profile (
-    id               TEXT PRIMARY KEY,
+    id               TEXT PRIMARY KEY REFERENCES people (id),
     sex              TEXT NOT NULL,
     age_years        REAL NOT NULL,
     height_cm        REAL NOT NULL,
@@ -131,13 +154,34 @@ const SCHEMA = `
     pace             TEXT NOT NULL DEFAULT 'steady',
     -- Optional. Used for the time-to-goal projection only.
     target_weight_kg REAL,
+    -- Optional manual energy target. The profile form has always sent it;
+    -- before household mode the read/write path silently dropped it.
+    target_energy_kcal REAL,
     updated_at       TEXT NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS plans (
     id         TEXT PRIMARY KEY,
-    starts_on  TEXT NOT NULL UNIQUE,
-    created_at TEXT NOT NULL
+    person_id  TEXT NOT NULL REFERENCES people (id),
+    starts_on  TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (person_id, starts_on)
+  );
+
+  -- Per-person settings. target_rules moved here from app_settings so two
+  -- people can keep different thresholds. ai_master_prompt stays household.
+  CREATE TABLE IF NOT EXISTS person_settings (
+    person_id  TEXT NOT NULL REFERENCES people (id),
+    key        TEXT NOT NULL,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (person_id, key)
+  );
+
+  -- Internal migration marker. Never exported and never writable by import.
+  CREATE TABLE IF NOT EXISTS schema_migrations (
+    version    INTEGER PRIMARY KEY,
+    applied_at TEXT NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS plan_entries (
@@ -206,6 +250,11 @@ const SCHEMA = `
     source_code       TEXT,
     image_path        TEXT,
     confidence        REAL,
+    -- Provenance detail: for USDA rows, the dataType the food came from
+    -- (foundation | sr_legacy | fndds | branded); for imports, the
+    -- publication date the value set was current on.
+    source_kind      TEXT,
+    source_published TEXT,
     created_by        TEXT NOT NULL DEFAULT 'local',
     created_at        TEXT NOT NULL,
     archived_at       TEXT
@@ -246,12 +295,14 @@ const SCHEMA = `
 
   -- User-pinned default amount/unit for a food when it is added
   -- anywhere. Separate from captured_foods so pins work for seed foods
-  -- too (they live in code, not in a table).
+  -- too (they live in code, not in a table). Pins are per person (D-051).
   CREATE TABLE IF NOT EXISTS food_default_amounts (
-    food_id    TEXT PRIMARY KEY,
+    person_id  TEXT NOT NULL REFERENCES people (id),
+    food_id    TEXT NOT NULL,
     amount     REAL NOT NULL,
     unit       TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (person_id, food_id)
   );
 `;
 
@@ -273,7 +324,11 @@ function createDb(): DatabaseSync {
 
   const database = new DatabaseSync(dbPath);
   database.exec(SCHEMA);
-  migrate(database);
+  migrate(database, dbPath);
+  // Boot invariant: one household and at least one person. A fresh database
+  // gets both here; an existing one is repaired if a repair left the roster
+  // empty. Person-scoped code can then assume a person exists.
+  ensureHousehold(database);
   recordCreatedAt(database);
   seedRetentionFactors(database);
   restrictDbFiles(dbPath);
@@ -314,7 +369,17 @@ function restrictDbFiles(dbPath: string): void {
  * the `entries` rebuild — runs in a single transaction and is recoverable
  * if an older boot was interrupted.
  */
-function migrate(database: DatabaseSync): void {
+function migrate(database: DatabaseSync, dbPath: string): void {
+  const householdPending = !hasHouseholdMigration(database);
+
+  if (householdPending) {
+    // Refuse an in-between state before touching anything. A build that
+    // crashed outside a transaction could have left person columns without
+    // the marker; guessing which copy is authoritative would risk the diary.
+    assertHouseholdStateIsMigratable(database);
+    if (hasUserData(database)) snapshotBeforeHousehold(database, dbPath);
+  }
+
   addColumn(database, "profile", "body_fat_percent", "REAL");
   addColumn(database, "profile", "pace", "TEXT NOT NULL DEFAULT 'steady'");
   addColumn(database, "profile", "target_weight_kg", "REAL");
@@ -329,6 +394,443 @@ function migrate(database: DatabaseSync): void {
     database.exec("UPDATE retention_factors SET origin = 'seed'");
   }
   rebuildEntriesTable(database);
+
+  if (householdPending) migrateHousehold(database);
+}
+
+/** Version 1 of the household schema in `schema_migrations`. */
+const HOUSEHOLD_MIGRATION_VERSION = 1;
+
+function hasHouseholdMigration(database: DatabaseSync): boolean {
+  return Boolean(
+    database
+      .prepare("SELECT 1 AS present FROM schema_migrations WHERE version = ?")
+      .get(HOUSEHOLD_MIGRATION_VERSION),
+  );
+}
+
+function tableExists(database: DatabaseSync, table: string): boolean {
+  return Boolean(
+    database
+      .prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(table),
+  );
+}
+
+function tableColumns(database: DatabaseSync, table: string): string[] {
+  return (
+    database.prepare(`PRAGMA table_info(${table})`).all() as unknown as Array<{ name: string }>
+  ).map((column) => column.name);
+}
+
+function hasColumn(database: DatabaseSync, table: string, column: string): boolean {
+  return tableColumns(database, table).includes(column);
+}
+
+/**
+ * Installations created before provenance detail shipped lack the two
+ * columns; both are nullable and additive-only. Fresh installs get them
+ * from SCHEMA; this is the upgrade path for everyone else.
+ */
+function ensureCapturedFoodsColumns(database: DatabaseSync): void {
+  if (!tableExists(database, "captured_foods")) return;
+  if (!hasColumn(database, "captured_foods", "source_kind")) {
+    database.exec("ALTER TABLE captured_foods ADD COLUMN source_kind TEXT");
+  }
+  if (!hasColumn(database, "captured_foods", "source_published")) {
+    database.exec("ALTER TABLE captured_foods ADD COLUMN source_published TEXT");
+  }
+}
+
+function countRows(database: DatabaseSync, table: string): number {
+  if (!tableExists(database, table)) return 0;
+  return (database.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as unknown as { n: number })
+    .n;
+}
+
+/**
+ * Is there anything in this database a migration could lose?
+ *
+ * Used only to decide whether the pre-household snapshot is worth taking. A
+ * fresh install has no user rows, so it does not get a snapshot file beside
+ * its brand-new database.
+ */
+function hasUserData(database: DatabaseSync): boolean {
+  const tables = [
+    "profile",
+    "entries",
+    "entries_v1",
+    "plans",
+    "plan_entries",
+    "recipes",
+    "recipe_versions",
+    "components",
+    "component_inputs",
+    "captured_foods",
+    "captured_food_nutrients",
+    "captured_food_portions",
+    "food_default_amounts",
+    "app_settings",
+  ];
+  if (tables.some((table) => countRows(database, table) > 0)) return true;
+
+  if (
+    hasColumn(database, "retention_factors", "origin") &&
+    database
+      .prepare("SELECT 1 AS present FROM retention_factors WHERE origin = 'user' LIMIT 1")
+      .get()
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Refuse a database that already has household artefacts but no marker.
+ *
+ * The migration is one transaction, so SQLite rolls all of it back on a
+ * crash. Anything else means an older build wrote a partial shape; picking a
+ * side automatically could drop rows, so the operator restores the snapshot.
+ */
+function assertHouseholdStateIsMigratable(database: DatabaseSync): void {
+  if (!hasUserData(database)) return;
+
+  const partial =
+    countRows(database, "households") > 0 ||
+    countRows(database, "people") > 0 ||
+    countRows(database, "person_settings") > 0 ||
+    (hasColumn(database, "entries", "person_id") && countRows(database, "entries") > 0) ||
+    (hasColumn(database, "plans", "person_id") && countRows(database, "plans") > 0) ||
+    (hasColumn(database, "food_default_amounts", "person_id") &&
+      countRows(database, "food_default_amounts") > 0);
+
+  if (partial) {
+    throw new Error(
+      "Database migration is ambiguous: household tables or person columns exist " +
+        "but the household migration marker is missing. Restore the " +
+        "pre-household snapshot beside the database file, or inspect the database " +
+        "before starting.",
+    );
+  }
+}
+
+/**
+ * Copy the database beside itself before the destructive part of the
+ * household migration. `VACUUM INTO` is the only SQLite-supported way to get
+ * a transactionally consistent snapshot of a live database, and it works in
+ * WAL mode. The snapshot is kept on success and failure; it is the rollback
+ * path, because the rebuilt tables are not individually reversible in place.
+ */
+function snapshotBeforeHousehold(database: DatabaseSync, dbPath: string): string | null {
+  if (
+    dbPath === ":memory:" ||
+    dbPath.startsWith("file::memory:") ||
+    dbPath.includes("mode=memory")
+  ) {
+    return null;
+  }
+
+  const dir = path.dirname(path.resolve(dbPath));
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+  let target = path.join(dir, `${path.basename(dbPath)}.pre-household-${stamp}.sqlite`);
+  let suffix = 1;
+  while (existsSync(target)) {
+    target = path.join(
+      dir,
+      `${path.basename(dbPath)}.pre-household-${stamp}-${suffix}.sqlite`,
+    );
+    suffix += 1;
+  }
+
+  // The path is local and generated here; the only SQL-literal hazard is a
+  // quote in the directory name, which is escaped rather than trusted.
+  database.exec(`VACUUM INTO '${target.replace(/'/g, "''")}'`);
+  restrictFile(target);
+  return target;
+}
+
+/**
+ * One-time household migration (D-051).
+ *
+ * Everything is guarded by the live schema, so this is safe to call on a
+ * fresh database (the tables already have the new shape) and on a legacy one
+ * (the tables are rebuilt). The roster, profile key and target rules move
+ * together; the marker is written last.
+ */
+function migrateHousehold(database: DatabaseSync): void {
+  if (hasHouseholdMigration(database)) return;
+
+  const now = new Date().toISOString();
+
+  // Foreign keys must be off before BEGIN: the plans rebuild drops a table
+  // that plan_entries references, which is only legal while enforcement is
+  // suspended. The final foreign_key_check proves the result.
+  database.exec("PRAGMA foreign_keys = OFF");
+  try {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      const household = database
+        .prepare("SELECT id FROM households ORDER BY created_at ASC, rowid ASC LIMIT 1")
+        .get() as unknown as { id: string } | undefined;
+      const householdId = household?.id ?? randomUUID();
+      if (!household) {
+        database
+          .prepare(
+            `INSERT INTO households (id, name, created_at, updated_at)
+             VALUES (?, 'Household', ?, ?)`,
+          )
+          .run(householdId, now, now);
+      }
+
+      const existingPerson = database
+        .prepare("SELECT id FROM people ORDER BY created_at ASC, rowid ASC LIMIT 1")
+        .get() as unknown as { id: string } | undefined;
+      const personId = existingPerson?.id ?? randomUUID();
+      if (!existingPerson) {
+        database
+          .prepare(
+            `INSERT INTO people (id, household_id, display_name, created_at)
+             VALUES (?, ?, 'Me', ?)`,
+          )
+          .run(personId, householdId, now);
+      }
+
+      // The old profile row was keyed by 'local'. Re-key it to the person so
+      // the body data survives the migration.
+      const profile = database
+        .prepare("SELECT id FROM profile ORDER BY rowid ASC LIMIT 1")
+        .get() as unknown as { id: string } | undefined;
+      if (profile && profile.id !== personId) {
+        const conflict = database
+          .prepare("SELECT 1 AS present FROM profile WHERE id = ?")
+          .get(personId);
+        if (conflict) {
+          throw new Error(
+            "Household migration found two profile rows for the same person. " +
+              "Restore the pre-household snapshot and inspect the database.",
+          );
+        }
+        database.prepare("UPDATE profile SET id = ? WHERE id = ?").run(personId, profile.id);
+      }
+
+      // target_rules was the one app_setting that is genuinely personal.
+      const rules = database
+        .prepare("SELECT value FROM app_settings WHERE key = 'target_rules'")
+        .get() as unknown as { value: string } | undefined;
+      if (rules) {
+        database
+          .prepare(
+            `INSERT INTO person_settings (person_id, key, value, updated_at)
+             VALUES (?, 'target_rules', ?, ?)
+             ON CONFLICT (person_id, key) DO NOTHING`,
+          )
+          .run(personId, rules.value, now);
+        database.prepare("DELETE FROM app_settings WHERE key = 'target_rules'").run();
+      }
+
+      if (!hasColumn(database, "entries", "person_id")) {
+        rebuildEntriesForHousehold(database, personId);
+      }
+      if (!hasColumn(database, "plans", "person_id")) {
+        rebuildPlansForHousehold(database, personId);
+      }
+      if (!hasColumn(database, "food_default_amounts", "person_id")) {
+        rebuildDefaultAmountsForHousehold(database, personId);
+      }
+      if (!hasForeignKeyTo(database, "profile", "people")) {
+        rebuildProfileForHousehold(database);
+      }
+      ensureCapturedFoodsColumns(database);
+
+      // Provenance only, never authorization. Every legacy capture was made
+      // by the installation's original person.
+      database
+        .prepare("UPDATE captured_foods SET created_by = ? WHERE created_by = 'local'")
+        .run(personId);
+
+      const violations = database.prepare("PRAGMA foreign_key_check").all();
+      if (violations.length > 0) {
+        throw new Error(
+          `Household migration left ${violations.length} foreign-key violation(s): ` +
+            JSON.stringify(violations.slice(0, 3)),
+        );
+      }
+
+      database
+        .prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)")
+        .run(HOUSEHOLD_MIGRATION_VERSION, now);
+      database.exec("COMMIT");
+    } catch (error) {
+      try {
+        database.exec("ROLLBACK");
+      } catch {
+        /* SQLite may already have rolled back */
+      }
+      throw error;
+    }
+  } finally {
+    database.exec("PRAGMA foreign_keys = ON");
+  }
+}
+
+function hasForeignKeyTo(database: DatabaseSync, table: string, parent: string): boolean {
+  const rows = database.prepare(`PRAGMA foreign_key_list(${table})`).all() as unknown as Array<{
+    table: string;
+  }>;
+  return rows.some((row) => row.table === parent);
+}
+
+function rebuildEntriesForHousehold(database: DatabaseSync, personId: string): void {
+  database.exec(`
+    CREATE TABLE entries_household (
+      id                TEXT PRIMARY KEY,
+      person_id         TEXT NOT NULL REFERENCES people (id),
+      food_id           TEXT,
+      recipe_version_id TEXT REFERENCES recipe_versions (id),
+      grams             REAL NOT NULL,
+      amount            REAL NOT NULL,
+      unit              TEXT NOT NULL,
+      day               TEXT NOT NULL,
+      created_at        TEXT NOT NULL,
+      CHECK ((food_id IS NOT NULL) <> (recipe_version_id IS NOT NULL))
+    );
+  `);
+  database
+    .prepare(
+      `INSERT INTO entries_household
+         (id, person_id, food_id, recipe_version_id, grams, amount, unit, day, created_at)
+       SELECT id, ?, food_id, recipe_version_id, grams, amount, unit, day, created_at
+       FROM entries`,
+    )
+    .run(personId);
+  database.exec(`
+    DROP TABLE entries;
+    ALTER TABLE entries_household RENAME TO entries;
+    CREATE INDEX IF NOT EXISTS entries_person_day_idx
+      ON entries (person_id, day, created_at);
+  `);
+}
+
+function rebuildPlansForHousehold(database: DatabaseSync, personId: string): void {
+  // A plain ALTER TABLE plans RENAME would rewrite plan_entries' foreign key
+  // to the old name. Create the replacement under a temporary name, drop the
+  // old table, then rename the replacement into place; plan_entries keeps
+  // pointing at `plans`.
+  database.exec(`
+    CREATE TABLE plans_household (
+      id         TEXT PRIMARY KEY,
+      person_id  TEXT NOT NULL REFERENCES people (id),
+      starts_on  TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE (person_id, starts_on)
+    );
+  `);
+  database
+    .prepare(
+      `INSERT INTO plans_household (id, person_id, starts_on, created_at)
+       SELECT id, ?, starts_on, created_at FROM plans`,
+    )
+    .run(personId);
+  database.exec(`
+    DROP TABLE plans;
+    ALTER TABLE plans_household RENAME TO plans;
+  `);
+}
+
+function rebuildDefaultAmountsForHousehold(database: DatabaseSync, personId: string): void {
+  database.exec(`
+    CREATE TABLE food_default_amounts_household (
+      person_id  TEXT NOT NULL REFERENCES people (id),
+      food_id    TEXT NOT NULL,
+      amount     REAL NOT NULL,
+      unit       TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (person_id, food_id)
+    );
+  `);
+  database
+    .prepare(
+      `INSERT INTO food_default_amounts_household
+         (person_id, food_id, amount, unit, updated_at)
+       SELECT ?, food_id, amount, unit, updated_at FROM food_default_amounts`,
+    )
+    .run(personId);
+  database.exec(`
+    DROP TABLE food_default_amounts;
+    ALTER TABLE food_default_amounts_household RENAME TO food_default_amounts;
+  `);
+}
+
+const PROFILE_COLUMNS =
+  "id, sex, age_years, height_cm, weight_kg, activity, goal, body_fat_percent, " +
+  "pace, target_weight_kg, target_energy_kcal, updated_at";
+
+/**
+ * Give a legacy profile table the foreign key to `people`. Nothing references
+ * profile, so a rebuild is simpler than a parallel `profile_household` table
+ * carried forever.
+ */
+function rebuildProfileForHousehold(database: DatabaseSync): void {
+  database.exec(`
+    CREATE TABLE profile_household (
+      id               TEXT PRIMARY KEY REFERENCES people (id),
+      sex              TEXT NOT NULL,
+      age_years        REAL NOT NULL,
+      height_cm        REAL NOT NULL,
+      weight_kg        REAL NOT NULL,
+      activity         TEXT NOT NULL,
+      goal             TEXT NOT NULL,
+      body_fat_percent REAL,
+      pace             TEXT NOT NULL DEFAULT 'steady',
+      target_weight_kg REAL,
+      target_energy_kcal REAL,
+      updated_at       TEXT NOT NULL
+    );
+  `);
+  database.exec(`
+    INSERT INTO profile_household (${PROFILE_COLUMNS})
+      SELECT ${PROFILE_COLUMNS} FROM profile;
+  `);
+  database.exec(`
+    DROP TABLE profile;
+    ALTER TABLE profile_household RENAME TO profile;
+  `);
+}
+
+/**
+ * Boot invariant: exactly one household row exists and at least one person
+ * is in the roster. A fresh install gets a person named "Me"; the first run
+ * offers a rename. An existing installation is repaired, never renamed.
+ */
+export function ensureHousehold(database: DatabaseSync): void {
+  const now = new Date().toISOString();
+
+  const household = database
+    .prepare("SELECT id FROM households ORDER BY created_at ASC, rowid ASC LIMIT 1")
+    .get() as unknown as { id: string } | undefined;
+  let householdId = household?.id;
+  if (!householdId) {
+    householdId = randomUUID();
+    database
+      .prepare(
+        `INSERT INTO households (id, name, created_at, updated_at)
+         VALUES (?, 'Household', ?, ?)`,
+      )
+      .run(householdId, now, now);
+  }
+
+  const person = database
+    .prepare("SELECT id FROM people ORDER BY created_at ASC, rowid ASC LIMIT 1")
+    .get();
+  if (!person) {
+    database
+      .prepare(
+        `INSERT INTO people (id, household_id, display_name, created_at)
+         VALUES (?, ?, 'Me', ?)`,
+      )
+      .run(randomUUID(), householdId, now);
+  }
 }
 
 /**

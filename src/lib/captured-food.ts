@@ -36,6 +36,8 @@ export interface CapturedFoodInput {
   servingsPerPack?: number;
   source?: string;
   sourceCode?: string;
+  sourceKind?: string | null;
+  sourcePublished?: string | null;
   imagePath?: string;
   confidence?: number;
   /** Per 100 g. Omitted or null means unknown, never zero. */
@@ -73,8 +75,13 @@ export interface PreparedCapturedFood {
   servingsPerPack: number | null;
   source: string;
   sourceCode: string | null;
+  sourceKind: string | null;
+  sourcePublished: string | null;
   imagePath: string | null;
   confidence: number | null;
+  /** Only captured foods carry the who/when of capture. */
+  createdBy?: string | null;
+  createdAt?: string | null;
   nutrients: PreparedNutrient[];
   portions: PreparedPortion[];
 }
@@ -101,6 +108,31 @@ function optionalPositive(
 
 /** Bounds `image_path`: it is stored verbatim and later rendered. */
 const MAX_IMAGE_PATH = 500;
+
+const SOURCE_KINDS = new Set([
+  "sr_legacy",
+  "foundation",
+  "fndds",
+  "branded",
+  "indb",
+  "off",
+  "llm",
+  "manual",
+]);
+
+/** Keep only the provenance kinds the app knows how to name; drop the rest. */
+function normalizeSourceKind(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const kind = value.trim().toLowerCase();
+  return SOURCE_KINDS.has(kind) ? kind : null;
+}
+
+/** A date-ish label for the row the value came from. Free text, bounded. */
+function normalizePublished(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const published = value.trim();
+  return published ? published.slice(0, 40) : null;
+}
 
 /**
  * Only a bounded `https:` URL may reach `image_path`. It ends up in an
@@ -272,6 +304,8 @@ export function prepareCapturedFood(input: CapturedFoodInput): PrepareCapturedRe
         ).slice(0, 200),
       sourceCode:
         typeof input.sourceCode === "string" ? input.sourceCode.trim().slice(0, 64) || null : null,
+      sourceKind: normalizeSourceKind(input.sourceKind),
+      sourcePublished: normalizePublished(input.sourcePublished),
       imagePath: safeImagePath(input.imagePath),
       confidence: input.confidence ?? null,
       nutrients,
@@ -313,6 +347,10 @@ export function capturedFoodToFood(
     nutrients,
     source: row.source,
     ...(row.sourceCode ? { sourceCode: row.sourceCode } : {}),
+    ...(row.sourceKind ? { sourceKind: row.sourceKind } : {}),
+    ...(row.sourcePublished ? { sourcePublished: row.sourcePublished } : {}),
+    ...(row.createdBy !== undefined ? { createdBy: row.createdBy } : {}),
+    ...(row.createdAt !== undefined ? { createdAt: row.createdAt } : {}),
     ...(row.basis ? { basis: row.basis } : {}),
     ...(row.servingSizeG != null ? { servingSizeG: row.servingSizeG } : {}),
     ...(row.servingsPerPack != null ? { servingsPerPack: row.servingsPerPack } : {}),

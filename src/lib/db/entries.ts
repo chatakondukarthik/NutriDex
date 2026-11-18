@@ -3,6 +3,7 @@ import { db, transaction } from "./client";
 
 export interface Entry {
   id: string;
+  personId: string;
   foodId: string | null;
   recipeVersionId: string | null;
   /** Resolved gram weight. Foods: grams of food; recipes: input grams × servings. */
@@ -16,6 +17,7 @@ export interface Entry {
 
 interface Row {
   id: string;
+  person_id: string;
   food_id: string | null;
   recipe_version_id: string | null;
   grams: number;
@@ -28,6 +30,7 @@ interface Row {
 function toEntry(row: Row): Entry {
   return {
     id: row.id,
+    personId: row.person_id,
     foodId: row.food_id,
     recipeVersionId: row.recipe_version_id,
     grams: row.grams,
@@ -38,55 +41,74 @@ function toEntry(row: Row): Entry {
   };
 }
 
-export function listEntries(day: string): Entry[] {
+export function listEntries(personId: string, day: string): Entry[] {
   const rows = db
-    .prepare("SELECT * FROM entries WHERE day = ? ORDER BY created_at ASC")
-    .all(day) as unknown as Row[];
+    .prepare(
+      "SELECT * FROM entries WHERE person_id = ? AND day = ? ORDER BY created_at ASC",
+    )
+    .all(personId, day) as unknown as Row[];
   return rows.map(toEntry);
 }
 
-export function addEntry(input: {
-  foodId: string;
-  grams: number;
-  amount: number;
-  unit: string;
-  day: string;
-}): Entry {
+export function addEntry(
+  personId: string,
+  input: {
+    foodId: string;
+    grams: number;
+    amount: number;
+    unit: string;
+    day: string;
+  },
+): Entry {
   const id = randomUUID();
   const createdAt = new Date().toISOString();
 
   transaction(() => {
     db.prepare(
-      `INSERT INTO entries (id, food_id, recipe_version_id, grams, amount, unit, day, created_at)
-       VALUES (?, ?, NULL, ?, ?, ?, ?, ?)`,
-    ).run(id, input.foodId, input.grams, input.amount, input.unit, input.day, createdAt);
+      `INSERT INTO entries (id, person_id, food_id, recipe_version_id, grams, amount, unit, day, created_at)
+       VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      personId,
+      input.foodId,
+      input.grams,
+      input.amount,
+      input.unit,
+      input.day,
+      createdAt,
+    );
   });
 
   return {
     id,
+    personId,
     ...input,
     recipeVersionId: null,
     createdAt,
   };
 }
 
-export function addRecipeEntry(input: {
-  recipeVersionId: string;
-  servings: number;
-  grams: number;
-  amount: number;
-  unit: string;
-  day: string;
-}): Entry {
+export function addRecipeEntry(
+  personId: string,
+  input: {
+    recipeVersionId: string;
+    servings: number;
+    grams: number;
+    amount: number;
+    unit: string;
+    day: string;
+  },
+): Entry {
   const id = randomUUID();
   const createdAt = new Date().toISOString();
 
   transaction(() => {
     db.prepare(
-      `INSERT INTO entries (id, food_id, recipe_version_id, grams, amount, unit, day, created_at)
-       VALUES (?, NULL, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO entries (id, person_id, food_id, recipe_version_id, grams, amount, unit, day, created_at)
+       VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
+      personId,
       input.recipeVersionId,
       input.grams,
       input.amount,
@@ -98,6 +120,7 @@ export function addRecipeEntry(input: {
 
   return {
     id,
+    personId,
     foodId: null,
     recipeVersionId: input.recipeVersionId,
     grams: input.grams,
@@ -108,10 +131,29 @@ export function addRecipeEntry(input: {
   };
 }
 
-export function removeEntry(id: string): void {
-  db.prepare("DELETE FROM entries WHERE id = ?").run(id);
+/**
+ * Remove one of this person's diary entries.
+ *
+ * The person id is a filter, not an authorization check (the household is
+ * trusted), but a stale id from another diary is still refused rather than
+ * silently deleting a row the caller did not render.
+ */
+export function removeEntry(personId: string, id: string): void {
+  const result = db
+    .prepare("DELETE FROM entries WHERE id = ? AND person_id = ?")
+    .run(id, personId);
+  if (result.changes === 0) throw new Error("That diary entry no longer exists.");
 }
 
+export function countEntriesForPerson(personId: string): number {
+  return (
+    db.prepare("SELECT COUNT(*) AS n FROM entries WHERE person_id = ?").get(personId) as unknown as {
+      n: number;
+    }
+  ).n;
+}
+
+/** Household-wide: deleting a recipe must see every person's diary. */
 export function countEntriesForRecipe(recipeVersionIds: string[]): number {
   if (recipeVersionIds.length === 0) return 0;
   const placeholders = recipeVersionIds.map(() => "?").join(",");

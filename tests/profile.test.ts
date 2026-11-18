@@ -4,6 +4,7 @@ import {
   bmr,
   bmrSource,
   dailyEnergyKcal,
+  effectiveEnergyKcal,
   energyBreakdown,
   isDefaultProfile,
   maintenanceKcal,
@@ -64,6 +65,42 @@ describe("energy", () => {
     const tiny: Profile = { ...woman, weightKg: 25, heightCm: 100, ageYears: 100 };
     expect(dailyEnergyKcal({ ...tiny, goal: "lose" })).toBe(1200);
     expect(dailyEnergyKcal({ ...tiny, sex: "male", goal: "lose" })).toBe(1500);
+  });
+
+  it("uses the person's energy override instead of the formula's target", () => {
+    const override: Profile = { ...woman, targetEnergyKcal: 1600 };
+
+    expect(dailyEnergyKcal(override)).toBe(1600);
+    expect(effectiveEnergyKcal(override)).toBe(1600);
+
+    // The formula itself is unchanged, so the breakdown can still explain it.
+    expect(energyBreakdown(override).target).not.toBe(1600);
+  });
+
+  it("derives the energy-based macros from the override, not the formula", () => {
+    const override: Profile = { ...woman, targetEnergyKcal: 1600 };
+    const targets = targetsFor(override);
+    const byCode = new Map(targets.map((target) => [target.code, target]));
+
+    expect(byCode.get("ENERC_KCAL")!.value).toBe(1600);
+    // Protein never follows energy; it follows weight and goal.
+    expect(byCode.get("PROCNT")!.value).toBe(60);
+    // Macros step by 5 g (fibre by 1 g), the same stepping the formula uses.
+    expect(byCode.get("FAT")!.value).toBe(55);
+    expect(byCode.get("CHOCDF")!.value).toBe(215);
+    expect(byCode.get("FIBTG")!.value).toBe(22);
+    expect(byCode.get("SUGAR")!.value).toBe(40);
+  });
+
+  it("agrees with the breakdown for someone without an override", () => {
+    const targets = targetsFor(woman);
+    const breakdown = energyBreakdown(woman);
+    const byCode = new Map(targets.map((target) => [target.code, target]));
+
+    expect(byCode.get("FAT")!.value).toBe(breakdown.fat);
+    expect(byCode.get("CHOCDF")!.value).toBe(breakdown.carbs);
+    expect(byCode.get("FIBTG")!.value).toBe(breakdown.fibre);
+    expect(byCode.get("SUGAR")!.value).toBe(breakdown.sugar);
   });
 });
 

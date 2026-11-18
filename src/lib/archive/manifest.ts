@@ -1,4 +1,4 @@
-import { ARCHIVE_FORMAT, ARCHIVE_FORMAT_VERSION } from "./registry";
+import { ARCHIVE_FORMAT, ARCHIVE_FORMAT_VERSION, type ArchiveScope } from "./registry";
 
 /**
  * `manifest.json` is the archive's contract with the future.
@@ -6,6 +6,9 @@ import { ARCHIVE_FORMAT, ARCHIVE_FORMAT_VERSION } from "./registry";
  * It is the first thing an importer reads and the only file it trusts before
  * checksums are verified. Everything in it is validated, nothing in it is
  * executed.
+ *
+ * Version 2 adds the scope. A v1 manifest has none; the importer normalises
+ * it to a person archive and routes every personal row to one person.
  */
 
 export type ManifestFile = {
@@ -22,6 +25,12 @@ export type ArchiveManifest = {
   createdAt: string;
   exportedAt: string;
   accountId: string | null;
+  /** Added in v2. Always normalised for v1 by the importer. */
+  scope: ArchiveScope;
+  /** The household the rows came from. Empty for a v1 archive. */
+  householdId: string;
+  /** Set for `person`; null for `household` and `shared`. */
+  personId: string | null;
   counts: Record<string, number>;
   columns: Record<string, string[]>;
   files: ManifestFile[];
@@ -60,3 +69,5 @@ export function isSupportedFormat(manifest: ArchiveManifest): boolean {
     manifest.formatVersion <= ARCHIVE_FORMAT_VERSION
   );
 }
+
+export const ARCHIVE_SCOPES: readonly ArchiveScope[] = ["household", "person", "shared"];

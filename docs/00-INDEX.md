@@ -15,6 +15,7 @@ it explains why there are four kinds of document and when to write each.
 | [`product/PRODUCT.md`](product/PRODUCT.md) | What is this, for whom, and what is the one loop? |
 | [`product/SCOPE.md`](product/SCOPE.md) | What is in, what is next, what will we never do? |
 | [`build/PLAN.md`](build/PLAN.md) | What are we building, in what order, and when is it done? |
+| [`build/HOUSEHOLD-MODE.md`](build/HOUSEHOLD-MODE.md) | How does one installation support a household of people? |
 
 ## Decisions
 
@@ -31,6 +32,8 @@ means writing a new record that supersedes it.
 |---|---|
 | [`reference/NUTRITION.md`](reference/NUTRITION.md) | How are nutrient values calculated? |
 | [`reference/DATA-MODEL.md`](reference/DATA-MODEL.md) | What are the entities? |
+| [`reference/USDA.md`](reference/USDA.md) | How USDA FoodData Central is queried and what its rows mean |
+| [`reference/PROVENANCE.md`](reference/PROVENANCE.md) | Which nutrient value to trust, provenance classes and the AI-fill policy |
 | [`reference/USER_SCHEMA.md`](reference/USER_SCHEMA.md) | How identity is separated from content, and why profiles are not a boundary |
 | [`reference/STACK.md`](reference/STACK.md) | What runs this, and why? |
 | [`reference/TESTING.md`](reference/TESTING.md) | What is tested, how, and what is still manual? |

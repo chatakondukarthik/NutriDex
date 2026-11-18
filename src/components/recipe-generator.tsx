@@ -3,9 +3,13 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useDialogFocus } from "@/components/use-dialog-focus";
+import { SparkleIcon } from "@/components/icons";
 import { previewRecipeFromPromptAction, createRecipeFromPlanAction } from "@/app/actions";
+import { ImageCapture, type CapturedImage } from "@/components/image-capture";
 import type { RecipePlan } from "@/lib/ai-generate-recipe";
 import type { PlanFoodResolution } from "@/lib/ai/food-resolve";
+import { NutrientPicker } from "@/components/nutrient-picker";
+import { NUTRIENT_CODES, type NutrientCode } from "@/lib/nutrition/types";
 
 interface RecipeGeneratorProps {
   aiEnabled: boolean;
@@ -32,12 +36,17 @@ export function RecipeGenerator({
 }: RecipeGeneratorProps) {
   const router = useRouter();
   const [prompt, setPrompt] = useState("");
+  const [images, setImages] = useState<CapturedImage[]>([]);
   const [plan, setPlan] = useState<RecipePlan | null>(null);
   const [resolutions, setResolutions] = useState<PlanFoodResolution[] | null>(null);
   // Fill the leftover nutrition of the ingredients with AI estimates after
   // the save (never blocks it). Known values are never touched; every fill
   // lands as estimated + ai:model with a reason attached.
   const [fillMissingNutrition, setFillMissingNutrition] = useState(true);
+  // Which nutrients the post-save ingredient fill may estimate. Defaults to
+  // everything — the checkbox alone means "all unknown nutrients" — but the
+  // user can narrow it to exactly what they want.
+  const [fillCodes, setFillCodes] = useState<Set<NutrientCode>>(() => new Set(NUTRIENT_CODES));
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -57,11 +66,15 @@ export function RecipeGenerator({
   }
 
   async function generate() {
-    if (!prompt.trim()) return;
+    if (!prompt.trim() && images.length === 0) return;
     setError(null);
     setPlan(null);
     startTransition(async () => {
-      const result = await previewRecipeFromPromptAction({ prompt, recipeId: mode === "edit" ? recipeId : null });
+      const result = await previewRecipeFromPromptAction({
+        prompt,
+        recipeId: mode === "edit" ? recipeId : null,
+        images: images.length ? images : undefined,
+      });
       if (!result.ok || !result.plan) {
         setError(result.message ?? "Could not plan that recipe.");
         return;
@@ -90,6 +103,7 @@ export function RecipeGenerator({
         mode: mode === "edit" ? saveMode : "new-version",
         replaceVersionId: replacing ? versionId : null,
         fillMissingNutrition,
+        fillNutrientCodes: fillMissingNutrition ? [...fillCodes] : undefined,
       });
       if (!result.ok || !result.recipeId) {
         setError(result.message ?? "Could not create the recipe.");
@@ -104,9 +118,10 @@ export function RecipeGenerator({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="rounded-lg border border-accent/40 bg-accent/5 px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/10"
+        className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/5 px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/10"
       >
-        {mode === "edit" ? "✨ Edit with AI" : "✨ Create with AI"}
+        <SparkleIcon className="h-3.5 w-3.5" />
+        {mode === "edit" ? "Edit with AI" : "Create with AI"}
       </button>
 
       {open && (
@@ -119,7 +134,7 @@ export function RecipeGenerator({
             ref={panelRef}
             role="dialog"
             aria-modal="true"
-            aria-label="Create a recipe with AI"
+            aria-label={mode === "edit" ? "Edit this recipe with AI" : "Create a recipe with AI"}
             tabIndex={-1}
             className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-line bg-surface p-5 shadow-card outline-none"
             onClick={(event) => event.stopPropagation()}
@@ -129,8 +144,8 @@ export function RecipeGenerator({
                 <h2 className="text-base font-semibold">{mode === "edit" ? "Edit with AI" : "Create with AI"}</h2>
                 <p className="mt-0.5 text-[11px] text-muted">
                   {mode === "edit"
-                    ? `Tell me what to change in “${existingName ?? "this recipe"}”. The AI re-proposes the full diagram; unknown foods are created automatically. Nothing is saved until you confirm.`
-                    : "Describe any dish. The AI proposes steps and inputs; unknown foods are created automatically. Nothing is saved until you confirm."}
+                    ? `Tell me what to change in “${existingName ?? "this recipe"}” — or attach a photo of it. The AI re-proposes the full diagram; unknown foods are created automatically. Nothing is saved until you confirm.`
+                    : "Describe any dish, or attach a photo of a recipe card, a dish or what you have. The AI proposes steps and inputs; unknown foods are created automatically. Nothing is saved until you confirm."}
                 </p>
               </div>
               <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="grid h-8 w-8 place-items-center rounded-lg text-ink/40 hover:bg-ink/5">
@@ -148,12 +163,20 @@ export function RecipeGenerator({
                   rows={3}
                   className="mt-3 w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm"
                 />
+                <div className="mt-2">
+                  <ImageCapture
+                    label="Photos (optional)"
+                    hint="A screenshot or photo of the recipe, the dish, or what you have. Up to 3."
+                    disabled={pending}
+                    onChange={setImages}
+                  />
+                </div>
                 <div className="mt-3 flex items-center justify-between gap-2">
                   {error && <p className="text-[11px] text-danger-ink">{error}</p>}
                   <button
                     type="button"
                     onClick={generate}
-                    disabled={pending || !prompt.trim()}
+                    disabled={pending || (!prompt.trim() && images.length === 0)}
                     className="ml-auto rounded-md bg-accent px-4 py-1.5 text-xs font-semibold text-accent-fg disabled:opacity-50"
                   >
                     {pending ? "Planning…" : "Plan it"}
@@ -259,6 +282,26 @@ export function RecipeGenerator({
                       that uses them reuses these estimates.
                     </span>
                   </label>
+                )}
+                {resolutions && resolutions.some((r) => r.status !== "reused") && fillMissingNutrition && (
+                  <div className="mt-2 rounded-md border border-line bg-bg px-3 py-2">
+                    <p className="text-[9px] font-medium uppercase tracking-wide text-ink/40">
+                      Which nutrients should the AI estimate?
+                    </p>
+                    <div className="mt-1.5">
+                      <NutrientPicker
+                        options={NUTRIENT_CODES}
+                        value={fillCodes}
+                        onChange={setFillCodes}
+                        idPrefix="recipe-fill"
+                      />
+                    </div>
+                    <p className="mt-1.5 text-[9px] leading-snug text-ink/45">
+                      {fillCodes.size === 0
+                        ? "Nothing selected — the new ingredients will stay unknown until you fill them from Foods."
+                        : "Only the selected nutrients are estimated on the new ingredients — known values are never touched."}
+                    </p>
+                  </div>
                 )}
                 {mode === "edit" && (
                   <p

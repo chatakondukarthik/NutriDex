@@ -1,6 +1,6 @@
 import { combine, type NutrientCoverage, type Rollup } from "@/lib/nutrition/engine";
 import { NUTRIENTS, NUTRIENT_CODES, type NutrientCode } from "@/lib/nutrition/types";
-import { energyBreakdown, type Profile } from "@/lib/profile";
+import { energyBreakdown, energyMacros, type Profile } from "@/lib/profile";
 
 /**
  * Daily targets, and how to read them over a day and a week.
@@ -205,13 +205,18 @@ export function targetsFor(profile: Profile, rules: TargetRules = DEFAULT_TARGET
   const breakdown = energyBreakdown(profile);
   const normalized = normalizeTargetRules(rules);
 
+  // The override is the energy the person is aiming at, so the macros that
+  // are derived from energy follow it too — not the formula they overrode.
+  const energy = profile.targetEnergyKcal ?? breakdown.target;
+  const macros = energyMacros(energy, breakdown.protein);
+
   const values: Record<NutrientCode, number> = {
-    ENERC_KCAL: profile.targetEnergyKcal ?? breakdown.target,
+    ENERC_KCAL: energy,
     PROCNT: breakdown.protein,
-    FAT: breakdown.fat,
-    CHOCDF: breakdown.carbs,
-    FIBTG: breakdown.fibre,
-    SUGAR: breakdown.sugar,
+    FAT: macros.fat,
+    CHOCDF: macros.carbs,
+    FIBTG: macros.fibre,
+    SUGAR: macros.sugar,
     NA: 2000,
     K: 3500,
     CA: profile.ageYears >= 51 ? 1200 : 1000,

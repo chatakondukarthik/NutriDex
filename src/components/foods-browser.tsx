@@ -8,6 +8,8 @@ import { toGrams, parseUnitKey } from "@/lib/nutrition/units";
 import { defaultAmountFor } from "@/lib/nutrition/defaults";
 import { serializeFragment } from "@/lib/recipe-fragment";
 import { BulkEstimateButton } from "@/components/bulk-estimate-button";
+import { ProvenanceChip } from "@/components/provenance-chip";
+import { foodProvenance } from "@/lib/provenance";
 import { NUTRIENT_CODES } from "@/lib/nutrition/types";
 
 const CATEGORIES = ["All", "Dairy", "Grains", "Vegetables", "Fruits", "Legumes", "Oils", "Nuts", "Meat", "Seafood", "Spices", "Beverages", "Custom"];
@@ -59,9 +61,9 @@ export function FoodsBrowser({
           id: food.id,
           name: food.name,
           captured: !!food.source,
-          missing: NUTRIENT_CODES.filter((code) => food.nutrients[code]?.amount == null).length,
+          missingCodes: NUTRIENT_CODES.filter((code) => food.nutrients[code]?.amount == null),
         }))
-        .filter((food) => food.captured && food.missing > 0),
+        .filter((food) => food.captured && food.missingCodes.length > 0),
     [foods],
   );
 
@@ -205,7 +207,11 @@ export function FoodsBrowser({
         </p>
       ) : (
         <ul className="mt-4 grid max-h-[70vh] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
-          {results.map((food) => (
+          {results.map((food) => {
+            const estimatedCount = Object.values(food.nutrients).filter(
+              (value) => value?.status === "estimated",
+            ).length;
+            return (
             <li
               key={food.id}
               className="flex items-start gap-2.5 rounded-lg border border-line bg-surface p-3 text-sm"
@@ -220,9 +226,20 @@ export function FoodsBrowser({
               <div className="flex min-w-0 flex-1 items-start justify-between gap-2">
                 <div>
                   <p className="font-medium">{food.name}</p>
-                  <p className="text-xs text-muted">
-                    {food.category} · {food.kind} · {food.state}
-                    {food.aliases?.length ? ` · ${food.aliases.slice(0, 3).join(", ")}` : ""}
+                  <p className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
+                    <ProvenanceChip provenance={foodProvenance(food.source ?? null, food.sourceKind ?? null)} />
+                    {estimatedCount > 0 && (
+                      <span
+                        title={`${estimatedCount} value${estimatedCount === 1 ? "" : "s"} are AI estimates`}
+                        className="rounded bg-warn-soft px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-warn-ink"
+                      >
+                        est. {estimatedCount}
+                      </span>
+                    )}
+                    <span>
+                      {food.category} · {food.kind} · {food.state}
+                      {food.aliases?.length ? ` · ${food.aliases.slice(0, 3).join(", ")}` : ""}
+                    </span>
                   </p>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
@@ -237,7 +254,8 @@ export function FoodsBrowser({
                 </div>
               </div>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
       <p className="mt-3 text-[11px] text-muted">{results.length} of {foods.length} foods.</p>

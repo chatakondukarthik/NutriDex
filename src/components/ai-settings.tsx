@@ -277,7 +277,8 @@ export function AiSettingsPanel({ status, config }: Props) {
       <p className="mt-1 text-xs text-muted">
         NutriPlan never holds a key. You bring your own from Google, OpenAI, Anthropic, or any
         OpenAI-compatible endpoint. Keys are stored in <code>data/secrets.json</code> (mode 0600) or
-        an environment variable, never in the database or the browser.
+        an environment variable, never in the database or the browser. The AI key and daily limit
+        are shared by the household.
       </p>
 
       <label className="mt-3 flex items-center gap-2 text-xs">

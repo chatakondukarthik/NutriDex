@@ -3,6 +3,7 @@ import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { db } from "@/lib/db/client";
 import { getMeta } from "@/lib/db/meta";
+import { defaultPersonId, getHousehold, getPerson } from "@/lib/db/people";
 import { dataFile, ensureDataDir } from "@/lib/data-dir";
 import { restrictFile } from "@/lib/security/private-files";
 import {
@@ -15,7 +16,15 @@ import {
   SNAPSHOT_PATH,
   dataPath,
 } from "./manifest";
-import { ARCHIVE_FORMAT, ARCHIVE_FORMAT_VERSION, tablesForExport } from "./registry";
+import {
+  ARCHIVE_FORMAT,
+  ARCHIVE_FORMAT_VERSION,
+  type ArchiveScope,
+  type TableSpec,
+  TABLES,
+  personalWhere,
+  tableInScope,
+} from "./registry";
 import { columnsOf } from "./schema";
 import { type ZipEntryInput, writeZip } from "./zip";
 
@@ -24,21 +33,26 @@ import { type ZipEntryInput, writeZip } from "./zip";
  *
  * Three things make this "total" rather than "most of it":
  *
- *   1. every table in the registry is exported, and columns come from the
- *      live schema, so a new column cannot be forgotten;
+ *   1. every table in the registry is exported (for the chosen scope), and
+ *      columns come from the live schema, so a new column cannot be forgotten;
  *   2. evidence files referenced by exported rows are copied into `files/`;
- *   3. the manifest records a SHA-256 for every entry, so an import can
- *      prove it read the archive the user exported.
+ *   3. the manifest records a SHA-256 for every entry, so an import can prove
+ *      it read the archive the user exported.
  *
- * A `snapshot.sqlite` produced by `VACUUM INTO` is included by default. It
- * is not the interchange format — the NDJSON is — but it is a complete,
- * consistent copy for disaster recovery if this code is ever wrong.
+ * A `snapshot.sqlite` produced by `VACUUM INTO` is included by default for a
+ * household archive. It is not the interchange format — the NDJSON is — but
+ * it is a complete, consistent copy for disaster recovery if this code is
+ * ever wrong. It contains every person, so person and shared exports omit it.
  */
 
 export type ExportOptions = {
+  /** Defaults to `household`, the whole installation. */
+  scope?: ArchiveScope;
+  /** Required for `person`; defaults to the roster's first active person. */
+  personId?: string | null;
   /** Include the AI activity log. Off by default: it is operational, not content. */
   includeAiCalls?: boolean;
-  /** Include `snapshot.sqlite`. On by default. */
+  /** Include `snapshot.sqlite`. On by default for household exports. */
   includeSnapshot?: boolean;
   now?: Date;
 };
@@ -105,27 +119,115 @@ function buildSnapshot(includeAiCalls: boolean): Buffer {
   }
 }
 
-const README = `NutriPlan archive
+function readmeFor(scope: ArchiveScope): string {
+  const header = `NutriPlan archive
 =================
+`;
+  const body =
+    scope === "household"
+      ? `
+This ZIP is a complete copy of one NutriPlan household.
 
-This ZIP is a complete copy of one NutriPlan installation.
-
-  manifest.json   Format version, row counts, and a SHA-256 for every file.
+  manifest.json   Format version, scope, row counts and a SHA-256 for every file.
   data/*.ndjson   One JSON object per line, one file per table.
   files/          Evidence images referenced by the rows.
   snapshot.sqlite A full database snapshot (optional, for recovery).
 
-Restore it from Settings -> Data -> Import. Keep this file private: it
-contains your profile, diary and recipes. It does not contain AI API keys.
+It contains every person in this household, their diaries, plans and body
+profiles, and the shared food and recipe library.
+`
+      : scope === "person"
+        ? `
+This ZIP is one person's NutriPlan data and the household's shared library.
+
+  manifest.json   Format version, scope, row counts and a SHA-256 for every file.
+  data/*.ndjson   One JSON object per line, one file per table.
+  files/          Evidence images referenced by the shared food rows.
+
+It contains this person's body profile, diary, plans, default amounts and
+target rules. It also contains the whole shared food and recipe library so it
+can be restored on its own. It never contains another person's diary, plans,
+profile, default amounts or target rules.
+`
+        : `
+This ZIP is the shared NutriPlan library: recipes, foods, nutrients, portions,
+evidence and shared settings.
+
+  manifest.json   Format version, scope, row counts and a SHA-256 for every file.
+  data/*.ndjson   One JSON object per line, one file per table.
+  files/          Evidence images referenced by the rows.
+
+It contains no people, body profiles, diaries, plans or personal settings.
+`;
+
+  return `${header}${body}
+Restore it from Settings -> Data -> Import. Keep this file private. It does
+not contain AI API keys.
 
 The NDJSON files are the interchange format and are readable with any text
 editor. The snapshot is a convenience copy; the importer does not use it.
 `;
+}
+
+type SelectedTable = {
+  spec: TableSpec;
+  where: string | null;
+  params: string[];
+};
+
+/**
+ * Resolve the table predicates for one scope.
+ *
+ * Table names and predicates are code constants; person ids and household
+ * ids are bind parameters, never interpolated.
+ */
+function selectTables(scope: ArchiveScope, personId: string | null, includeAiCalls: boolean): SelectedTable[] {
+  const selected: SelectedTable[] = [];
+
+  for (const spec of TABLES) {
+    if (spec.class === "optional" && !(includeAiCalls && scope === "household")) continue;
+    if (!tableInScope(spec, scope)) continue;
+
+    let where = spec.where ?? null;
+    const params: string[] = [];
+
+    if (scope === "person") {
+      if (spec.table === "households") {
+        where = "id = (SELECT household_id FROM people WHERE id = ?)";
+        params.push(personId as string);
+      } else if (spec.table === "people") {
+        where = "id = ?";
+        params.push(personId as string);
+      } else if (spec.scope === "personal") {
+        const personal = personalWhere(spec.table);
+        if (!personal) continue;
+        where = where ? `(${where}) AND (${personal})` : personal;
+        params.push(personId as string);
+      }
+    }
+
+    selected.push({ spec, where, params });
+  }
+
+  return selected;
+}
 
 export function buildArchive(options: ExportOptions = {}): ExportResult {
   const now = options.now ?? new Date();
+  const scope = options.scope ?? "household";
   const includeAiCalls = options.includeAiCalls ?? false;
-  const includeSnapshot = options.includeSnapshot ?? true;
+  // A snapshot is the whole installation. Person and shared exports must not
+  // quietly carry another person's rows inside it.
+  const includeSnapshot = scope === "household" && (options.includeSnapshot ?? true);
+
+  const householdId = getHousehold().id;
+  let personId: string | null = null;
+  if (scope === "person") {
+    personId = options.personId ?? defaultPersonId();
+    const person = getPerson(personId);
+    if (!person) throw new Error("That person no longer exists.");
+    personId = person.id;
+  }
 
   const entries: ZipEntryInput[] = [];
   const files: ManifestFile[] = [];
@@ -142,16 +244,16 @@ export function buildArchive(options: ExportOptions = {}): ExportResult {
   // refuses duplicate names. Copy each evidence file once.
   const copiedEvidence = new Set<string>();
 
-  for (const spec of tablesForExport({ includeAiCalls })) {
+  for (const { spec, where, params } of selectTables(scope, personId, includeAiCalls)) {
     const columnInfo = columnsOf(db, spec.table);
     const exported = columnInfo
       .map((column) => column.name)
       .filter((name) => !spec.omit?.includes(name));
 
-    const where = spec.where ? ` WHERE ${spec.where}` : "";
+    const clause = where ? ` WHERE ${where}` : "";
     const rows = db
-      .prepare(`SELECT ${exported.join(", ")} FROM ${spec.table}${where}`)
-      .all() as unknown as Array<Record<string, unknown>>;
+      .prepare(`SELECT ${exported.join(", ")} FROM ${spec.table}${clause}`)
+      .all(...params) as unknown as Array<Record<string, unknown>>;
 
     counts[spec.table] = rows.length;
     columns[spec.table] = exported;
@@ -178,7 +280,7 @@ export function buildArchive(options: ExportOptions = {}): ExportResult {
     add(SNAPSHOT_PATH, buildSnapshot(includeAiCalls), false);
   }
 
-  add(README_PATH, Buffer.from(README, "utf8"));
+  add(README_PATH, Buffer.from(readmeFor(scope), "utf8"));
 
   // Export is a read. `created_at` is written once when the database is
   // opened (see `db/client.ts`), so this path never mutates the database —
@@ -192,11 +294,14 @@ export function buildArchive(options: ExportOptions = {}): ExportResult {
     createdAt,
     exportedAt: now.toISOString(),
     accountId: getMeta("account_id"),
+    scope,
+    householdId,
+    personId,
     counts,
     columns,
     files,
     includes: {
-      aiCalls: includeAiCalls,
+      aiCalls: includeAiCalls && scope === "household",
       snapshot: includeSnapshot,
       secrets: false,
     },
@@ -214,7 +319,16 @@ export function buildArchive(options: ExportOptions = {}): ExportResult {
 }
 
 /** Exposed for tests. */
-export function archiveFileName(now: Date = new Date()): string {
+export function archiveFileName(
+  now: Date = new Date(),
+  scope: ArchiveScope = "household",
+  personName?: string,
+): string {
   const stamp = now.toISOString().replace(/[:.]/g, "-").replace("T", "_").slice(0, 19);
-  return `nutriplan-${stamp}Z.zip`;
+  const who = scope === "household" ? "household" : scope;
+  const named =
+    scope === "person" && personName
+      ? `-${personName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`
+      : "";
+  return `nutriplan-${who}${named}-${stamp}Z.zip`;
 }

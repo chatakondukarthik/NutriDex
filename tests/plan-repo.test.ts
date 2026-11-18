@@ -12,6 +12,7 @@ import path from "node:path";
  * that was already planned (D-024).
  */
 let dir: string;
+let personId: string;
 let planRepo: typeof import("@/lib/db/plan");
 let recipeRepo: typeof import("@/lib/db/recipes");
 let service: typeof import("@/lib/recipes");
@@ -22,6 +23,7 @@ beforeAll(async () => {
   planRepo = await import("@/lib/db/plan");
   recipeRepo = await import("@/lib/db/recipes");
   service = await import("@/lib/recipes");
+  personId = (await import("@/lib/db/people")).defaultPersonId();
 });
 
 afterAll(() => {
@@ -46,25 +48,25 @@ function draft(name: string) {
 
 describe("plans", () => {
   it("does not create a week just by asking for it", () => {
-    expect(planRepo.getPlan("2026-11-09")).toBeNull();
+    expect(planRepo.getPlan(personId, "2026-11-09")).toBeNull();
   });
 
   it("creates a week once and returns the same plan afterwards", () => {
-    const first = planRepo.getOrCreatePlan("2026-11-09");
-    const second = planRepo.getOrCreatePlan("2026-11-09");
+    const first = planRepo.getOrCreatePlan(personId, "2026-11-09");
+    const second = planRepo.getOrCreatePlan(personId, "2026-11-09");
 
     expect(second.id).toBe(first.id);
     expect(second.startsOn).toBe("2026-11-09");
-    expect(planRepo.getPlan("2026-11-09")!.id).toBe(first.id);
+    expect(planRepo.getPlan(personId, "2026-11-09")!.id).toBe(first.id);
   });
 });
 
 describe("plan entries", () => {
   it("adds a food with grams and lists it", () => {
-    const plan = planRepo.getOrCreatePlan("2026-11-16");
-    const before = planRepo.countPlanEntries(plan.id);
+    const plan = planRepo.getOrCreatePlan(personId, "2026-11-16");
+    const before = planRepo.countPlanEntries(personId, plan.id);
 
-    const entry = planRepo.addPlanEntry({
+    const entry = planRepo.addPlanEntry(personId, {
       planId: plan.id,
       day: "2026-11-16",
       slot: "breakfast",
@@ -75,9 +77,9 @@ describe("plan entries", () => {
     expect(entry.foodId).toBe("paneer");
     expect(entry.recipeVersionId).toBeNull();
     expect(entry.grams).toBe(120);
-    expect(planRepo.countPlanEntries(plan.id)).toBe(before + 1);
+    expect(planRepo.countPlanEntries(personId, plan.id)).toBe(before + 1);
 
-    const listed = planRepo.listPlanEntries(plan.id);
+    const listed = planRepo.listPlanEntries(personId, plan.id);
     expect(listed.map((item) => item.id)).toContain(entry.id);
   });
 
@@ -86,8 +88,8 @@ describe("plan entries", () => {
     expect(saved.ok).toBe(true);
     if (!saved.ok) return;
 
-    const plan = planRepo.getOrCreatePlan("2026-11-23");
-    const entry = planRepo.addPlanEntry({
+    const plan = planRepo.getOrCreatePlan(personId, "2026-11-23");
+    const entry = planRepo.addPlanEntry(personId, {
       planId: plan.id,
       day: "2026-11-23",
       slot: "dinner",
@@ -101,9 +103,9 @@ describe("plan entries", () => {
   });
 
   it("refuses an entry that is both a food and a recipe", () => {
-    const plan = planRepo.getOrCreatePlan("2026-11-30");
+    const plan = planRepo.getOrCreatePlan(personId, "2026-11-30");
     expect(() =>
-      planRepo.addPlanEntry({
+      planRepo.addPlanEntry(personId, {
         planId: plan.id,
         day: "2026-11-30",
         slot: "lunch",
@@ -116,9 +118,9 @@ describe("plan entries", () => {
   });
 
   it("refuses an entry that is neither", () => {
-    const plan = planRepo.getOrCreatePlan("2026-11-30");
+    const plan = planRepo.getOrCreatePlan(personId, "2026-11-30");
     expect(() =>
-      planRepo.addPlanEntry({
+      planRepo.addPlanEntry(personId, {
         planId: plan.id,
         day: "2026-11-30",
         slot: "lunch",
@@ -127,9 +129,9 @@ describe("plan entries", () => {
   });
 
   it("refuses a non-positive quantity", () => {
-    const plan = planRepo.getOrCreatePlan("2026-12-07");
+    const plan = planRepo.getOrCreatePlan(personId, "2026-12-07");
     expect(() =>
-      planRepo.addPlanEntry({
+      planRepo.addPlanEntry(personId, {
         planId: plan.id,
         day: "2026-12-07",
         slot: "snack",
@@ -142,7 +144,7 @@ describe("plan entries", () => {
     if (!saved.ok) throw new Error("fixture failed");
 
     expect(() =>
-      planRepo.addPlanEntry({
+      planRepo.addPlanEntry(personId, {
         planId: plan.id,
         day: "2026-12-07",
         slot: "snack",
@@ -153,8 +155,8 @@ describe("plan entries", () => {
   });
 
   it("updates a food's weight without touching what it points at", () => {
-    const plan = planRepo.getOrCreatePlan("2026-12-14");
-    const entry = planRepo.addPlanEntry({
+    const plan = planRepo.getOrCreatePlan(personId, "2026-12-14");
+    const entry = planRepo.addPlanEntry(personId, {
       planId: plan.id,
       day: "2026-12-14",
       slot: "lunch",
@@ -162,9 +164,9 @@ describe("plan entries", () => {
       grams: 100,
     });
 
-    planRepo.updatePlanEntryQuantity(entry.id, { grams: 250 });
+    planRepo.updatePlanEntryQuantity(personId, entry.id, { grams: 250 });
 
-    const updated = planRepo.listPlanEntries(plan.id).find((item) => item.id === entry.id)!;
+    const updated = planRepo.listPlanEntries(personId, plan.id).find((item) => item.id === entry.id)!;
     expect(updated.grams).toBe(250);
     expect(updated.foodId).toBe("paneer");
   });
@@ -173,8 +175,8 @@ describe("plan entries", () => {
     const saved = service.saveRecipeDraft(draft("Quantity dish"));
     if (!saved.ok) throw new Error("fixture failed");
 
-    const plan = planRepo.getOrCreatePlan("2026-12-21");
-    const entry = planRepo.addPlanEntry({
+    const plan = planRepo.getOrCreatePlan(personId, "2026-12-21");
+    const entry = planRepo.addPlanEntry(personId, {
       planId: plan.id,
       day: "2026-12-21",
       slot: "dinner",
@@ -182,9 +184,9 @@ describe("plan entries", () => {
       servings: 1,
     });
 
-    planRepo.updatePlanEntryQuantity(entry.id, { servings: 2 });
+    planRepo.updatePlanEntryQuantity(personId, entry.id, { servings: 2 });
 
-    const updated = planRepo.listPlanEntries(plan.id).find((item) => item.id === entry.id)!;
+    const updated = planRepo.listPlanEntries(personId, plan.id).find((item) => item.id === entry.id)!;
     expect(updated.servings).toBe(2);
     expect(updated.recipeVersionId).toBe(saved.versionId);
   });
@@ -193,8 +195,8 @@ describe("plan entries", () => {
     const saved = service.saveRecipeDraft(draft("Moved dish"));
     if (!saved.ok) throw new Error("fixture failed");
 
-    const plan = planRepo.getOrCreatePlan("2027-01-04");
-    const entry = planRepo.addPlanEntry({
+    const plan = planRepo.getOrCreatePlan(personId, "2027-01-04");
+    const entry = planRepo.addPlanEntry(personId, {
       planId: plan.id,
       day: "2027-01-04",
       slot: "breakfast",
@@ -202,27 +204,27 @@ describe("plan entries", () => {
       servings: 2,
     });
 
-    const moved = planRepo.movePlanEntry(entry.id, { day: "2027-01-06", slot: "dinner" });
+    const moved = planRepo.movePlanEntry(personId, entry.id, { day: "2027-01-06", slot: "dinner" });
 
     expect(moved.day).toBe("2027-01-06");
     expect(moved.slot).toBe("dinner");
     expect(moved.recipeVersionId).toBe(saved.versionId);
     expect(moved.servings).toBe(2);
 
-    const stored = planRepo.listPlanEntries(plan.id).find((item) => item.id === entry.id)!;
+    const stored = planRepo.listPlanEntries(personId, plan.id).find((item) => item.id === entry.id)!;
     expect(stored).toEqual(moved);
   });
 
   it("puts a moved entry at the end of its destination", () => {
-    const plan = planRepo.getOrCreatePlan("2027-01-11");
-    const first = planRepo.addPlanEntry({
+    const plan = planRepo.getOrCreatePlan(personId, "2027-01-11");
+    const first = planRepo.addPlanEntry(personId, {
       planId: plan.id,
       day: "2027-01-11",
       slot: "lunch",
       foodId: "curd",
       grams: 100,
     });
-    const second = planRepo.addPlanEntry({
+    const second = planRepo.addPlanEntry(personId, {
       planId: plan.id,
       day: "2027-01-11",
       slot: "dinner",
@@ -230,13 +232,13 @@ describe("plan entries", () => {
       grams: 100,
     });
 
-    const moved = planRepo.movePlanEntry(second.id, { day: "2027-01-11", slot: "lunch" });
+    const moved = planRepo.movePlanEntry(personId, second.id, { day: "2027-01-11", slot: "lunch" });
     expect(moved.position).toBeGreaterThan(first.position);
   });
 
   it("rejects a quantity of the wrong kind", () => {
-    const plan = planRepo.getOrCreatePlan("2026-12-28");
-    const entry = planRepo.addPlanEntry({
+    const plan = planRepo.getOrCreatePlan(personId, "2026-12-28");
+    const entry = planRepo.addPlanEntry(personId, {
       planId: plan.id,
       day: "2026-12-28",
       slot: "breakfast",
@@ -244,14 +246,14 @@ describe("plan entries", () => {
       grams: 100,
     });
 
-    expect(() => planRepo.updatePlanEntryQuantity(entry.id, { servings: 2 })).toThrow(
+    expect(() => planRepo.updatePlanEntryQuantity(personId, entry.id, { servings: 2 })).toThrow(
       /weight must be a positive number/i,
     );
   });
 
   it("removes an entry", () => {
-    const plan = planRepo.getOrCreatePlan("2027-01-04");
-    const entry = planRepo.addPlanEntry({
+    const plan = planRepo.getOrCreatePlan(personId, "2027-01-04");
+    const entry = planRepo.addPlanEntry(personId, {
       planId: plan.id,
       day: "2027-01-04",
       slot: "snack",
@@ -259,8 +261,8 @@ describe("plan entries", () => {
       grams: 50,
     });
 
-    planRepo.removePlanEntry(entry.id);
-    expect(planRepo.listPlanEntries(plan.id).some((item) => item.id === entry.id)).toBe(false);
+    planRepo.removePlanEntry(personId, entry.id);
+    expect(planRepo.listPlanEntries(personId, plan.id).some((item) => item.id === entry.id)).toBe(false);
   });
 });
 
@@ -269,8 +271,8 @@ describe("pinning", () => {
     const first = service.saveRecipeDraft(draft("Pinned dish"));
     if (!first.ok) throw new Error("fixture failed");
 
-    const plan = planRepo.getOrCreatePlan("2027-01-11");
-    const entry = planRepo.addPlanEntry({
+    const plan = planRepo.getOrCreatePlan(personId, "2027-01-11");
+    const entry = planRepo.addPlanEntry(personId, {
       planId: plan.id,
       day: "2027-01-11",
       slot: "lunch",
@@ -287,7 +289,7 @@ describe("pinning", () => {
     });
     expect(second.ok).toBe(true);
 
-    const stored = planRepo.listPlanEntries(plan.id).find((item) => item.id === entry.id)!;
+    const stored = planRepo.listPlanEntries(personId, plan.id).find((item) => item.id === entry.id)!;
     expect(stored.recipeVersionId).toBe(first.versionId);
 
     const after = recipeRepo.getVersion(stored.recipeVersionId!)!.snapshot.perServing.totals

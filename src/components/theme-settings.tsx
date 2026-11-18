@@ -130,8 +130,8 @@ export function ThemeSettingsPanel() {
           >
             <span
               className={cn(
-                "absolute top-0.5 h-5 w-5 rounded-full bg-surface shadow-sm transition-transform",
-                settings.motion ? "translate-x-[1.125rem]" : "translate-x-0.5",
+                "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-surface shadow-sm transition-transform",
+                settings.motion ? "translate-x-4" : "translate-x-0",
               )}
             />
           </button>

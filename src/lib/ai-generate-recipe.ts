@@ -22,6 +22,7 @@ import { cleanNote } from "@/lib/notes";
 import { layoutGraph } from "@/lib/graph-layout";
 import { asData, withMaster, DATA_PREAMBLE, PROMPT_LIMITS } from "@/lib/ai/prompt";
 import type { Graph } from "@/lib/nutrition/graph";
+import type { ImagePart } from "@/lib/ai/types";
 
 export interface RecipePlanStepInput {
   foodName: string;
@@ -271,9 +272,13 @@ const MAX_PROMPT_CHARS = PROMPT_LIMITS.request;
 export async function planRecipeFromPrompt(
   prompt: string,
   existing?: ExistingRecipeContext,
+  images?: ImagePart[],
 ): Promise<RecipePlan> {
   const cleanPrompt = String(prompt ?? "").trim();
-  if (!cleanPrompt) throw new Error("Ask me something first — a dish, a mood, a fridge list.");
+  const hasImages = Array.isArray(images) && images.length > 0;
+  if (!cleanPrompt && !hasImages) {
+    throw new Error("Ask me something first — a dish, a mood, a fridge list.");
+  }
   if (cleanPrompt.length > MAX_PROMPT_CHARS) {
     throw new Error(`Keep the request under ${MAX_PROMPT_CHARS.toLocaleString()} characters.`);
   }
@@ -296,9 +301,21 @@ export async function planRecipeFromPrompt(
   const system = withMaster(SYSTEM, getMasterPrompt());
 
   const response = await complete({
-    capability: "text",
+    // A photo changes what the model can see; route it as vision.
+    capability: hasImages ? "vision" : "text",
     system,
-    prompt: `${DATA_PREAMBLE}\n${asData("request", cleanPrompt, PROMPT_LIMITS.request)}${existingSection}`,
+    prompt: hasImages
+      ? `${DATA_PREAMBLE}\n${
+          cleanPrompt
+            ? asData("request", cleanPrompt, PROMPT_LIMITS.request)
+            : asData(
+                "request",
+                "Read the recipe in the attached photo and plan it. Transcribe it faithfully, then adjust only what the user asked for.",
+                PROMPT_LIMITS.request,
+              )
+        }${existingSection}`
+      : `${DATA_PREAMBLE}\n${asData("request", cleanPrompt, PROMPT_LIMITS.request)}${existingSection}`,
+    images: hasImages ? images : undefined,
     jsonSchema: PLAN_SCHEMA as unknown as Record<string, unknown>,
     temperature: 0,
     // Notes add output tokens; leave headroom so a 7-step plan never truncates.

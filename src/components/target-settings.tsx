@@ -48,9 +48,14 @@ function overridesToText(rules: TargetRules): Record<string, string> {
 }
 
 export function TargetSettingsPanel({
+  personId,
+  personName,
   initial,
   recommended,
 }: {
+  /** The person this panel was rendered for; sent with each write. */
+  personId: string;
+  personName: string;
   initial: TargetRules;
   recommended: Target[];
 }) {
@@ -104,7 +109,7 @@ export function TargetSettingsPanel({
   function save() {
     setSaved(null);
     startTransition(async () => {
-      const result = await saveTargetRulesAction(draft);
+      const result = await saveTargetRulesAction(draft, personId);
       if (!result.ok || !result.rules) {
         setSaved(result.message ?? "Could not save.");
         return;
@@ -117,7 +122,11 @@ export function TargetSettingsPanel({
   function reset() {
     setSaved(null);
     startTransition(async () => {
-      const result = await resetTargetRulesAction();
+      const result = await resetTargetRulesAction(personId);
+      if (!result.ok) {
+        setSaved(result.message ?? "Could not reset.");
+        return;
+      }
       applyRules(result.rules, "Reset to the documented defaults.");
     });
   }
@@ -137,14 +146,14 @@ export function TargetSettingsPanel({
         <h2 className="text-sm font-semibold">Status colours and targets</h2>
         <span className="text-[10px] text-ink/40">
           {overrideCount === 0
-            ? "All targets from your profile"
+            ? `All targets from ${personName}'s profile`
             : `${overrideCount} of ${NUTRIENT_CODES.length} targets overridden`}
         </span>
       </div>
       <p className="mt-1 text-[11px] leading-relaxed text-muted">
-        These numbers decide when a bar turns amber or red and when a day counts as on target.
-        They never change the recommended amounts, which still follow your profile. Red is kept
-        at or above amber.
+        These numbers decide when a bar turns amber or red and when a day counts as on target for{" "}
+        {personName}. They never change the recommended amounts, which still follow the profile.
+        Red is kept at or above amber.
       </p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

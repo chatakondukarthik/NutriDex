@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { fmt } from "@/lib/format";
 import { filterRecipes, ingredientFacets } from "@/lib/recipe-filter";
+import { ProvenanceChip } from "@/components/provenance-chip";
+import { recipeProvenance } from "@/lib/provenance";
 
 export type Recipe = {
   id: string;
@@ -105,8 +107,11 @@ export function RecipesBrowser({ recipes }: { recipes: Recipe[] }) {
               <Link href={`/recipes/${recipe.id}`} className="block flex-1 p-4 pb-3">
                 <div className="flex items-start justify-between gap-2">
                   <h2 className="text-sm font-semibold leading-snug">{recipe.name}</h2>
-                  <span className="shrink-0 rounded-md bg-ink/[0.07] px-1.5 py-0.5 text-[10px] font-medium text-ink/45">
-                    v{recipe.currentVersionNo ?? 1}
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    <ProvenanceChip provenance={recipeProvenance(recipe.currentVersionLabel)} />
+                    <span className="rounded-md bg-ink/[0.07] px-1.5 py-0.5 text-[10px] font-medium text-ink/45">
+                      v{recipe.currentVersionNo ?? 1}
+                    </span>
                   </span>
                 </div>
                 {recipe.currentVersionLabel && (

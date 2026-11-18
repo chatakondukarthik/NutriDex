@@ -81,9 +81,14 @@ function draftFrom(profile: Profile): Draft {
  * authority.
  */
 export function ProfileEditor({
+  personId,
+  personName,
   profile,
   rules = DEFAULT_TARGET_RULES,
 }: {
+  /** The person this form was rendered for; submitted as a staleness guard. */
+  personId: string;
+  personName: string;
   profile: Profile;
   rules?: TargetRules;
 }) {
@@ -111,6 +116,8 @@ export function ProfileEditor({
 
   const live = parsed.ok ? parsed.profile : null;
   const breakdown = live ? energyBreakdown(live) : null;
+  // The override replaces the formula's target everywhere the app reads it.
+  const energy = live ? live.targetEnergyKcal ?? breakdown?.target ?? null : null;
   const targets = live ? targetsFor(live, rules) : [];
   const weeks = live ? projectionWeeks(live) : null;
   const dirty = JSON.stringify(draftFrom(profile)) !== JSON.stringify(draft);
@@ -122,9 +129,10 @@ export function ProfileEditor({
   return (
     <div className="grid gap-5 lg:grid-cols-[1fr_380px] lg:items-start">
       <form action={action} className="space-y-5">
+        <input type="hidden" name="expectedPersonId" value={personId} />
         {/* ---- body ---------------------------------------------------- */}
         <section className="rounded-card border border-line bg-surface p-5 shadow-card">
-          <h2 className="text-sm font-semibold">Your numbers</h2>
+          <h2 className="text-sm font-semibold">{personName}&apos;s numbers</h2>
           <p className="mt-1 text-xs leading-relaxed text-muted">
             Used to work out energy and protein. Body fat is optional — it makes
             the energy estimate more accurate when you know it.
@@ -417,9 +425,15 @@ export function ProfileEditor({
                   )}
                   <Row
                     label="Daily energy target"
-                    value={`${fmt(breakdown.target, 0)} kcal`}
+                    value={`${fmt(energy, 0)} kcal`}
                     strong
                   />
+                  {live?.targetEnergyKcal != null && breakdown && (
+                    <Row
+                      label="Calculated by the formula"
+                      value={`${fmt(breakdown.target, 0)} kcal`}
+                    />
+                  )}
                   <div className="my-1.5 border-t border-line" />
                   <Row
                     label={`Protein · ${breakdown.proteinPerKg} g/kg`}
@@ -482,7 +496,7 @@ export function ProfileEditor({
             <h2 className="text-sm font-semibold">Live targets</h2>
             {live && (
               <span className="tabular text-[11px] text-muted">
-                {fmt(breakdown ? breakdown.target : null, 0)} kcal
+                {fmt(energy, 0)} kcal
               </span>
             )}
           </div>
@@ -491,10 +505,16 @@ export function ProfileEditor({
             <>
               <div className="mt-3 flex items-baseline gap-2">
                 <span className="tabular text-3xl font-semibold leading-none">
-                  {fmt(breakdown.target, 0)}
+                  {fmt(energy, 0)}
                 </span>
                 <span className="text-xs text-muted">kcal / day</span>
               </div>
+              {live?.targetEnergyKcal != null && breakdown && (
+                <p className="mt-1 text-[11px] leading-relaxed text-warn-ink">
+                  Your override, not the formula — the formula suggests {fmt(breakdown.target, 0)}{" "}
+                  kcal.
+                </p>
+              )}
               <p className="mt-1 text-[11px] leading-relaxed text-muted">
                 {breakdown.goal === "maintain"
                   ? "Maintenance, with no deficit or surplus."

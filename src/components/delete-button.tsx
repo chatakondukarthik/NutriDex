@@ -47,7 +47,7 @@ export function DeleteButton({
       <button
         type="button"
         onClick={() => setConfirming(true)}
-        className="rounded-lg border border-danger/30 px-3 py-2 text-xs font-medium text-danger-ink transition hover:bg-danger-soft"
+        className="whitespace-nowrap rounded-md border border-danger/30 px-3 py-1.5 text-xs font-medium text-danger-ink transition hover:bg-danger-soft"
       >
         {label}
       </button>

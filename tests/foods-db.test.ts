@@ -3,12 +3,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), refresh: vi.fn() }));
 
 let dir: string;
 let dbMod: typeof import("@/lib/db/client");
 let foods: typeof import("@/lib/db/foods");
 let captured: typeof import("@/lib/captured-food");
+let personId: string;
 
 beforeAll(async () => {
   dir = mkdtempSync(path.join(tmpdir(), "nutriplan-foods-"));
@@ -16,6 +17,7 @@ beforeAll(async () => {
   dbMod = await import("@/lib/db/client");
   foods = await import("@/lib/db/foods");
   captured = await import("@/lib/captured-food");
+  personId = (await import("@/lib/db/people")).defaultPersonId();
 });
 
 afterAll(() => {
@@ -59,8 +61,9 @@ describe("captured foods round trip", () => {
 
     // reference it from an entry row directly
     dbMod.db.prepare(
-      `INSERT INTO entries (id, food_id, grams, amount, unit, day, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run("e1", saved.food.id, 100, 100, "g", "2026-01-01", new Date().toISOString());
+      `INSERT INTO entries (id, person_id, food_id, grams, amount, unit, day, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run("e1", personId, saved.food.id, 100, 100, "g", "2026-01-01", new Date().toISOString());
 
     const result = foods.archiveCapturedFood(saved.food.id);
     expect(result.ok).toBe(false);
@@ -106,8 +109,9 @@ describe("deleteCapturedFood", () => {
     const saved = foods.saveCapturedFood(prepared.food);
     if (!saved.ok) throw new Error("save");
     dbMod.db.prepare(
-      `INSERT INTO entries (id, food_id, grams, amount, unit, day, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run("del-e1", saved.food.id, 100, 100, "g", "2026-01-01", new Date().toISOString());
+      `INSERT INTO entries (id, person_id, food_id, grams, amount, unit, day, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run("del-e1", personId, saved.food.id, 100, 100, "g", "2026-01-01", new Date().toISOString());
     const result = foods.deleteCapturedFood(saved.food.id);
     if (!("message" in result)) throw new Error("expected refusal");
     expect(result.ok).toBe(false);

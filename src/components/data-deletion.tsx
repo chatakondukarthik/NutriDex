@@ -2,20 +2,33 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { purgeDataAction } from "@/app/actions";
-import type { PurgeBlocker, PurgeCategoryId, PurgePreview } from "@/lib/db/purge";
+import { purgeDataAction, purgePreviewAction } from "@/app/actions";
+import type {
+  PurgeBlocker,
+  PurgeCategoryId,
+  PurgePreview,
+  PurgeScope,
+} from "@/lib/db/purge";
 
 /**
  * Deleting user data by category.
  *
- * The checkboxes are a preview, not a promise: every count comes from the
- * server, and the server re-checks references inside the delete transaction.
- * The UI can therefore show a blocker and disable the button, but it cannot
- * authorise a delete the server would refuse.
+ * Two rules shape the UI:
  *
- * The confirmation is deliberately two steps with an explicit acknowledgement.
- * There is no undo and no backup on this machine, so the copy says so and
- * points at the archive download before the destructive button is enabled.
+ *   1. the scope is explicit. "This person" removes only the active person's
+ *      diary, plans, profile, pins and thresholds. "Whole household" removes
+ *      shared recipes, captured foods, household preferences and the AI log.
+ *      A person purge can never delete shared data, and a household purge can
+ *      never use one person's selection to discard another person's diary.
+ *   2. the checkboxes are a preview, not a promise. Every count comes from
+ *      the server, and the server re-checks references inside the delete
+ *      transaction. The UI can show a blocker and disable the button, but it
+ *      cannot authorise a delete the server would refuse.
+ *
+ * The confirmation is deliberately two steps with an explicit
+ * acknowledgement. There is no undo and no backup on this machine, so the
+ * copy says so and points at the archive download before the destructive
+ * button is enabled.
  */
 
 type Outcome = {
@@ -30,8 +43,17 @@ function plural(count: number, unit: string): string {
   return `${count} ${pluralUnit}`;
 }
 
+function blockerOwner(blocker: PurgeBlocker): string {
+  return blocker.personName ? `${blocker.personName}'s ` : "";
+}
+
+function blockerKey(blocker: PurgeBlocker): string {
+  return `${blocker.category}:${blocker.personId ?? "shared"}`;
+}
+
 export function DataDeletionPanel({ initialPreview }: { initialPreview: PurgePreview }) {
   const router = useRouter();
+  const [scope, setScope] = useState<PurgeScope>(initialPreview.scope);
   const [preview, setPreview] = useState(initialPreview);
   const [selected, setSelected] = useState<Set<PurgeCategoryId>>(() => new Set());
   const [confirming, setConfirming] = useState(false);
@@ -46,11 +68,16 @@ export function DataDeletionPanel({ initialPreview }: { initialPreview: PurgePre
   const outcomeRef = useRef<HTMLDivElement>(null);
   const wasConfirming = useRef(false);
   const focusOutcome = useRef(false);
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
 
   // A server refresh (after an import, or another tab) replaces the preview.
   // Selections made against the old counts are discarded rather than carried
-  // over to data the user has not seen.
+  // over to data the user has not seen. A refresh always describes the active
+  // person scope, so it must not overwrite a household preview the user
+  // switched to locally.
   useEffect(() => {
+    if (initialPreview.scope !== scopeRef.current) return;
     setPreview(initialPreview);
     setSelected(new Set());
     setConfirming(false);
@@ -72,20 +99,38 @@ export function DataDeletionPanel({ initialPreview }: { initialPreview: PurgePre
     for (const category of categories) {
       if (!selected.has(category.id)) continue;
       for (const blocker of category.blockers) {
-        if (!selected.has(blocker.category)) list.push({ owner: category.label, blocker });
+        const covered = blocker.resolvable && selected.has(blocker.category);
+        if (!covered) list.push({ owner: category.label, blocker });
       }
     }
     return list;
   }, [categories, selected]);
 
+  const hasPersonalBlocker = unresolved.some(({ blocker }) => !blocker.resolvable);
   const selectedCategories = categories.filter((category) => selected.has(category.id));
   const selectedItems = selectedCategories.reduce((sum, category) => sum + category.count, 0);
   const nothingToDelete = selectable.length === 0;
   const canConfirm = selectedItems > 0 && unresolved.length === 0 && !pending;
+  const scopeLabel = scope === "person" ? (preview.personName ?? "this person") : "the household";
 
   function resetFeedback() {
     setError(null);
     setOutcome(null);
+  }
+
+  function switchScope(next: PurgeScope) {
+    if (next === scope || pending) return;
+    resetFeedback();
+    setConfirming(false);
+    setAcknowledged(false);
+    setSelected(new Set());
+    setScope(next);
+
+    startTransition(async () => {
+      const nextPreview = await purgePreviewAction(next);
+      setPreview(nextPreview);
+      setScope(nextPreview.scope);
+    });
   }
 
   function toggle(id: PurgeCategoryId) {
@@ -146,8 +191,9 @@ export function DataDeletionPanel({ initialPreview }: { initialPreview: PurgePre
     resetFeedback();
 
     startTransition(async () => {
-      const result = await purgeDataAction(categoriesToDelete);
+      const result = await purgeDataAction(preview.scope, categoriesToDelete);
       setPreview(result.preview);
+      setScope(result.preview.scope);
 
       if (!result.ok) {
         setError(result.message);
@@ -169,6 +215,11 @@ export function DataDeletionPanel({ initialPreview }: { initialPreview: PurgePre
     });
   }
 
+  const emptyCopy =
+    scope === "person"
+      ? `${scopeLabel} has no diary entries, plans, body profile, saved defaults or target thresholds to delete. Shared foods and recipes are kept.`
+      : "There are no shared recipes, captured foods, household preferences or AI activity to delete. Foods, retention factors and settings that ship with the app are not user content and are kept.";
+
   return (
     <section
       aria-labelledby="data-deletion-title"
@@ -178,10 +229,10 @@ export function DataDeletionPanel({ initialPreview }: { initialPreview: PurgePre
         Delete data
       </h2>
       <p className="mt-1 text-[11px] leading-relaxed text-muted">
-        Choose what to remove from this machine. There is no undo and no backup here, so download
-        an{" "}
+        Choose a scope, then what to remove from this machine. There is no undo and no backup here,
+        so download an{" "}
         <a
-          href="/api/export"
+          href={scope === "person" ? "/api/export?scope=person" : "/api/export"}
           className="underline underline-offset-2 transition hover:text-ink"
         >
           archive
@@ -190,10 +241,43 @@ export function DataDeletionPanel({ initialPreview }: { initialPreview: PurgePre
         categories; remove them in AI access above.
       </p>
 
+      <div
+        role="group"
+        aria-label="Deletion scope"
+        className="mt-4 inline-flex rounded-control border border-line bg-bg p-0.5"
+      >
+        <button
+          type="button"
+          aria-pressed={scope === "person"}
+          onClick={() => switchScope("person")}
+          disabled={pending}
+          className={`rounded-[calc(var(--radius-control)-2px)] px-3 py-1.5 text-[11px] font-medium transition disabled:opacity-50 ${
+            scope === "person" ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink"
+          }`}
+        >
+          This person
+        </button>
+        <button
+          type="button"
+          aria-pressed={scope === "household"}
+          onClick={() => switchScope("household")}
+          disabled={pending}
+          className={`rounded-[calc(var(--radius-control)-2px)] px-3 py-1.5 text-[11px] font-medium transition disabled:opacity-50 ${
+            scope === "household" ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink"
+          }`}
+        >
+          Whole household
+        </button>
+      </div>
+      <p className="mt-2 text-[10px] leading-relaxed text-faint">
+        {scope === "person"
+          ? `${scopeLabel}'s diary, plans, body profile, saved defaults and thresholds only. Other people and the shared library are untouched.`
+          : "The shared recipe and food library, household preferences and AI activity. Other people's diaries and plans are never deleted from here."}
+      </p>
+
       {nothingToDelete ? (
         <p className="mt-4 rounded-xl border border-line bg-bg px-4 py-3 text-[11px] text-muted">
-          There is no user data to delete. Foods, retention factors and settings that ship with the
-          app are not user content and are kept.
+          {emptyCopy}
         </p>
       ) : (
         <>
@@ -222,15 +306,13 @@ export function DataDeletionPanel({ initialPreview }: { initialPreview: PurgePre
             {categories.map((category) => {
               const checked = selected.has(category.id);
               const empty = category.count === 0;
-              const descriptionId = `purge-${category.id}-description`;
+              const descriptionId = `purge-${scope}-${category.id}-description`;
 
               return (
                 <div
                   key={category.id}
                   className={`rounded-xl border p-3 transition ${
-                    checked
-                      ? "border-danger-line bg-danger-soft/40"
-                      : "border-line bg-bg"
+                    checked ? "border-danger-line bg-danger-soft/40" : "border-line bg-bg"
                   } ${empty ? "opacity-60" : ""}`}
                 >
                   <label className="flex items-start gap-2.5">
@@ -264,14 +346,16 @@ export function DataDeletionPanel({ initialPreview }: { initialPreview: PurgePre
                   {category.blockers.length > 0 && (
                     <ul className="mt-2 space-y-1 border-t border-line/70 pt-2 text-[10px] text-warn-ink">
                       {category.blockers.map((blocker) => {
-                        const covered = selected.has(blocker.category);
+                        const covered = blocker.resolvable && selected.has(blocker.category);
                         return (
-                          <li key={blocker.category}>
-                            Used by {blocker.label.toLowerCase()} (
-                            {plural(blocker.count, blocker.unit)}).{" "}
+                          <li key={blockerKey(blocker)}>
+                            Used by {blockerOwner(blocker)}
+                            {blocker.label.toLowerCase()} ({plural(blocker.count, blocker.unit)}).{" "}
                             {covered
                               ? "That category is selected, so it will be removed too."
-                              : `Select ${blocker.label} too, or this delete is refused.`}
+                              : blocker.resolvable
+                                ? `Select ${blocker.label} too, or this delete is refused.`
+                                : `Clear it in ${blocker.personName ?? "that person"}'s scope first.`}
                           </li>
                         );
                       })}
@@ -287,9 +371,18 @@ export function DataDeletionPanel({ initialPreview }: { initialPreview: PurgePre
               role="status"
               className="mt-3 rounded-lg border border-warn-line bg-warn-soft px-3 py-2 text-[11px] text-warn-ink"
             >
-              {[...new Set(unresolved.map(({ blocker }) => blocker.label))].join(" and ")} still
-              reference the data you selected. Select those categories too, or remove the
-              references first.
+              {[
+                ...new Set(
+                  unresolved.map(
+                    ({ blocker }) =>
+                      `${blockerOwner(blocker)}${blocker.label.toLowerCase()}`,
+                  ),
+                ),
+              ].join(", ")}{" "}
+              still reference the data you selected.{" "}
+              {hasPersonalBlocker
+                ? "Clear those rows in the relevant person's scope first."
+                : "Select those categories too, or remove the references first."}
             </p>
           )}
 
@@ -316,7 +409,7 @@ export function DataDeletionPanel({ initialPreview }: { initialPreview: PurgePre
               className="mt-4 rounded-xl border border-danger-line bg-danger-soft p-4"
             >
               <h3 id="purge-confirm-title" className="text-xs font-semibold text-danger-ink">
-                Delete {plural(selectedItems, "item")}?
+                Delete {plural(selectedItems, "item")} from {scopeLabel}?
               </h3>
               <ul className="mt-2 space-y-0.5 text-[10px] text-danger-ink">
                 {selectedCategories.map((category) => (
@@ -381,29 +474,29 @@ export function DataDeletionPanel({ initialPreview }: { initialPreview: PurgePre
           tabIndex={-1}
           className="mt-3 rounded-lg border border-line bg-bg px-3 py-2 text-[11px] outline-none"
         >
-            <p className="font-medium">Deleted.</p>
-            <ul className="mt-1 space-y-0.5 text-[10px] text-muted">
-              {Object.entries(outcome.deleted)
-                .filter(([, count]) => count > 0)
-                .map(([id, count]) => {
-                  const category = categories.find((candidate) => candidate.id === id);
-                  return (
-                    <li key={id}>
-                      {category?.label ?? id} — {plural(count, category?.unit ?? "item")}
-                    </li>
-                  );
-                })}
-              {outcome.filesRemoved > 0 && (
-                <li>{plural(outcome.filesRemoved, "evidence image")}</li>
-              )}
-            </ul>
-            {outcome.warnings.length > 0 && (
-              <ul className="mt-2 space-y-1 text-[10px] text-warn-ink">
-                {outcome.warnings.map((warning) => (
-                  <li key={warning}>{warning}</li>
-                ))}
-              </ul>
+          <p className="font-medium">Deleted.</p>
+          <ul className="mt-1 space-y-0.5 text-[10px] text-muted">
+            {Object.entries(outcome.deleted)
+              .filter(([, count]) => count > 0)
+              .map(([id, count]) => {
+                const category = categories.find((candidate) => candidate.id === id);
+                return (
+                  <li key={id}>
+                    {category?.label ?? id} — {plural(count, category?.unit ?? "item")}
+                  </li>
+                );
+              })}
+            {outcome.filesRemoved > 0 && (
+              <li>{plural(outcome.filesRemoved, "evidence image")}</li>
             )}
+          </ul>
+          {outcome.warnings.length > 0 && (
+            <ul className="mt-2 space-y-1 text-[10px] text-warn-ink">
+              {outcome.warnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </section>

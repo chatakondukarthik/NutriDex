@@ -2,6 +2,10 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BulkEstimateButton } from "@/components/bulk-estimate-button";
+import type { NutrientCode } from "@/lib/nutrition/types";
+
+const F1_CODES: NutrientCode[] = ["ENERC_KCAL","PROCNT","FAT","CHOCDF","FIBTG","SUGAR","NA","FE","CA","ZN","MG","VITC"];
+const F2_CODES: NutrientCode[] = ["FE","CA","ZN"];
 
 const refresh = vi.fn();
 const estimateFoodsAction = vi.fn();
@@ -15,8 +19,8 @@ vi.mock("@/app/actions", () => ({
 }));
 
 const PENDING = [
-  { id: "f1", name: "Paneer (homemade)", captured: true, missing: 12 },
-  { id: "f2", name: "Rice, raw milled", captured: false, missing: 3 },
+  { id: "f1", name: "Paneer (homemade)", captured: true, missingCodes: F1_CODES },
+  { id: "f2", name: "Rice, raw milled", captured: false, missingCodes: F2_CODES },
 ];
 
 describe("BulkEstimateButton", () => {
@@ -60,7 +64,7 @@ describe("BulkEstimateButton", () => {
     expect(screen.getByRole("dialog")).toHaveTextContent(/permanently/i);
 
     await user.click(screen.getByRole("button", { name: /yes, estimate 1 food/i }));
-    await waitFor(() => expect(estimateFoodsAction).toHaveBeenCalledWith({ foodIds: ["f1"] }));
+    await waitFor(() => expect(estimateFoodsAction).toHaveBeenCalledWith({ foodIds: ["f1"], nutrientCodes: F1_CODES }));
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
@@ -76,6 +80,6 @@ describe("BulkEstimateButton", () => {
     expect(screen.queryByText("Rice, raw milled")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /yes, estimate 1 food/i }));
-    await waitFor(() => expect(estimateFoodsAction).toHaveBeenCalledWith({ foodIds: ["f1"] }));
+    await waitFor(() => expect(estimateFoodsAction).toHaveBeenCalledWith({ foodIds: ["f1"], nutrientCodes: F1_CODES }));
   });
 });

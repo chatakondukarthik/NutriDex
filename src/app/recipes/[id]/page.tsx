@@ -12,7 +12,9 @@ import { getFood } from "@/lib/db/foods";
 import { getRecipe, getVersion } from "@/lib/db/recipes";
 import { fmt, fmtMass, fmtQuantity } from "@/lib/format";
 import { yieldNote } from "@/lib/nutrition/recipe";
-import { NUTRIENTS, NUTRIENT_CODES } from "@/lib/nutrition/types";
+import { NUTRIENTS, NUTRIENT_CODES, type NutrientCode } from "@/lib/nutrition/types";
+import { ProvenanceChip } from "@/components/provenance-chip";
+import { recipeProvenance } from "@/lib/provenance";
 
 export const dynamic = "force-dynamic";
 
@@ -40,18 +42,18 @@ export default async function RecipePage({
   // Captured ingredients with missing nutrients — candidates for AI fill.
   const isCurrent = version.id === recipe.summary.currentVersionId;
 
-  const fillTargets: { id: string; name: string; missing: number }[] = (() => {
+  const fillTargets: { id: string; name: string; missingCodes: NutrientCode[] }[] = (() => {
     if (!isCurrent) return [];
     const seen = new Set<string>();
-    const missingById = new Map<string, { id: string; name: string; missing: number }>();
+    const missingById = new Map<string, { id: string; name: string; missingCodes: NutrientCode[] }>();
     for (const block of version.blocks ?? []) {
       for (const input of block.inputs) {
         if (seen.has(input.foodId)) continue;
         seen.add(input.foodId);
         const food = getFood(input.foodId);
         if (!food?.source) continue; // seeds/fixtures are read-only
-        const missing = NUTRIENT_CODES.filter((code) => food.nutrients[code]?.amount == null).length;
-        if (missing > 0) missingById.set(food.id, { id: food.id, name: food.name, missing });
+        const missingCodes = NUTRIENT_CODES.filter((code) => food.nutrients[code]?.amount == null);
+        if (missingCodes.length > 0) missingById.set(food.id, { id: food.id, name: food.name, missingCodes });
       }
     }
     return [...missingById.values()];
@@ -67,12 +69,13 @@ export default async function RecipePage({
           <Link href="/recipes" className="text-[11px] text-ink/40 hover:text-ink/60">
             ← Recipes
           </Link>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+          <h1 className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-2xl font-semibold tracking-tight">
             {version.recipeName}
             {version.label && (
-              <span className="ml-2 align-middle text-base font-normal text-ink/45">
-                {version.label}
-              </span>
+              <ProvenanceChip
+                provenance={recipeProvenance(version.label)}
+                className="ml-1 align-middle"
+              />
             )}
           </h1>
           <p className="mt-1 text-[11px] text-ink/45">

@@ -1,6 +1,7 @@
-import { ImportError, importArchive, type ImportMode } from "@/lib/archive/import";
+import { ImportError, applyArchive, parseArchive, type ImportMode } from "@/lib/archive/import";
 import { ZipError } from "@/lib/archive/zip";
 import { readBodyWithLimit } from "@/lib/http/body";
+import { getActivePersonId } from "@/lib/person-server";
 
 /**
  * Apply an archive.
@@ -63,10 +64,21 @@ export async function POST(request: Request): Promise<Response> {
 
   const mode: ImportMode = form.get("mode") === "replace" ? "replace" : "merge";
   const dryRun = form.get("dryRun") === "1";
+  const requestedPerson = form.get("targetPersonId");
 
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
-    const report = importArchive(buffer, { mode, dryRun });
+    const parsed = parseArchive(buffer);
+    // A v1 archive cannot name its person, so it lands on the active person.
+    // A v2 person archive keeps its own person id unless the user chose a
+    // specific destination.
+    const targetPersonId =
+      typeof requestedPerson === "string" && requestedPerson.trim() !== ""
+        ? requestedPerson
+        : parsed.manifest.formatVersion === 1
+          ? await getActivePersonId()
+          : undefined;
+    const report = applyArchive(parsed, { mode, dryRun, targetPersonId });
     return Response.json(report, { headers: NO_STORE });
   } catch (error) {
     // Only our own validation messages reach the client. Anything else is a

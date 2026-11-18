@@ -22,15 +22,23 @@ const saveTargetRulesAction = vi.fn();
 const resetTargetRulesAction = vi.fn();
 
 vi.mock("@/app/actions", () => ({
-  saveTargetRulesAction: (rules: unknown) => saveTargetRulesAction(rules),
-  resetTargetRulesAction: () => resetTargetRulesAction(),
+  saveTargetRulesAction: (rules: unknown, personId: unknown) =>
+    saveTargetRulesAction(rules, personId),
+  resetTargetRulesAction: (personId: unknown) => resetTargetRulesAction(personId),
 }));
 
 const recommended = targetsFor(DEFAULT_PROFILE);
 
 function setup(initial: TargetRules = DEFAULT_TARGET_RULES) {
   const user = userEvent.setup();
-  render(<TargetSettingsPanel initial={initial} recommended={recommended} />);
+  render(
+    <TargetSettingsPanel
+      personId="person-1"
+      personName="Priya"
+      initial={initial}
+      recommended={recommended}
+    />,
+  );
   return user;
 }
 
@@ -85,6 +93,7 @@ describe("thresholds", () => {
     await waitFor(() => expect(saveTargetRulesAction).toHaveBeenCalledTimes(1));
     expect(saveTargetRulesAction).toHaveBeenCalledWith(
       expect.objectContaining({ amberOver: 0.15, redAt: 0.35 }),
+      "person-1",
     );
   });
 
@@ -123,7 +132,7 @@ describe("thresholds", () => {
 
     await user.click(screen.getByRole("button", { name: "Reset to defaults" }));
 
-    await waitFor(() => expect(resetTargetRulesAction).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(resetTargetRulesAction).toHaveBeenCalledWith("person-1"));
     expect(screen.getByLabelText("Amber above, percent over target")).toHaveValue(0);
     expect(screen.getByLabelText("Red at, percent over target")).toHaveValue(20);
   });
@@ -148,6 +157,7 @@ describe("per-nutrient overrides", () => {
     await waitFor(() => expect(saveTargetRulesAction).toHaveBeenCalledTimes(1));
     expect(saveTargetRulesAction).toHaveBeenCalledWith(
       expect.objectContaining({ overrides: { PROCNT: 150 } }),
+      "person-1",
     );
   });
 
@@ -164,6 +174,7 @@ describe("per-nutrient overrides", () => {
     await waitFor(() => expect(saveTargetRulesAction).toHaveBeenCalledTimes(1));
     expect(saveTargetRulesAction).toHaveBeenCalledWith(
       expect.objectContaining({ overrides: {} }),
+      "person-1",
     );
   });
 

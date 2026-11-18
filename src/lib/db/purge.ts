@@ -1,98 +1,162 @@
 import { existsSync, readdirSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { db, reseedRetentionFactors, transaction } from "./client";
+import { defaultPersonId, getPerson } from "./people";
 import { dataFile } from "@/lib/data-dir";
-import { IMPORTABLE_SETTINGS } from "@/lib/archive/registry";
+import {
+  IMPORTABLE_PERSON_SETTINGS,
+  IMPORTABLE_SETTINGS,
+} from "@/lib/archive/registry";
 
 /**
  * Deleting user data by category.
  *
- * Three rules shape this module:
+ * Household mode splits deletion into two scopes, because the data is two
+ * different things (D-051):
+ *
+ *   - a `person` purge removes that person's diary, plans, body profile,
+ *     pinned amounts and thresholds. It never touches another person, the
+ *     shared food/recipe library, evidence files or household settings.
+ *   - a `household` purge removes shared recipes, captured foods, household
+ *     preferences and the AI log. It never removes a person's diary to make a
+ *     shared delete succeed: another person's rows are not the caller's to
+ *     discard.
+ *
+ * Four rules shape this module:
  *
  *   1. **Nothing is implicit.** The caller names each category; a category
- *      deletes exactly the rows described in `PURGE_CATEGORIES`. Seed foods,
- *      seed retention factors, `meta` and the AI keys are never touched.
+ *      deletes exactly the rows described in the scope's category list. Seed
+ *      foods, seed retention factors, `meta`, the AI keys and the people
+ *      roster are never touched.
  *   2. **No dangling references.** A captured food is referenced by
  *      `entries.food_id`, `plan_entries.food_id` and `component_inputs.food_id`
  *      without a foreign key, and a recipe version is referenced by diary and
- *      plan rows with one. Deleting a parent while a child the user did not
- *      select still points at it would either fail the transaction or leave a
- *      row that renders as "unknown food". The purge refuses instead, and the
- *      preview names the categories that must be selected too.
- *   3. **Files follow rows.** Evidence images are removed only after the
- *      database transaction commits, so a rollback cannot leave rows pointing
- *      at deleted files. A failed unlink is reported, not hidden.
- *
- * The preview and the purge run the same dependency queries. The preview is
- * for the UI; the purge re-checks inside `BEGIN IMMEDIATE`, so a client cannot
- * bypass the check by sending a stale or hand-made selection.
+ *      plan rows with one. The purge refuses a shared delete while any
+ *      person's rows still point at it, and names that person.
+ *   3. **Files follow rows.** Evidence images are removed only for a
+ *      household `foods` delete, and only after the transaction commits.
+ *   4. **The preview and the purge agree.** They run the same queries; the
+ *      purge re-checks inside `BEGIN IMMEDIATE`, so a stale or hand-made
+ *      selection cannot authorise a dangling delete.
  */
 
-export const PURGE_CATEGORIES = [
+export type PurgeScope = "person" | "household";
+
+export type PurgeCategoryId =
+  | "diary"
+  | "plans"
+  | "profile"
+  | "defaults"
+  | "preferences"
+  | "recipes"
+  | "foods"
+  | "ai";
+
+export interface PurgeCategorySpec {
+  id: PurgeCategoryId;
+  label: string;
+  unit: string;
+  description: string;
+}
+
+export const PERSON_PURGE_CATEGORIES: readonly PurgeCategorySpec[] = [
   {
     id: "diary",
     label: "Diary entries",
     unit: "entry",
-    description: "Every food and recipe you logged, across every day.",
+    description:
+      "Every food and recipe logged for this person. Other people and the shared library are untouched.",
   },
   {
     id: "plans",
     label: "Weekly plans",
     unit: "plan",
-    description: "Plans and every meal placed in them.",
+    description: "This person's weekly plans and every meal placed in them.",
   },
   {
-    id: "recipes",
-    label: "Recipes",
-    unit: "recipe",
-    description: "Recipes, their versions, blocks and ingredient lines. Archived recipes are included.",
-  },
-  {
-    id: "foods",
-    label: "Foods you created",
-    unit: "food",
-    description: "Foods you added, their nutrients, portions and local evidence images, plus their pinned amounts. Foods that ship with the app are kept.",
+    id: "profile",
+    label: "Body profile",
+    unit: "profile",
+    description:
+      "This person's body and goal inputs. Recommended targets fall back to the example profile.",
   },
   {
     id: "defaults",
     label: "Saved default amounts",
     unit: "default",
-    description: "Pinned amounts and units for foods, including foods that ship with the app.",
-  },
-  {
-    id: "profile",
-    label: "Profile",
-    unit: "profile",
-    description: "Body and goal inputs. Recommended targets fall back to the example profile.",
+    description:
+      "This person's pinned amounts and units for foods. The foods themselves are kept.",
   },
   {
     id: "preferences",
-    label: "Settings and overrides",
+    label: "Target thresholds",
     unit: "setting",
-    description: "AI instructions, nutrient status thresholds and cooking-retention overrides. Shipped defaults are restored. Provider, model and endpoint settings in AI access are managed separately, like keys.",
+    description:
+      "This person's nutrient status thresholds and per-nutrient overrides. Shipped defaults are restored.",
+  },
+] as const;
+
+export const HOUSEHOLD_PURGE_CATEGORIES: readonly PurgeCategorySpec[] = [
+  {
+    id: "recipes",
+    label: "Recipes",
+    unit: "recipe",
+    description:
+      "Every recipe, version, block and ingredient line in the shared library. Archived recipes are included.",
+  },
+  {
+    id: "foods",
+    label: "Foods you created",
+    unit: "food",
+    description:
+      "Foods the household added, their nutrients, portions, pinned amounts and local evidence images. Foods that ship with the app are kept.",
+  },
+  {
+    id: "preferences",
+    label: "Household preferences",
+    unit: "setting",
+    description:
+      "Shared AI instructions and cooking-retention overrides. Shipped defaults are restored.",
   },
   {
     id: "ai",
     label: "AI activity log",
     unit: "record",
-    description: "The AI call log and cached nutrient estimates. Your saved AI keys are managed separately in AI access.",
+    description:
+      "The household AI call log and cached nutrient estimates. Saved AI keys are managed separately in AI access.",
   },
 ] as const;
 
-export type PurgeCategoryId = (typeof PURGE_CATEGORIES)[number]["id"];
+const CATEGORIES_BY_SCOPE: Record<PurgeScope, readonly PurgeCategorySpec[]> = {
+  person: PERSON_PURGE_CATEGORIES,
+  household: HOUSEHOLD_PURGE_CATEGORIES,
+};
 
-type PurgeCategorySpec = (typeof PURGE_CATEGORIES)[number];
+export function purgeCategories(scope: PurgeScope): readonly PurgeCategorySpec[] {
+  return CATEGORIES_BY_SCOPE[scope];
+}
 
-const CATEGORY_BY_ID: ReadonlyMap<PurgeCategoryId, PurgeCategorySpec> = new Map(
-  PURGE_CATEGORIES.map((spec) => [spec.id, spec]),
-);
+function categorySpec(scope: PurgeScope, id: PurgeCategoryId): PurgeCategorySpec | null {
+  return CATEGORIES_BY_SCOPE[scope].find((spec) => spec.id === id) ?? null;
+}
 
-/** A category that must also be selected before the owner can be deleted. */
+/**
+ * A category that must be cleared before the owner can be deleted.
+ *
+ * Personal blockers name the person whose rows still point at the shared
+ * row. `resolvable` says whether selecting that category in the same scope
+ * would clear it: a household purge has no diary category, so that blocker
+ * has to be cleared in the person's scope instead of being offered as a
+ * checkbox that does not exist.
+ */
 export interface PurgeBlocker {
   category: PurgeCategoryId;
   label: string;
   unit: string;
   count: number;
+  personId?: string;
+  personName?: string;
+  resolvable: boolean;
 }
 
 export interface PurgeCategoryPreview {
@@ -100,7 +164,7 @@ export interface PurgeCategoryPreview {
   label: string;
   unit: string;
   description: string;
-  /** The category's primary rows, e.g. recipes, not their versions. */
+  /** The category's primary rows, e.g. foods, not their nutrient rows. */
   count: number;
   /** A short breakdown for the UI. */
   detail?: string;
@@ -109,6 +173,9 @@ export interface PurgeCategoryPreview {
 }
 
 export interface PurgePreview {
+  scope: PurgeScope;
+  personId: string | null;
+  personName: string | null;
   categories: PurgeCategoryPreview[];
 }
 
@@ -145,24 +212,43 @@ function count(sql: string, ...params: Array<string | number | null>): number {
   return row?.n ?? 0;
 }
 
-function labelOf(id: PurgeCategoryId): string {
-  return CATEGORY_BY_ID.get(id)?.label ?? id;
+function quantity(value: number, unit: string): string {
+  if (value === 1) return `${value} ${unit}`;
+  const plural = unit.endsWith("y") ? `${unit.slice(0, -1)}ies` : `${unit}s`;
+  return `${value} ${plural}`;
 }
 
-function unitOf(id: PurgeCategoryId): string {
-  return CATEGORY_BY_ID.get(id)?.unit ?? "item";
+function sqlList(values: Iterable<string>): string {
+  return [...values].map((value) => `'${value.replace(/'/g, "''")}'`).join(", ");
 }
 
-/** Settings rows the archive can restore, and therefore the only ones a purge resets. */
-function preferenceKeys(): string[] {
-  return [...IMPORTABLE_SETTINGS].sort();
+const PERSON_SETTINGS_SQL = sqlList(IMPORTABLE_PERSON_SETTINGS);
+const HOUSEHOLD_SETTINGS_SQL = sqlList(IMPORTABLE_SETTINGS);
+
+interface PersonCountRow {
+  person_id: string;
+  person_name: string;
+  n: number;
 }
 
-function preferenceSql(): { sql: string; keys: string[] } {
-  const keys = preferenceKeys();
+function perPersonCounts(sql: string): PersonCountRow[] {
+  return db.prepare(sql).all() as unknown as PersonCountRow[];
+}
+
+function personalBlocker(
+  category: PurgeCategoryId,
+  label: string,
+  unit: string,
+  row: PersonCountRow,
+): PurgeBlocker {
   return {
-    sql: keys.map(() => "?").join(", "),
-    keys,
+    category,
+    label,
+    unit,
+    count: row.n,
+    personId: row.person_id,
+    personName: row.person_name,
+    resolvable: false,
   };
 }
 
@@ -171,9 +257,8 @@ function preferenceSql(): { sql: string; keys: string[] } {
  *
  * A connected v2 food node also becomes a `component_inputs` row, but an
  * unconnected node lives only in the version's snapshot JSON. Counting both
- * sources by recipe id keeps the blocker count in the same unit as its label
- * ("recipe") and catches a hand-orphaned node that would otherwise make the
- * saved graph fail with "Unknown food" after its food was deleted.
+ * sources by recipe id catches a hand-orphaned node that would otherwise make
+ * the saved graph fail with "Unknown food" after its food was deleted.
  */
 function recipesReferencingCapturedFoods(): number {
   const recipeIds = new Set<string>();
@@ -220,76 +305,101 @@ function recipesReferencingCapturedFoods(): number {
 }
 
 /**
- * Rows that reference a captured food. None of these columns has a foreign
- * key, because a food can be a seed fixture in code, so the check is explicit.
+ * Diary, plan and recipe references to captured foods, attributed to the
+ * person whose rows hold them. Counts are household-wide: one person's
+ * selection never waives another person's reference.
  */
-function foodReferenceCounts(): Record<"diary" | "plans" | "recipes", number> {
-  return {
-    diary: count(
-      `SELECT COUNT(*) AS n FROM entries e
-       JOIN captured_foods f ON f.id = e.food_id`,
-    ),
-    plans: count(
-      `SELECT COUNT(*) AS n FROM plan_entries p
-       JOIN captured_foods f ON f.id = p.food_id`,
-    ),
-    recipes: recipesReferencingCapturedFoods(),
-  };
-}
-
-/** Diary and plan rows pin a recipe version with a real foreign key. */
-function recipeReferenceCounts(): Record<"diary" | "plans", number> {
-  return {
-    diary: count(`SELECT COUNT(*) AS n FROM entries WHERE recipe_version_id IS NOT NULL`),
-    plans: count(
-      `SELECT COUNT(*) AS n FROM plan_entries WHERE recipe_version_id IS NOT NULL`,
-    ),
-  };
-}
-
 function foodBlockers(): PurgeBlocker[] {
-  const references = foodReferenceCounts();
-  return (["diary", "plans", "recipes"] as const)
-    .filter((id) => references[id] > 0)
-    .map((id) => ({
-      category: id,
-      label: labelOf(id),
-      unit: unitOf(id),
-      count: references[id],
-    }));
+  const blockers: PurgeBlocker[] = [];
+
+  for (const row of perPersonCounts(
+    `SELECT e.person_id AS person_id, p.display_name AS person_name, COUNT(*) AS n
+       FROM entries e
+       JOIN captured_foods f ON f.id = e.food_id
+       JOIN people p ON p.id = e.person_id
+      GROUP BY e.person_id, p.display_name
+      ORDER BY p.created_at ASC, p.display_name ASC`,
+  )) {
+    blockers.push(personalBlocker("diary", "Diary entries", "entry", row));
+  }
+
+  for (const row of perPersonCounts(
+    `SELECT pl.person_id AS person_id, p.display_name AS person_name, COUNT(*) AS n
+       FROM plan_entries pe
+       JOIN captured_foods f ON f.id = pe.food_id
+       JOIN plans pl ON pl.id = pe.plan_id
+       JOIN people p ON p.id = pl.person_id
+      GROUP BY pl.person_id, p.display_name
+      ORDER BY p.created_at ASC, p.display_name ASC`,
+  )) {
+    blockers.push(personalBlocker("plans", "Weekly plans", "planned meal", row));
+  }
+
+  const recipes = recipesReferencingCapturedFoods();
+  if (recipes > 0) {
+    blockers.push({
+      category: "recipes",
+      label: "Recipes",
+      unit: "recipe",
+      count: recipes,
+      resolvable: true,
+    });
+  }
+
+  return blockers;
 }
 
+/** Diary and plan rows that pin a recipe version, attributed by person. */
 function recipeBlockers(): PurgeBlocker[] {
-  const references = recipeReferenceCounts();
-  return (["diary", "plans"] as const)
-    .filter((id) => references[id] > 0)
-    .map((id) => ({
-      category: id,
-      label: labelOf(id),
-      unit: unitOf(id),
-      count: references[id],
-    }));
+  const blockers: PurgeBlocker[] = [];
+
+  for (const row of perPersonCounts(
+    `SELECT e.person_id AS person_id, p.display_name AS person_name, COUNT(*) AS n
+       FROM entries e
+       JOIN people p ON p.id = e.person_id
+      WHERE e.recipe_version_id IS NOT NULL
+      GROUP BY e.person_id, p.display_name
+      ORDER BY p.created_at ASC, p.display_name ASC`,
+  )) {
+    blockers.push(personalBlocker("diary", "Diary entries", "entry", row));
+  }
+
+  for (const row of perPersonCounts(
+    `SELECT pl.person_id AS person_id, p.display_name AS person_name, COUNT(*) AS n
+       FROM plan_entries pe
+       JOIN plans pl ON pl.id = pe.plan_id
+       JOIN people p ON p.id = pl.person_id
+      WHERE pe.recipe_version_id IS NOT NULL
+      GROUP BY pl.person_id, p.display_name
+      ORDER BY p.created_at ASC, p.display_name ASC`,
+  )) {
+    blockers.push(personalBlocker("plans", "Weekly plans", "planned meal", row));
+  }
+
+  return blockers;
 }
 
-function unresolvedBlockers(selected: ReadonlySet<PurgeCategoryId>): {
-  owners: PurgeCategoryId[];
-  blockers: PurgeBlocker[];
-} {
+function blockersFor(scope: PurgeScope, id: PurgeCategoryId): PurgeBlocker[] {
+  if (scope !== "household") return [];
+  if (id === "foods") return foodBlockers();
+  if (id === "recipes") return recipeBlockers();
+  return [];
+}
+
+function unresolvedBlockers(
+  scope: PurgeScope,
+  selected: ReadonlySet<PurgeCategoryId>,
+): { owners: PurgeCategoryId[]; blockers: PurgeBlocker[] } {
   const owners: PurgeCategoryId[] = [];
   const blockers: PurgeBlocker[] = [];
 
-  if (selected.has("foods")) {
-    const unresolved = foodBlockers().filter((blocker) => !selected.has(blocker.category));
+  for (const id of ["foods", "recipes"] as const) {
+    if (!selected.has(id)) continue;
+    const unresolved = blockersFor(scope, id).filter(
+      (blocker) => !(blocker.resolvable && selected.has(blocker.category)),
+    );
     if (unresolved.length > 0) {
-      owners.push("foods");
-      blockers.push(...unresolved);
-    }
-  }
-
-  if (selected.has("recipes")) {
-    const unresolved = recipeBlockers().filter((blocker) => !selected.has(blocker.category));
-    if (unresolved.length > 0) {
-      owners.push("recipes");
+      owners.push(id);
       blockers.push(...unresolved);
     }
   }
@@ -297,23 +407,56 @@ function unresolvedBlockers(selected: ReadonlySet<PurgeCategoryId>): {
   return { owners, blockers };
 }
 
-function statsFor(id: PurgeCategoryId): { count: number; detail?: string } {
-  switch (id) {
-    case "diary":
-      return { count: count("SELECT COUNT(*) AS n FROM entries") };
+function statsFor(
+  scope: PurgeScope,
+  id: PurgeCategoryId,
+  personId: string | null,
+): { count: number; detail?: string } {
+  if (scope === "person") {
+    const pid = personId as string;
+    switch (id) {
+      case "diary":
+        return { count: count("SELECT COUNT(*) AS n FROM entries WHERE person_id = ?", pid) };
 
-    case "plans": {
-      const plans = count("SELECT COUNT(*) AS n FROM plans");
-      const entries = count("SELECT COUNT(*) AS n FROM plan_entries");
-      return {
-        count: plans,
-        detail:
-          entries > 0
-            ? `${entries} planned meal${entries === 1 ? "" : "s"}`
-            : undefined,
-      };
+      case "plans": {
+        const plans = count("SELECT COUNT(*) AS n FROM plans WHERE person_id = ?", pid);
+        const meals = count(
+          `SELECT COUNT(*) AS n FROM plan_entries
+            WHERE plan_id IN (SELECT id FROM plans WHERE person_id = ?)`,
+          pid,
+        );
+        return {
+          count: plans,
+          detail: meals > 0 ? `${meals} planned meal${meals === 1 ? "" : "s"}` : undefined,
+        };
+      }
+
+      case "profile":
+        return { count: count("SELECT COUNT(*) AS n FROM profile WHERE id = ?", pid) };
+
+      case "defaults":
+        return {
+          count: count(
+            "SELECT COUNT(*) AS n FROM food_default_amounts WHERE person_id = ?",
+            pid,
+          ),
+        };
+
+      case "preferences":
+        return {
+          count: count(
+            `SELECT COUNT(*) AS n FROM person_settings
+              WHERE person_id = ? AND key IN (${PERSON_SETTINGS_SQL})`,
+            pid,
+          ),
+        };
+
+      default:
+        return { count: 0 };
     }
+  }
 
+  switch (id) {
     case "recipes": {
       const recipes = count("SELECT COUNT(*) AS n FROM recipes");
       const versions = count("SELECT COUNT(*) AS n FROM recipe_versions");
@@ -331,11 +474,12 @@ function statsFor(id: PurgeCategoryId): { count: number; detail?: string } {
       const foods = count("SELECT COUNT(*) AS n FROM captured_foods");
       const nutrients = count("SELECT COUNT(*) AS n FROM captured_food_nutrients");
       const portions = count("SELECT COUNT(*) AS n FROM captured_food_portions");
-      // Pins for captured foods are removed with the food, so disclose them
-      // here instead of silently deleting another category's rows.
+      // Pins for captured foods are removed with the food, across every
+      // person, so disclose them here instead of deleting another category's
+      // rows silently.
       const pins = count(
         `SELECT COUNT(*) AS n FROM food_default_amounts
-         WHERE food_id IN (SELECT id FROM captured_foods)`,
+          WHERE food_id IN (SELECT id FROM captured_foods)`,
       );
       const images = localEvidenceNames().length;
       const parts = [
@@ -347,17 +491,9 @@ function statsFor(id: PurgeCategoryId): { count: number; detail?: string } {
       return { count: foods, detail: parts.length > 0 ? parts.join(" · ") : undefined };
     }
 
-    case "defaults":
-      return { count: count("SELECT COUNT(*) AS n FROM food_default_amounts") };
-
-    case "profile":
-      return { count: count("SELECT COUNT(*) AS n FROM profile WHERE id = 'local'") };
-
     case "preferences": {
-      const { sql, keys } = preferenceSql();
       const settings = count(
-        `SELECT COUNT(*) AS n FROM app_settings WHERE key IN (${sql})`,
-        ...keys,
+        `SELECT COUNT(*) AS n FROM app_settings WHERE key IN (${HOUSEHOLD_SETTINGS_SQL})`,
       );
       const retention = count(
         "SELECT COUNT(*) AS n FROM retention_factors WHERE origin = 'user'",
@@ -379,12 +515,13 @@ function statsFor(id: PurgeCategoryId): { count: number; detail?: string } {
       const cached = count("SELECT COUNT(*) AS n FROM estimate_cache");
       const parts = [
         calls > 0 ? `${calls} call${calls === 1 ? "" : "s"}` : null,
-        cached > 0
-          ? `${cached} cached estimate${cached === 1 ? "" : "s"}`
-          : null,
+        cached > 0 ? `${cached} cached estimate${cached === 1 ? "" : "s"}` : null,
       ].filter((part): part is string => Boolean(part));
       return { count: calls + cached, detail: parts.length > 0 ? parts.join(" · ") : undefined };
     }
+
+    default:
+      return { count: 0 };
   }
 }
 
@@ -394,13 +531,39 @@ function statsFor(id: PurgeCategoryId): { count: number; detail?: string } {
  * This is a read. The Settings page calls it on every render; the purge calls
  * it again after a commit to report what changed.
  */
-export function getPurgePreview(): PurgePreview {
-  const foodDependencies = foodBlockers();
-  const recipeDependencies = recipeBlockers();
+export function getPurgePreview(
+  scope: PurgeScope = "household",
+  personId?: string | null,
+): PurgePreview {
+  if (scope === "person") {
+    const resolved = personId ?? defaultPersonId();
+    const person = getPerson(resolved);
+    if (!person) throw new Error("That person no longer exists.");
+    return {
+      scope,
+      personId: person.id,
+      personName: person.displayName,
+      categories: PERSON_PURGE_CATEGORIES.map((spec) => {
+        const stats = statsFor(scope, spec.id, person.id);
+        return {
+          id: spec.id,
+          label: spec.label,
+          unit: spec.unit,
+          description: spec.description,
+          count: stats.count,
+          detail: stats.detail,
+          blockers: [],
+        };
+      }),
+    };
+  }
 
   return {
-    categories: PURGE_CATEGORIES.map((spec) => {
-      const stats = statsFor(spec.id);
+    scope,
+    personId: null,
+    personName: null,
+    categories: HOUSEHOLD_PURGE_CATEGORIES.map((spec) => {
+      const stats = statsFor(scope, spec.id, null);
       return {
         id: spec.id,
         label: spec.label,
@@ -408,25 +571,23 @@ export function getPurgePreview(): PurgePreview {
         description: spec.description,
         count: stats.count,
         detail: stats.detail,
-        blockers:
-          spec.id === "foods"
-            ? foodDependencies
-            : spec.id === "recipes"
-              ? recipeDependencies
-              : [],
+        blockers: blockersFor(scope, spec.id),
       };
     }),
   };
 }
 
-function normalizeCategories(categories: readonly string[]): PurgeCategoryId[] | null {
+function normalizeCategories(
+  scope: PurgeScope,
+  categories: readonly string[],
+): PurgeCategoryId[] | null {
   if (!Array.isArray(categories)) return null;
   const selected = new Set<PurgeCategoryId>();
   for (const raw of categories) {
     if (typeof raw !== "string") return null;
-    const id = raw.trim();
-    if (!CATEGORY_BY_ID.has(id as PurgeCategoryId)) return null;
-    selected.add(id as PurgeCategoryId);
+    const id = raw.trim() as PurgeCategoryId;
+    if (!categorySpec(scope, id)) return null;
+    selected.add(id);
   }
   return [...selected];
 }
@@ -447,17 +608,16 @@ const EVIDENCE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
  *
  * A replace-import can leave an image with no row pointing at it, and an
  * earlier failed unlink can leave a file behind after its row is gone. Both
- * are still the user's photos on the user's disk. A purge of the foods
- * category is the one moment when no row can need them, so that is where the
- * directory is reconciled. Invalid names are never considered: the value
- * may come from a hand-edited database row or a directory entry, and only
- * single-segment names may reach `unlinkSync`.
+ * are still the user's photos on the user's disk. A household foods purge is
+ * the one moment when no row can need them, so that is where the directory is
+ * reconciled. Invalid names are never considered: only single-segment names
+ * may reach `unlinkSync`.
  */
 function localEvidenceNames(): string[] {
   const rows = db
     .prepare(
       `SELECT image_path FROM captured_foods
-       WHERE image_path LIKE 'data/evidence/%'`,
+        WHERE image_path LIKE 'data/evidence/%'`,
     )
     .all() as unknown as Array<{ image_path: string }>;
 
@@ -510,21 +670,67 @@ function removeEvidenceFiles(names: readonly string[]): { removed: number; faile
   return { removed, failed };
 }
 
+/** "Priya's diary entries (12)", "Recipes (4)" — never a bare count. */
+function describeBlocker(blocker: PurgeBlocker): string {
+  const owner = blocker.personName ? `${blocker.personName}'s ` : "";
+  return `${owner}${blocker.label.toLowerCase()} (${quantity(blocker.count, blocker.unit)})`;
+}
+
+function listBlockers(blockers: readonly PurgeBlocker[]): string {
+  const seen = new Set<string>();
+  const parts: string[] = [];
+  for (const blocker of blockers) {
+    const text = describeBlocker(blocker);
+    if (seen.has(text)) continue;
+    seen.add(text);
+    parts.push(text);
+  }
+  if (parts.length <= 1) return parts.join("");
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
 function blockedMessage(blockers: readonly PurgeBlocker[]): string {
-  const labels = [...new Set(blockers.map((blocker) => blocker.label))];
-  const list = labels.join(" and ");
-  return `That data is still used by ${list}. Select ${labels.length === 1 ? "that category" : "those categories"} too, or remove the references first.`;
+  const shared = blockers.filter((blocker) => blocker.resolvable);
+  const personal = blockers.filter((blocker) => !blocker.resolvable);
+  const list = listBlockers(blockers);
+
+  if (personal.length === 0) {
+    const labels = [...new Set(shared.map((blocker) => blocker.label))].join(" and ");
+    return `That data is still used by ${list}. Select ${labels} too, or remove the references first.`;
+  }
+  if (shared.length === 0) {
+    return `That data is still used by ${list}. Clear those rows in the relevant person's scope first.`;
+  }
+  const labels = [...new Set(shared.map((blocker) => blocker.label))].join(" and ");
+  return `That data is still used by ${list}. Clear the personal rows in each person's scope, or select ${labels} too.`;
 }
 
 /**
  * Delete the selected categories in one transaction.
  *
- * The caller must send category ids, not table names: the id switch below is
- * the allowlist. Unknown ids reject the whole request rather than silently
- * ignoring a typo.
+ * The caller must send a scope and category ids, not table names: the id
+ * switch below is the allowlist. Unknown ids reject the whole request rather
+ * than silently ignoring a typo. A person purge additionally requires that
+ * person to exist; a household purge ignores any person id.
  */
-export function purgeData(categories: readonly string[]): PurgeResult {
-  const selected = normalizeCategories(categories);
+export function purgeData(
+  scope: PurgeScope,
+  personId: string | null,
+  categories: readonly string[],
+): PurgeResult {
+  if (scope !== "person" && scope !== "household") {
+    return { ok: false, message: "That deletion scope is not recognised." };
+  }
+
+  let ownerId: string | null = null;
+  if (scope === "person") {
+    if (!personId) return { ok: false, message: "Choose a person first." };
+    const person = getPerson(personId);
+    if (!person) return { ok: false, message: "That person no longer exists." };
+    ownerId = person.id;
+  }
+
+  const selected = normalizeCategories(scope, categories);
   if (selected === null) {
     return { ok: false, message: "One of those deletion categories is not recognised." };
   }
@@ -545,65 +751,75 @@ export function purgeData(categories: readonly string[]): PurgeResult {
     transaction(() => {
       // Re-check against the same connection and lock the database before any
       // row is removed. A stale preview cannot authorise a dangling delete.
-      const blocked = unresolvedBlockers(selectedSet);
+      const blocked = unresolvedBlockers(scope, selectedSet);
       if (blocked.owners.length > 0) {
         throw new PurgeBlockedError(blocked.owners, blocked.blockers);
       }
 
-      before = getPurgePreview();
+      before = getPurgePreview(scope, ownerId);
 
-      // Read the file names inside the write transaction: a food added by
-      // another process between the preview and here is deleted with the
-      // category, so its evidence must be in the list too.
-      if (selectedSet.has("foods")) {
-        evidenceNames = localEvidenceNames();
-      }
+      if (scope === "person") {
+        const id = ownerId as string;
 
-      // Children before parents. The order is fixed even when only some
-      // categories are selected; a missing delete is a no-op.
-      if (selectedSet.has("diary")) {
-        db.prepare("DELETE FROM entries").run();
-      }
+        if (selectedSet.has("diary")) {
+          db.prepare("DELETE FROM entries WHERE person_id = ?").run(id);
+        }
 
-      if (selectedSet.has("plans")) {
-        db.prepare("DELETE FROM plan_entries").run();
-        db.prepare("DELETE FROM plans").run();
-      }
+        if (selectedSet.has("plans")) {
+          db.prepare(
+            "DELETE FROM plan_entries WHERE plan_id IN (SELECT id FROM plans WHERE person_id = ?)",
+          ).run(id);
+          db.prepare("DELETE FROM plans WHERE person_id = ?").run(id);
+        }
 
-      if (selectedSet.has("recipes")) {
-        db.prepare("DELETE FROM component_inputs").run();
-        db.prepare("DELETE FROM components").run();
-        db.prepare("DELETE FROM recipe_versions").run();
-        db.prepare("DELETE FROM recipes").run();
-      }
+        if (selectedSet.has("profile")) {
+          db.prepare("DELETE FROM profile WHERE id = ?").run(id);
+        }
 
-      if (selectedSet.has("foods")) {
-        db.prepare("DELETE FROM captured_food_nutrients").run();
-        db.prepare("DELETE FROM captured_food_portions").run();
-        // Pins for foods that no longer exist would be invisible leftovers.
-        db.prepare(
-          "DELETE FROM food_default_amounts WHERE food_id IN (SELECT id FROM captured_foods)",
-        ).run();
-        db.prepare("DELETE FROM captured_foods").run();
-      }
+        if (selectedSet.has("defaults")) {
+          db.prepare("DELETE FROM food_default_amounts WHERE person_id = ?").run(id);
+        }
 
-      if (selectedSet.has("defaults")) {
-        db.prepare("DELETE FROM food_default_amounts").run();
-      }
+        if (selectedSet.has("preferences")) {
+          db.prepare(
+            `DELETE FROM person_settings
+              WHERE person_id = ? AND key IN (${PERSON_SETTINGS_SQL})`,
+          ).run(id);
+        }
+      } else {
+        // Read the file names inside the write transaction: a food added by
+        // another process between the preview and here is deleted with the
+        // category, so its evidence must be in the list too.
+        if (selectedSet.has("foods")) {
+          evidenceNames = localEvidenceNames();
+        }
 
-      if (selectedSet.has("profile")) {
-        db.prepare("DELETE FROM profile WHERE id = 'local'").run();
-      }
+        if (selectedSet.has("recipes")) {
+          db.prepare("DELETE FROM component_inputs").run();
+          db.prepare("DELETE FROM components").run();
+          db.prepare("DELETE FROM recipe_versions").run();
+          db.prepare("DELETE FROM recipes").run();
+        }
 
-      if (selectedSet.has("preferences")) {
-        const { sql, keys } = preferenceSql();
-        db.prepare(`DELETE FROM app_settings WHERE key IN (${sql})`).run(...keys);
-        db.prepare("DELETE FROM retention_factors WHERE origin = 'user'").run();
-      }
+        if (selectedSet.has("foods")) {
+          db.prepare("DELETE FROM captured_food_nutrients").run();
+          db.prepare("DELETE FROM captured_food_portions").run();
+          // Pins for foods that no longer exist would be invisible leftovers.
+          db.prepare(
+            "DELETE FROM food_default_amounts WHERE food_id IN (SELECT id FROM captured_foods)",
+          ).run();
+          db.prepare("DELETE FROM captured_foods").run();
+        }
 
-      if (selectedSet.has("ai")) {
-        db.prepare("DELETE FROM ai_calls").run();
-        db.prepare("DELETE FROM estimate_cache").run();
+        if (selectedSet.has("preferences")) {
+          db.prepare(`DELETE FROM app_settings WHERE key IN (${HOUSEHOLD_SETTINGS_SQL})`).run();
+          db.prepare("DELETE FROM retention_factors WHERE origin = 'user'").run();
+        }
+
+        if (selectedSet.has("ai")) {
+          db.prepare("DELETE FROM ai_calls").run();
+          db.prepare("DELETE FROM estimate_cache").run();
+        }
       }
     });
   } catch (error) {
@@ -621,7 +837,7 @@ export function purgeData(categories: readonly string[]): PurgeResult {
   // The rows are committed. Files are best-effort: a failure is reported so
   // the user knows an image may still be on disk, but it cannot roll back the
   // database or pretend the delete succeeded silently.
-  if (selectedSet.has("foods")) {
+  if (scope === "household" && selectedSet.has("foods")) {
     const result = removeEvidenceFiles(evidenceNames);
     filesRemoved = result.removed;
     if (result.failed > 0) {
@@ -634,7 +850,7 @@ export function purgeData(categories: readonly string[]): PurgeResult {
   // A user override suppresses the shipped row at boot. Once the override is
   // gone, reconcile the seed now so recipes do not silently fall back to 1.0
   // until the next restart. Failure is not fatal: boot reconciles it again.
-  if (selectedSet.has("preferences")) {
+  if (scope === "household" && selectedSet.has("preferences")) {
     try {
       reseedRetentionFactors();
     } catch {
@@ -644,7 +860,7 @@ export function purgeData(categories: readonly string[]): PurgeResult {
     }
   }
 
-  const after = getPurgePreview();
+  const after = getPurgePreview(scope, ownerId);
   // `before` is always assigned inside the transaction unless it threw, in
   // which case we never reach here. The fallback keeps the type honest.
   const beforeCounts = (before ?? after).categories;

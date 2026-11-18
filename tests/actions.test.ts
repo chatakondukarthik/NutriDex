@@ -10,9 +10,21 @@ import path from "node:path";
  * directly with hostile input and assert two things: the rejection message is
  * specific, and nothing was written. The database is a throwaway file.
  */
-vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), refresh: vi.fn() }));
+
+const cookieJar = vi.hoisted(() => new Map<string, string>());
+vi.mock("next/headers", () => ({
+  cookies: async () => ({
+    get: (name: string) =>
+      cookieJar.has(name) ? { name, value: cookieJar.get(name) } : undefined,
+    set: (name: string, value: string) => {
+      cookieJar.set(name, value);
+    },
+  }),
+}));
 
 let dir: string;
+let personId: string;
 let actions: typeof import("@/app/actions");
 let entries: typeof import("@/lib/db/entries");
 let plan: typeof import("@/lib/db/plan");
@@ -32,6 +44,7 @@ beforeAll(async () => {
   recipes = await import("@/lib/recipes");
   db = (await import("@/lib/db/client")).db;
   weekStart = (await import("@/lib/plan")).weekStart;
+  personId = (await import("@/lib/db/people")).defaultPersonId();
 });
 
 afterAll(() => {
@@ -45,8 +58,8 @@ beforeEach(() => {
 
 /** Every plan entry in a week, without assuming the plan already exists. */
 function entriesInWeek(week: string) {
-  const found = plan.getPlan(weekStart(week));
-  return found ? plan.listPlanEntries(found.id) : [];
+  const found = plan.getPlan(personId, weekStart(week));
+  return found ? plan.listPlanEntries(personId, found.id) : [];
 }
 
 describe("addFoodAction", () => {
@@ -59,7 +72,7 @@ describe("addFoodAction", () => {
     });
 
     expect(result.ok).toBe(true);
-    const stored = entries.listEntries(entries.today());
+    const stored = entries.listEntries(personId, entries.today());
     expect(stored).toHaveLength(1);
     expect(stored[0].grams).toBe(100);
   });
@@ -76,24 +89,24 @@ describe("addFoodAction", () => {
     const result = await actions.addFoodAction(input as Parameters<typeof actions.addFoodAction>[0]);
     expect(result.ok).toBe(false);
     expect(result.message).toMatch(message);
-    expect(entries.listEntries(entries.today())).toHaveLength(0);
+    expect(entries.listEntries(personId, entries.today())).toHaveLength(0);
   });
 });
 
 describe("removeEntryAction", () => {
   it("removes only the requested entry", async () => {
-    const first = entries.addEntry({
+    const first = entries.addEntry(personId, {
       foodId: "paneer",
       grams: 100,
       amount: 1,
       unit: "g",
       day: entries.today(),
     });
-    entries.addEntry({ foodId: "egg", grams: 50, amount: 1, unit: "g", day: entries.today() });
+    entries.addEntry(personId, { foodId: "egg", grams: 50, amount: 1, unit: "g", day: entries.today() });
 
     await actions.removeEntryAction(first.id);
 
-    const remaining = entries.listEntries(entries.today());
+    const remaining = entries.listEntries(personId, entries.today());
     expect(remaining).toHaveLength(1);
     expect(remaining[0].foodId).toBe("egg");
   });
@@ -119,7 +132,7 @@ describe("addRecipeEntryAction", () => {
     });
 
     expect(result.ok).toBe(true);
-    const rows = entries.listEntries(entries.today());
+    const rows = entries.listEntries(personId, entries.today());
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       recipeVersionId: saved.versionId,
@@ -243,7 +256,7 @@ describe("addPlanEntryAction", () => {
       grams: 100,
     });
     expect(entriesInWeek(WEEK)).toHaveLength(before);
-    expect(plan.getPlan(weekStart(WEEK))).toBeNull();
+    expect(plan.getPlan(personId, weekStart(WEEK))).toBeNull();
   });
 });
 
@@ -398,7 +411,7 @@ describe("copyPlanDayAction", () => {
   const TARGET = "2026-11-12"; // Thursday of the same week
 
   function insertSourceEntry(id: string, position: number, grams: number | null) {
-    const source = plan.getOrCreatePlan(weekStart(WEEK));
+    const source = plan.getOrCreatePlan(personId, weekStart(WEEK));
     db.prepare(
       `INSERT INTO plan_entries
          (id, plan_id, day, slot, position, food_id, grams, amount, unit, created_at)
@@ -712,8 +725,8 @@ describe("copyPlanWeekAction", () => {
   });
 
   it("normalises non-Monday week starts to the Monday plan row", async () => {
-    const source = plan.getOrCreatePlan(weekStart(WEEK));
-    plan.addPlanEntry({
+    const source = plan.getOrCreatePlan(personId, weekStart(WEEK));
+    plan.addPlanEntry(personId, {
       planId: source.id,
       day: DAY,
       slot: "lunch",
@@ -729,9 +742,9 @@ describe("copyPlanWeekAction", () => {
     expect(result.ok).toBe(true);
     expect(result.count).toBe(1);
 
-    const target = plan.getPlan(weekStart("2026-11-18"));
+    const target = plan.getPlan(personId, weekStart("2026-11-18"));
     expect(target).toBeDefined();
-    const copied = plan.listPlanEntries(target!.id);
+    const copied = plan.listPlanEntries(personId, target!.id);
     expect(copied).toHaveLength(1);
     expect(copied[0]).toMatchObject({ day: "2026-11-18", foodId: "paneer" });
   });

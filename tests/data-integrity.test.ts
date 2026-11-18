@@ -16,6 +16,7 @@ let dir: string;
 let dbPath: string;
 let db: typeof import("@/lib/db/client")["db"];
 let transaction: typeof import("@/lib/db/client")["transaction"];
+let personId: string;
 
 beforeAll(async () => {
   dir = mkdtempSync(path.join(tmpdir(), "nutriplan-integrity-"));
@@ -24,6 +25,7 @@ beforeAll(async () => {
   const client = await import("@/lib/db/client");
   db = client.db;
   transaction = client.transaction;
+  personId = (await import("@/lib/db/people")).defaultPersonId();
 });
 
 afterAll(() => {
@@ -59,8 +61,9 @@ let planSeq = 0;
 
 function insertPlan(id: string) {
   planSeq += 1;
-  db.prepare(`INSERT INTO plans (id, starts_on, created_at) VALUES (?, ?, ?)`).run(
+  db.prepare(`INSERT INTO plans (id, person_id, starts_on, created_at) VALUES (?, ?, ?, ?)`).run(
     id,
+    personId,
     `2030-01-${String(planSeq).padStart(2, "0")}`,
     "2026-01-01T00:00:00.000Z",
   );
@@ -130,10 +133,11 @@ function insertDiaryEntry(overrides: {
   recipeVersionId?: string | null;
 }) {
   db.prepare(
-    `INSERT INTO entries (id, food_id, recipe_version_id, grams, amount, unit, day, created_at)
-     VALUES (?, ?, ?, 100, 1, 'g', '2026-01-01', ?)`,
+    `INSERT INTO entries (id, person_id, food_id, recipe_version_id, grams, amount, unit, day, created_at)
+     VALUES (?, ?, ?, ?, 100, 1, 'g', '2026-01-01', ?)`,
   ).run(
     overrides.id,
+    personId,
     overrides.foodId ?? null,
     overrides.recipeVersionId ?? null,
     "2026-01-01T00:00:00.000Z",
@@ -245,9 +249,9 @@ describe("transactions", () => {
     expect(() =>
       transaction(() => {
         db.prepare(
-          `INSERT INTO entries (id, food_id, grams, amount, unit, day, created_at)
-           VALUES ('tx-1', 'paneer', 100, 1, 'g', '2026-01-01', '2026-01-01T00:00:00.000Z')`,
-        ).run();
+          `INSERT INTO entries (id, person_id, food_id, grams, amount, unit, day, created_at)
+           VALUES ('tx-1', ?, 'paneer', 100, 1, 'g', '2026-01-01', '2026-01-01T00:00:00.000Z')`,
+        ).run(personId);
         throw new Error("boom");
       }),
     ).toThrow("boom");
@@ -258,9 +262,9 @@ describe("transactions", () => {
   it("commits when the callback succeeds", () => {
     transaction(() => {
       db.prepare(
-        `INSERT INTO entries (id, food_id, grams, amount, unit, day, created_at)
-         VALUES ('tx-2', 'paneer', 100, 1, 'g', '2026-01-02', '2026-01-02T00:00:00.000Z')`,
-      ).run();
+        `INSERT INTO entries (id, person_id, food_id, grams, amount, unit, day, created_at)
+         VALUES ('tx-2', ?, 'paneer', 100, 1, 'g', '2026-01-02', '2026-01-02T00:00:00.000Z')`,
+      ).run(personId);
     });
 
     expect(

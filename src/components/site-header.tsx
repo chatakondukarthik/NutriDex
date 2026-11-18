@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { SettingsIcon } from "@/components/icons";
+import { PersonSwitcher } from "@/components/person-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { cn } from "@/lib/cn";
 
@@ -16,7 +17,13 @@ const LINKS = [
   { href: "/glossary", label: "Glossary" },
 ];
 
-export function SiteHeader() {
+export function SiteHeader({
+  people,
+  activePersonId,
+}: {
+  people: Array<{ id: string; displayName: string }>;
+  activePersonId: string;
+}) {
   const pathname = usePathname();
 
   return (
@@ -68,6 +75,8 @@ export function SiteHeader() {
             );
           })}
         </nav>
+
+        <PersonSwitcher people={people} activePersonId={activePersonId} />
 
         <ThemeToggle />
 

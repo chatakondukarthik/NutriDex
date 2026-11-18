@@ -17,73 +17,87 @@ export interface AmountUnit {
   unit: string;
 }
 
-export function getFoodDefaultPin(foodId: string): AmountUnit | null {
+export function getFoodDefaultPin(personId: string, foodId: string): AmountUnit | null {
   const row = db
-    .prepare("SELECT amount, unit FROM food_default_amounts WHERE food_id = ?")
-    .get(foodId) as unknown as { amount: number; unit: string } | undefined;
+    .prepare("SELECT amount, unit FROM food_default_amounts WHERE person_id = ? AND food_id = ?")
+    .get(personId, foodId) as unknown as { amount: number; unit: string } | undefined;
   if (!row) return null;
   return { amount: row.amount, unit: row.unit };
 }
 
 /** `null` clears the pin; the caller passes undefined to leave it alone. */
 export function setFoodDefaultPin(
+  personId: string,
   foodId: string,
   pin: AmountUnit | null,
 ): void {
   if (pin === null) {
-    db.prepare("DELETE FROM food_default_amounts WHERE food_id = ?").run(foodId);
+    db.prepare("DELETE FROM food_default_amounts WHERE person_id = ? AND food_id = ?").run(
+      personId,
+      foodId,
+    );
     return;
   }
   db.prepare(
-    `INSERT INTO food_default_amounts (food_id, amount, unit, updated_at)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT(food_id) DO UPDATE SET
+    `INSERT INTO food_default_amounts (person_id, food_id, amount, unit, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(person_id, food_id) DO UPDATE SET
        amount = excluded.amount,
        unit = excluded.unit,
        updated_at = excluded.updated_at`,
-  ).run(foodId, pin.amount, pin.unit, new Date().toISOString());
+  ).run(personId, foodId, pin.amount, pin.unit, new Date().toISOString());
 }
 
 /**
- * The most recent amount+unit used for this food anywhere: plan, diary
- * or a recipe ingredient. All three store the same unit-key convention
- * (`g`, `tbsp`, `portion:label`), so one union answers all of them.
+ * The most recent amount+unit this person used for a food in their own
+ * diary or plan.
  *
- * `created_at` is ISO-8601 in every table, so string order is time
- * order across the union.
+ * Recipe ingredient lines are deliberately excluded: they are shared library
+ * content, and letting one person's recipe edit change another person's
+ * default amount would make a personal preference leak across the household.
+ *
+ * `created_at` is ISO-8601 in every table, so string order is time order
+ * across the union.
  */
-export function lastUsedAmountFor(foodId: string): AmountUnit | null {
+export function lastUsedAmountFor(personId: string, foodId: string): AmountUnit | null {
   const row = db
     .prepare(
       `SELECT amount, unit FROM (
-         SELECT amount, unit, created_at
-           FROM plan_entries
-          WHERE food_id = ? AND amount IS NOT NULL AND unit IS NOT NULL
+         SELECT pe.amount AS amount, pe.unit AS unit, pe.created_at AS created_at
+           FROM plan_entries pe
+           JOIN plans p ON p.id = pe.plan_id
+          WHERE p.person_id = ? AND pe.food_id = ?
+            AND pe.amount IS NOT NULL AND pe.unit IS NOT NULL
          UNION ALL
          SELECT amount, unit, created_at
            FROM entries
-          WHERE food_id = ? AND amount IS NOT NULL
-         UNION ALL
-         SELECT ci.amount, ci.unit, rv.created_at
-           FROM component_inputs ci
-           JOIN components c ON c.id = ci.component_id
-           JOIN recipe_versions rv ON rv.id = c.recipe_version_id
-          WHERE ci.food_id = ?
+          WHERE person_id = ? AND food_id = ? AND amount IS NOT NULL
        )
        ORDER BY created_at DESC
        LIMIT 1`,
     )
-    .get(foodId, foodId, foodId) as unknown as AmountUnit | undefined;
+    .get(personId, foodId, personId, foodId) as unknown as AmountUnit | undefined;
   if (!row) return null;
   return { amount: row.amount, unit: row.unit };
 }
 
 /** Full chain for one food, or null when the food does not exist. */
-export function resolveDefaultAmount(foodId: string): DefaultAmount | null {
+export function resolveDefaultAmount(
+  personId: string,
+  foodId: string,
+): DefaultAmount | null {
   const food = getFood(foodId);
   if (!food) return null;
   return defaultAmountFor(food, {
-    pin: getFoodDefaultPin(foodId),
-    lastUsed: lastUsedAmountFor(foodId),
+    pin: getFoodDefaultPin(personId, foodId),
+    lastUsed: lastUsedAmountFor(personId, foodId),
   });
+}
+
+export function countDefaultPinsForPerson(personId: string): number {
+  return (
+    db
+      .prepare("SELECT COUNT(*) AS n FROM food_default_amounts WHERE person_id = ?")
+      .get(personId) as unknown as { n: number }
+  ).n;
 }

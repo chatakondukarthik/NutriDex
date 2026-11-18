@@ -65,6 +65,11 @@ export type CompleteFn = typeof complete;
 export interface EstimateOptions {
   completeFn?: CompleteFn;
   masterPrompt?: string | null;
+  /**
+   * Restrict the fill to these nutrients. Known/estimated nutrients are
+   * never filled regardless; an empty set fills nothing.
+   */
+  codes?: ReadonlySet<NutrientCode> | null;
 }
 
 /** Codes whose value is missing (status !== "known", amount null). */
@@ -75,6 +80,36 @@ export function missingNutrients(food: Food): NutrientCode[] {
   });
 }
 
+/**
+ * Intersection helper: which of `wanted` are currently missing for this
+ * food. The client picks nutrients it *thinks* are missing; the server
+ * re-checks against fresh state so concurrent edits don't get re-estimated.
+ */
+export function selectedMissing(
+  food: Food,
+  wanted?: ReadonlySet<NutrientCode> | null,
+): NutrientCode[] {
+  const missing = missingNutrients(food);
+  return wanted ? missing.filter((code) => wanted.has(code)) : missing;
+}
+
+/**
+ * Drop anything that is not a tracked nutrient code. Empty array means the
+ * caller sent a selection with nothing usable in it — callers treat that as
+ * a no-op rather than a full fill.
+ */
+export function sanitizeNutrientCodes(input: unknown): NutrientCode[] {
+  if (!Array.isArray(input)) return [];
+  const valid = new Set(NUTRIENT_CODES);
+  const seen = new Set<NutrientCode>();
+  for (const item of input) {
+    if (typeof item === "string" && valid.has(item as NutrientCode)) {
+      seen.add(item as NutrientCode);
+    }
+  }
+  return [...seen];
+}
+
 export async function estimateNutrients(
   food: Food,
   opts: EstimateOptions = {},
@@ -82,9 +117,14 @@ export async function estimateNutrients(
   const completeFn = opts.completeFn ?? complete;
   const masterPrompt = opts.masterPrompt ?? getMasterPrompt();
 
-  const missing = missingNutrients(food);
-  const known = NUTRIENT_CODES.filter((code) => !missing.includes(code));
-  const knownLines = known
+  // The client picks; the server re-checks against fresh state.
+  const missing = selectedMissing(food, opts.codes);
+  if (missing.length === 0) {
+    const cfg = getAiConfig();
+    return { fills: [], notes: "", model: `${cfg.provider}:${cfg.model}` };
+  }
+  const already = NUTRIENT_CODES.filter((code) => !missing.includes(code));
+  const knownLines = already
     .map((code) => {
       const v = food.nutrients[code];
       return `${code}: ${v.amount} (${v.status})`;
@@ -187,16 +227,25 @@ export async function fillAllWithAi(opts: {
   maxFoods?: number;
   /** Restrict to this set of food ids (e.g. the ingredients of one recipe). */
   foodIds?: string[];
+  /** Restrict to this set of nutrient codes. Empty array fills nothing. */
+  nutrientCodes?: NutrientCode[];
 } = {}): Promise<{
   foodsEstimated: number;
   nutritionEntries: number;
   skipped: number;
   failed: Array<{ name: string; reason: string }>;
 }> {
+  if (opts.nutrientCodes && opts.nutrientCodes.length === 0) {
+    return { foodsEstimated: 0, nutritionEntries: 0, skipped: 0, failed: [] };
+  }
+  const wanted = opts.nutrientCodes ? new Set(opts.nutrientCodes) : null;
   const foods = listFoods().filter((food) => food.source); // captured only
-  const pending = foods.filter((food) =>
-    (!opts.foodIds || opts.foodIds.includes(food.id)) &&
-    NUTRIENT_CODES.some((code) => food.nutrients[code]?.amount == null),
+  const pending = foods.filter(
+    (food) =>
+      (!opts.foodIds || opts.foodIds.includes(food.id)) &&
+      NUTRIENT_CODES.some(
+        (code) => food.nutrients[code]?.amount == null && (!wanted || wanted.has(code)),
+      ),
   );
   const cap = opts.maxFoods ?? 50;
   const failed: Array<{ name: string; reason: string }> = [];
@@ -204,9 +253,10 @@ export async function fillAllWithAi(opts: {
   let foodsEstimated = 0;
   let skipped = 0;
 
+  const codes = opts.nutrientCodes ? new Set(opts.nutrientCodes) : null;
   for (const food of pending.slice(0, cap)) {
     try {
-      const estimate = await estimateNutrients(food, opts);
+      const estimate = await estimateNutrients(food, { ...opts, codes });
       if (estimate.fills.length === 0) {
         skipped += 1;
         continue;
