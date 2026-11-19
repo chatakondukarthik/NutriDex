@@ -7,8 +7,9 @@ it actually contains, put it in a week, and watch the day fill up.
 
 **Status:** S0–S3.5 done; S4 (trust and ship) in progress. Food entry, recipes,
 the weekly plan, theming, the target explanation and total export/import work
-end to end. See [`docs/build/PLAN.md`](docs/build/PLAN.md). The design system is
-the Thali Ledger — [`docs/design/THALI-LEDGER.md`](docs/design/THALI-LEDGER.md).
+end to end. Installable as a web app — see Settings → Install NutriPlan. See
+[`docs/build/PLAN.md`](docs/build/PLAN.md). The design system is the Thali
+Ledger — [`docs/design/THALI-LEDGER.md`](docs/design/THALI-LEDGER.md).
 
 ---
 

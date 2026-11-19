@@ -135,6 +135,8 @@ Entities: [`../reference/DATA-MODEL.md`](../reference/DATA-MODEL.md).
 |---|---|---|---|
 | D-051 | A household is trusted; people are convenience scopes — profiles filter, never authorize | Accepted | [below](#d-051--a-household-is-trusted-people-are-convenience-scopes) |
 | D-052 | The Seven Plates: one fixed-camera plate per room, one randomized fold per tab change | Accepted | [below](#d-052--the-seven-plates-one-fixed-camera-plate-per-room-one-randomized-fold-per-tab-change) |
+| D-053 | Save semantics: content changes mint versions; layout-only saves persist silently | Accepted | [below](#d-053--save-semantics-content-changes-mint-versions-layout-only-saves-persist-silently) |
+| D-054 | The installable surface: adaptive icon, standalone manifest, a tiny network-first service worker | Accepted | [below](#d-054--the-installable-surface-adaptive-icon-standalone-manifest-a-tiny-network-first-service-worker) |
 
 ### Engineering
 
@@ -1218,6 +1220,93 @@ motion and motion-off render complete static plates with zero choreography.
   won — the plates read as atmosphere rather than as background debris.
 - Multiple simultaneous exits: exit animations replaced the older 0.38 s fold with a
   single universal 0.16 s step-aside; simpler, faster, one identity.
+
+---
+
+### D-053 — Save semantics: content changes mint versions; layout-only saves persist silently
+
+**Status:** Accepted
+**Date:** 2026-11-19
+**Relates to:** D-047, D-050, D-051
+
+**Context**
+
+The recipe editor distinguishes canvas edits (node positions, pan, zoom) from content edits
+(graph shape, quantities, name, instructions, servings). Re-minting a version for every drag
+would flood version history with noise and punish the exact change that should be free.
+
+**Decision**
+
+- Content changes on an existing recipe open a version dialog: new version (default,
+  `replaceVersionId: null`) or replace-in-place (only when the user picks it).
+- Layout-only saves (node positions, nothing else) write only `snapshot.layout` on the
+  current version via `saveGraphLayoutAction` → `writeVersionLayout`; no version row is
+  created, no dialog opens, no toast beyond a quiet "Layout saved".
+- Replacing a pinned version requires explicit confirmation ("Replace anyway"). When the
+  client does not pass `forceReplace`, `saveGraphDraft` silently falls back to creating a
+  new version with a `warning` instead of refusing — plans and the diary never receive
+  mutated pinned values by accident, and nothing gets lost to an error path.
+- `replaceVersion` accepts `force?: boolean`; both call sites pass it deliberately.
+
+**Consequences**
+
+Version history now means *content history*. A pinned version can still be rewritten, but
+only by an explicit user decision twice removed (in-editor choose → server honor).
+
+**Alternatives rejected**
+
+- Minting a version on every save: history floods; meaningless diff noise.
+- Refusing replace-in-place on pinned versions (the prior behaviour): the feature existed on
+  paper but could never be used, and the fallback ("saved as new version instead") was never
+  executed — the editor now passes the honest fallback through.
+- Making layout-only saves bump `updated_at` on the recipe row only: leaves the version
+  snapshot stale, tripping the leave-guard on the next reopen.
+
+---
+
+### D-054 — The installable surface: adaptive icon, standalone manifest, a tiny network-first service worker
+
+**Status:** Accepted
+**Date:** 2026-11-19
+**Relates to:** D-027, D-053, SEC-GOV-02
+
+**Context**
+
+NutriPlan is local-first and a household tool; the owner asked for the two Bingo Book
+install behaviours: an OS-aware adaptive icon and a way to download it as a web app.
+
+**Decision**
+
+- **Adaptive icon** — `public/icon.svg` carries both exposures (thali on parchment under
+  `prefers-color-scheme: light`, thali on agaric charcoal under `dark`); browsers pick by
+  OS scheme with no client code. PNGs are rasterised from it (`scripts/generate-icons.mjs`,
+  sharp; `pwa-512` doubles as the maskable icon inside the safe zone).
+- **Standalone surface** — `manifest.json` (name, short name, start_url `/`, `display:
+  standalone`, theme `#1C1510`), plus `appleWebApp` capable + black-translucent status bar,
+  OS-split `theme-color`, `/offline.html` fallback shell, no user data precached.
+- **Service worker** (`public/sw.js`) — navigations are network-first (delegation, never
+  staleness), static hashed assets + the shell are cache-first, `activate` purges older
+  versions. Registered from `ServiceWorkerRegistrar`; the bundler must never hold a fetch
+  that bypasses the page's CSP.
+- **Install affordance** — Settings → "Install NutriPlan": a plain button visible only after
+  `beforeinstallprompt` fires; iOS gets honest manual instructions; installed state shows an
+  honest done-state; no fake button, no nag.
+- The client bundle never reads `process.env` (guarded by the bundle-boundary test); the SW
+  does not inject globals.
+
+**Consequences**
+
+The app is installable on Android/Chrome/Edge and add-to-home-screen on iOS/Safari, with
+zero render-critical JS added and the security model unchanged. The SW is removable without
+any app change.
+
+**Alternatives rejected**
+
+- A full Workbox/offline-first precache of the app shell: defeats the local-first value
+  (everything works instantly anyway), risks stale data, and re-opens cache-poisoning surface.
+- Hand-rolled SW with version-hash static + network-first documents (chosen) — weakest useful
+  install surface with no staleness trap.
+- Icons drawn only in the OS-default dark variant: would look broken on a light launcher.
 
 ---
 

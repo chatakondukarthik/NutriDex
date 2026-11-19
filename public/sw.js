@@ -4,7 +4,7 @@
  * Goals: installability + graceful offline. Not a stale-cache trap.
  *   - navigations: network-first, falling back to the cached page, then /offline.html
  *   - static build assets (/_next/static), icons, manifest: cache-first (they are hashed)
- * Registration happens only in production (see ServiceWorkerRegistrar).
+ * Registration happens from the client shell (see ServiceWorkerRegistrar).
  */
 const VERSION = "nutriplan-v1";
 const SHELL = ["/offline.html", "/icon.svg", "/favicon-32x32.png", "/manifest.json"];

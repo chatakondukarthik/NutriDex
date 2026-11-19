@@ -312,6 +312,11 @@ curl -sSI https://nutriplan.example.com/ | grep -iE 'x-content-type|x-frame|refe
 # A remote caller without the token should be refused in token mode.
 curl -sS -o /dev/null -w '%{http_code}\n' https://nutriplan.example.com/
 # -> 403 until a valid nutriplan_token is supplied
+
+# The install surface is present and allowed by the CSP (self-hosted statics).
+curl -sSI https://nutriplan.example.com/manifest.json | grep -i 'content-type'
+curl -sSI https://nutriplan.example.com/sw.js | grep -i 'content-type'
+curl -sSI https://nutriplan.example.com/icon.svg | grep -i 'content-type'
 ```
 
 From the server log, one line states the mode:
