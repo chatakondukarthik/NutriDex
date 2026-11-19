@@ -133,6 +133,24 @@ The product rule they demonstrate is real and permanent:
 
 ---
 
+## Security and licensing
+
+NutriPlan is local-first and private by default: no accounts, no telemetry,
+no server-side sessions, and no secrets in this repository (`.env.example`
+holds placeholders only). It also has **no login** — the request gate and
+whatever you put in front of it are the boundary, so read
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) before exposing it to a network.
+
+Report a vulnerability privately via **Security → Report a vulnerability**;
+the policy, scope and known accepted risks are in [`SECURITY.md`](SECURITY.md)
+and [`docs/security/`](docs/security/).
+
+Licensed MIT (see [`LICENSE`](LICENSE)). Bundled third-party skills and their
+licenses, plus data-source terms, are listed in
+[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
+
+---
+
 ## Docs
 
 Start at [`docs/00-INDEX.md`](docs/00-INDEX.md).

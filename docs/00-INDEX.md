@@ -51,6 +51,8 @@ Reference docs are updated in the same commit as the code they describe.
 
 | Document | Question it answers |
 |---|---|
+| [`../SECURITY.md`](../SECURITY.md) | How do I report a vulnerability, and what is in scope? (repo-root security policy) |
+| [`../THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md) | What third-party code and data does this repo ship, and under what terms? |
 | [`security/THREAT-MODEL.md`](security/THREAT-MODEL.md) | What are we protecting, from whom, and where are the boundaries? |
 | [`security/TRACKER.md`](security/TRACKER.md) | Which controls exist, which are gaps, and how is each verified? |
 | [`security/ASVS-MAPPING.md`](security/ASVS-MAPPING.md) | How does the app map to ASVS L1 (+ L2 for V3/V5/V11/V13/V14/V15)? |

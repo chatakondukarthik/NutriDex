@@ -99,7 +99,7 @@ npx next dev -H 0.0.0.0
 ```bash
 # .env.local
 NUTRIPLAN_GATE=hosts
-NUTRIPLAN_ALLOWED_HOSTS=192.168.1.16,my-laptop.local
+NUTRIPLAN_ALLOWED_HOSTS=192.168.1.42,my-laptop.local
 ```
 
 Restart `next dev` after changing environment variables. A `Host` header

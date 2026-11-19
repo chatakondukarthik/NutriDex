@@ -47,7 +47,7 @@ describe("isLoopbackHost", () => {
   });
 
   it("rejects a LAN address, which is the whole point", () => {
-    for (const host of ["192.168.1.16:3000", "10.0.0.5", "evil.example:3000", ""]) {
+    for (const host of ["192.168.1.42:3000", "10.0.0.5", "evil.example:3000", ""]) {
       expect(isLoopbackHost(host), host).toBe(false);
     }
   });

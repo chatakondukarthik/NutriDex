@@ -14,14 +14,21 @@ data/*.sqlite
 data/*.sqlite-*
 data/*.db*
 
-# env
+# env — every variant except the tracked placeholder template
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+
+# key material and secret dumps, wherever they land
+secrets.json
+*.key
+*.pem
+id_rsa*
+*.p12
+*.pfx
 
 # os / editor
 .DS_Store
-*.pem
 .vscode
 .idea
 

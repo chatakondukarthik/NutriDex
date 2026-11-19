@@ -16,7 +16,7 @@ describe("redact", () => {
       "api_key=DEMO_KEY123",
       "header Authorization: Bearer xyz",
       "x-api-key: sk-abcdefghij",
-      "opened /Users/karthik/Documents/Projects/NutriDex/data/secrets.json",
+      "opened /Users/alex/Documents/Projects/demo-app/data/secrets.json",
       "sqlite error at data/nutriplan.sqlite",
     ].join("\n");
     const out = redact(input);

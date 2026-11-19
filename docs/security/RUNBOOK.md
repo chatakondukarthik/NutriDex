@@ -49,7 +49,7 @@ the next boot tightens it; you can also run `chmod 600 data/*`.
 | Situation | Setting |
 |---|---|
 | Local development (default) | nothing |
-| Preview from another device on the LAN | `NUTRIPLAN_GATE=hosts` + `NUTRIPLAN_ALLOWED_HOSTS=192.168.1.16` |
+| Preview from another device on the LAN | `NUTRIPLAN_GATE=hosts` + `NUTRIPLAN_ALLOWED_HOSTS=192.168.1.42` |
 | Behind a proxy that preserves `Host` | `NUTRIPLAN_GATE=hosts` + the public hostname |
 | Behind a proxy that rewrites `Host` | `NUTRIPLAN_GATE=token` + `NUTRIPLAN_TOKEN` (header or cookie) |
 | Something else is the boundary | `NUTRIPLAN_GATE=off` (only then) |
