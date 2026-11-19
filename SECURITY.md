@@ -54,6 +54,21 @@ steps are in [`docs/security/RUNBOOK.md`](docs/security/RUNBOOK.md).
 Start there before reporting — your finding may already be recorded as an
 accepted risk with a stated reason and revisit date.
 
+## Repository hygiene
+
+The public history contains two SQLite sidecar files
+(`data/nutriplan.sqlite-wal` and `-shm`) from the first two commits. They were
+removed from the working tree in `625729f` and are now git-ignored. Their
+contents were inspected before publication: schema DDL for the `entries`
+table only — no rows, no keys, no tokens. They are left in history rather
+than rewriting published commits, because the information they carry is
+already public in `src/lib/db/`. No other env, key, or database file has ever
+been committed.
+
+Commits made before 2026-11-19 carry local author identities
+(`karthik@localhost`, `karthik@Karthiks-MacBook.local`). They are historical
+metadata, not credentials.
+
 ## Design commitments worth knowing
 
 - **Local-first and private.** No telemetry, no analytics, no accounts, no
