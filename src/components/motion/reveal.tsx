@@ -3,6 +3,7 @@
 import { motion } from "motion/react";
 import type { ReactNode } from "react";
 import { SPRING } from "@/lib/motion/tokens";
+import { useMotionEnabled } from "@/components/theme-provider";
 
 /**
  * Scroll-into-view reveal — the workhorse entrance for every surface.
@@ -80,6 +81,36 @@ export function StaggerItem({
         hidden: { opacity: 0, y },
         show: { opacity: 1, y: 0, transition: { ...SPRING.settle } },
       }}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+/**
+ * The page-body rise — the same grammar as the page header and the diary.
+ * Mount once, spring settle, block-level. Renders a plain box when motion
+ * is off (OS or Settings).
+ */
+export function Rise({
+  children,
+  className,
+  delay = 0,
+  y = 12,
+}: {
+  children: ReactNode;
+  className?: string;
+  delay?: number;
+  y?: number;
+}) {
+  const enabled = useMotionEnabled();
+  if (!enabled) return <div className={className}>{children}</div>;
+  return (
+    <motion.div
+      className={className}
+      initial={{ opacity: 0, y }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ ...SPRING.settle, delay }}
     >
       {children}
     </motion.div>

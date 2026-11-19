@@ -132,6 +132,51 @@ export function findPortion(food: Food, label?: string): Portion | undefined {
   return food.portions.find((p) => p.label === label);
 }
 
+/**
+ * The inverse of toGrams.
+ *
+ * Keeping the mass constant lets a user switch a node from grams to whatever
+ * unit they actually think in ("10 large") without losing the quantity — the
+ * amount is re-derived from the current grams, never from the stale amount.
+ */
+export function fromGrams(
+  food: Food,
+  grams: number,
+  unit: Unit,
+  portionLabel?: string,
+): { ok: true; amount: number } | { ok: false; reason: string } {
+  if (!Number.isFinite(grams) || grams <= 0) {
+    return { ok: false, reason: "Quantity must be a positive number." };
+  }
+  const round = (n: number) => Math.max(0.01, Math.round(n * 100) / 100);
+  switch (unit) {
+    case "g":
+    case "kg":
+    case "oz":
+    case "lb":
+      return { ok: true, amount: round(grams / (MASS_FACTORS[unit] ?? 1)) };
+    case "ml":
+    case "l":
+    case "tsp":
+    case "tbsp":
+    case "fl_oz":
+    case "cup": {
+      const density = food.densityGPerMl ?? guessDensity(food)?.gPerMl ?? 1;
+      const ml = grams / density;
+      return { ok: true, amount: round(ml / (VOLUME_FACTORS[unit] ?? 1)) };
+    }
+    case "portion": {
+      const portion = findPortion(food, portionLabel);
+      if (!portion) {
+        return { ok: false, reason: `No portion "${portionLabel ?? "?"}" is defined for ${food.name}.` };
+      }
+      return { ok: true, amount: round(grams / portion.grams) };
+    }
+    default:
+      return { ok: false, reason: "Unsupported unit." };
+  }
+}
+
 /** Parse a select-value like "portion:egg" or a plain unit like "g". */
 export function parseUnitKey(key: string): { unit: Unit; portionLabel?: string } {
   if (key.startsWith("portion:")) {

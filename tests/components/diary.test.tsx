@@ -2,6 +2,8 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Diary, type DiaryProps } from "@/components/diary";
+import { ThemeProvider } from "@/components/theme-provider";
+import { DEFAULT_THEME } from "@/lib/theme";
 import { SEED_FOODS } from "@/lib/data/foods";
 import { NUTRIENT_CODES, type NutrientCode } from "@/lib/nutrition/types";
 import type { Rollup } from "@/lib/nutrition/engine";
@@ -87,16 +89,18 @@ const RECIPE_ENTRY: Entry = {
 function setup(overrides: Partial<DiaryProps> = {}) {
   const user = userEvent.setup();
   render(
-    <Diary
-      foods={SEED_FOODS}
-      recipes={RECIPES}
-      entries={[]}
-      targets={[]}
-      day="2026-11-15"
-      planned={[]}
-      plannedKcal={0}
-      {...overrides}
-    />,
+    <ThemeProvider initial={DEFAULT_THEME}>
+      <Diary
+        foods={SEED_FOODS}
+        recipes={RECIPES}
+        entries={[]}
+        targets={[]}
+        day="2026-11-15"
+        planned={[]}
+        plannedKcal={0}
+        {...overrides}
+      />
+    </ThemeProvider>,
   );
   return user;
 }
@@ -158,10 +162,13 @@ describe("diary: logging a recipe", () => {
     await user.type(screen.getByLabelText(/Servings/i), "2");
     await user.click(screen.getByRole("button", { name: "Add" }));
 
-    await waitFor(() => expect(addRecipeEntryAction).toHaveBeenCalledWith({
-      recipeVersionId: "v-1",
-      servings: 2,
-    }));
+    await waitFor(() =>
+      expect(addRecipeEntryAction).toHaveBeenCalledWith({
+        recipeVersionId: "v-1",
+        servings: 2,
+        day: "2026-11-15",
+      }),
+    );
     await waitFor(() =>
       expect(screen.queryByLabelText(/Servings/i)).not.toBeInTheDocument(),
     );

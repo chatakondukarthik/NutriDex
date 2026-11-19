@@ -2,6 +2,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RecipesBrowser, type Recipe } from "@/components/recipes-browser";
+import { ThemeProvider } from "@/components/theme-provider";
+import { DEFAULT_THEME } from "@/lib/theme";
 
 function makeRecipe(overrides: Partial<Recipe> & Pick<Recipe, "id" | "name">): Recipe {
   return {
@@ -54,7 +56,7 @@ const RECIPES: Recipe[] = [
 describe("recipes browser: ingredient search", () => {
   it("matches recipes by ingredient name typed into the search box", async () => {
     const user = userEvent.setup();
-    render(<RecipesBrowser recipes={RECIPES} />);
+    render(<ThemeProvider initial={DEFAULT_THEME}><RecipesBrowser recipes={RECIPES} /></ThemeProvider>);
 
     await user.type(screen.getByPlaceholderText(/search recipes or ingredients/i), "paneer");
 
@@ -68,7 +70,7 @@ describe("recipes browser: ingredient search", () => {
     const withAliases = RECIPES.map((recipe) =>
       recipe.id === "r2" ? { ...recipe, haystack: "dal tadka toor dal onion tur dal" } : recipe,
     );
-    render(<RecipesBrowser recipes={withAliases} />);
+    render(<ThemeProvider initial={DEFAULT_THEME}><RecipesBrowser recipes={withAliases} /></ThemeProvider>);
 
     await user.type(screen.getByPlaceholderText(/search recipes or ingredients/i), "tur dal");
     expect(screen.getByText("Dal tadka")).toBeInTheDocument();
@@ -77,7 +79,7 @@ describe("recipes browser: ingredient search", () => {
 
   it("filters by the ingredient dropdown, with counts", async () => {
     const user = userEvent.setup();
-    render(<RecipesBrowser recipes={RECIPES} />);
+    render(<ThemeProvider initial={DEFAULT_THEME}><RecipesBrowser recipes={RECIPES} /></ThemeProvider>);
 
     const dropdown = screen.getByLabelText(/filter by ingredient/i);
     expect(dropdown).toHaveTextContent("Onion (2)");
@@ -91,7 +93,7 @@ describe("recipes browser: ingredient search", () => {
 
   it("composes query and ingredient dropdown (AND)", async () => {
     const user = userEvent.setup();
-    render(<RecipesBrowser recipes={RECIPES} />);
+    render(<ThemeProvider initial={DEFAULT_THEME}><RecipesBrowser recipes={RECIPES} /></ThemeProvider>);
 
     await user.selectOptions(screen.getByLabelText(/filter by ingredient/i), "onion");
     await user.type(screen.getByPlaceholderText(/search recipes or ingredients/i), "tikka");
@@ -104,7 +106,7 @@ describe("recipes browser: ingredient search", () => {
 
   it("sets the ingredient filter when a chip on a card is clicked", async () => {
     const user = userEvent.setup();
-    render(<RecipesBrowser recipes={RECIPES} />);
+    render(<ThemeProvider initial={DEFAULT_THEME}><RecipesBrowser recipes={RECIPES} /></ThemeProvider>);
 
     const chip = screen.getAllByRole("button", { name: "Paneer" })[0];
     await user.click(chip);
@@ -117,9 +119,68 @@ describe("recipes browser: ingredient search", () => {
 
   it("shows a clear message when nothing matches", async () => {
     const user = userEvent.setup();
-    render(<RecipesBrowser recipes={RECIPES} />);
+    render(<ThemeProvider initial={DEFAULT_THEME}><RecipesBrowser recipes={RECIPES} /></ThemeProvider>);
 
     await user.type(screen.getByPlaceholderText(/search recipes or ingredients/i), "zzzz");
     expect(screen.getByText(/No recipes match/)).toBeInTheDocument();
+  });
+});
+
+describe("recipes browser: origin filter", () => {
+  const withOrigin = [
+    ...RECIPES,
+    makeRecipe({
+      id: "r-ai",
+      name: "AI grain bowl",
+      kind: "dish",
+      currentVersionLabel: "ai",
+      haystack: "ai grain bowl ai",
+    }),
+    makeRecipe({
+      id: "r-preset",
+      name: "Preset pulao",
+      kind: "dish",
+      currentVersionLabel: "preset",
+      haystack: "preset pulao preset",
+    }),
+  ];
+
+  it("AI-designed shows only AI-labelled recipes", async () => {
+    const user = userEvent.setup();
+    render(
+      <ThemeProvider initial={DEFAULT_THEME}>
+        <RecipesBrowser recipes={withOrigin} />
+      </ThemeProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "AI-designed" }));
+    expect(screen.getByText("AI grain bowl")).toBeInTheDocument();
+    expect(screen.queryByText("Paneer bhurji")).toBeNull();
+    expect(screen.queryByText("Preset pulao")).toBeNull();
+  });
+
+  it("Preset shows only preset-labelled recipes", async () => {
+    const user = userEvent.setup();
+    render(
+      <ThemeProvider initial={DEFAULT_THEME}>
+        <RecipesBrowser recipes={withOrigin} />
+      </ThemeProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "Preset" }));
+    expect(screen.getByText("Preset pulao")).toBeInTheDocument();
+    expect(screen.queryByText("AI grain bowl")).toBeNull();
+  });
+
+  it("All restores the full list after filtering", async () => {
+    const user = userEvent.setup();
+    render(
+      <ThemeProvider initial={DEFAULT_THEME}>
+        <RecipesBrowser recipes={withOrigin} />
+      </ThemeProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "AI-designed" }));
+    await user.click(screen.getByRole("button", { name: "All" }));
+    expect(screen.getByText("AI grain bowl")).toBeInTheDocument();
+    expect(screen.getByText("Paneer bhurji")).toBeInTheDocument();
+    expect(screen.getByText("Preset pulao")).toBeInTheDocument();
   });
 });

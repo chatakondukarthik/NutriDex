@@ -35,10 +35,6 @@ export default async function EditRecipePage({
   if (!version || version.recipeId !== id) notFound();
 
   const references = countVersionReferences(version.id);
-  const replaceBlockedReason =
-    references > 0
-      ? `v${version.versionNo} is used by ${references} plan or diary entr${references === 1 ? "y" : "ies"}`
-      : null;
 
   const foods = listFoods();
   const foodMap = new Map(foods.map((f) => [f.id, f]));
@@ -73,8 +69,8 @@ export default async function EditRecipePage({
         initialVersionLabel=""
         versionId={version.id}
         versionNo={version.versionNo}
-        replaceBlockedReason={replaceBlockedReason}
-        aiAction={{ enabled: aiStatus().enabled, mode: "edit", existingName: version.recipeName }}
+        replacePinned={references}
+        aiAction={{ enabled: aiStatus().enabled }}
       />
     </>
   );

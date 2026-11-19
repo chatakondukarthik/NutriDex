@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
+import { Rise } from "@/components/motion/reveal";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -760,6 +761,7 @@ export function PlanBoard({
               aria-label="Choose a week"
             />
           </PageHeader>
+          <Rise delay={0.06}>
           <div className="mt-3 flex flex-wrap items-center justify-end gap-1">
             <Link
               href={`/plan?week=${addDays(week, -7)}`}
@@ -794,6 +796,7 @@ export function PlanBoard({
               Copy to next week
             </button>
           </div>
+          </Rise>
         </div>
 
         <FirstRunGuide
@@ -809,6 +812,7 @@ export function PlanBoard({
         )}
 
         {/* ---- Palette --------------------------------------------------- */}
+        <Rise delay={0.05}>
         <section
           ref={paletteRef}
           className="rounded-2xl border border-line bg-surface p-4 shadow-card"
@@ -968,8 +972,10 @@ export function PlanBoard({
             </button>
           )}
         </section>
+        </Rise>
 
         {/* ---- Week ------------------------------------------------------ */}
+        <Rise delay={0.1}>
         <section className="mt-4 pb-1">
           {/* Small/medium screens get one day at a time. Seven columns
               below 1280px starves each day card (see the xl note
@@ -1035,8 +1041,10 @@ export function PlanBoard({
             </div>
           </div>
         </section>
+        </Rise>
 
         {/* ---- Selected day + nutrition --------------------------------- */}
+        <Rise delay={0.15}>
         <section className="mt-5">
           <div className="rounded-2xl border border-line bg-surface p-5 shadow-card">
             <div className="flex items-baseline justify-between gap-2">
@@ -1111,10 +1119,12 @@ export function PlanBoard({
             )}
           </div>
         </section>
+        </Rise>
 
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           {/* ---- Anchor pane: energy + protein (the only daily judgements) ---- */}
-          <section className="flex flex-col rounded-2xl border border-line bg-surface p-4 shadow-card">
+          <Rise delay={0.18} className="flex flex-col">
+          <section className="flex flex-1 flex-col rounded-2xl border border-line bg-surface p-4 shadow-card">
             <div className="flex items-start justify-between gap-2">
               <div>
                 <h2 className="font-display text-sm font-semibold tracking-tight text-ink">
@@ -1173,9 +1183,11 @@ export function PlanBoard({
               </>
             )}
           </section>
+          </Rise>
 
           {/* ---- Weekly groups pane: judge everything that isn't an anchor ---- */}
-          <section className="flex flex-col rounded-2xl border border-line bg-surface p-4 shadow-card">
+          <Rise delay={0.22} className="flex flex-col">
+          <section className="flex flex-1 flex-col rounded-2xl border border-line bg-surface p-4 shadow-card">
             <h3 className="text-sm font-semibold">
               {period === "day" ? "Rest of the week" : "Week totals"}
             </h3>
@@ -1209,6 +1221,7 @@ export function PlanBoard({
               })}
             </div>
           </section>
+          </Rise>
         </div>
 
         <footer className="mx-auto max-w-7xl pb-8 pt-4">

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#1C1510" />
+    <title>NutriPlan — offline</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #1C1510;
+        color: #EFE4D0;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        text-align: center;
+        padding: 2rem;
+      }
+      .thali {
+        width: 96px;
+        height: 96px;
+        border-radius: 50%;
+        border: 14px solid #8A6A34;
+        display: grid;
+        place-items: center;
+        margin: 0 auto 1.25rem;
+        background: #0F0B07;
+      }
+      .dal { width: 26px; height: 26px; border-radius: 50%; background: #E4B65A; }
+      h1 { font-size: 1.15rem; font-weight: 600; letter-spacing: 0.02em; margin: 0 0 0.4rem; }
+      p { font-size: 0.85rem; color: #ABA08D; max-width: 32rem; line-height: 1.6; margin: 0 auto; }
+      a { color: #DCA142; text-decoration: none; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="thali" aria-hidden="true"><div class="dal"></div></div>
+      <h1>The kitchen is dark</h1>
+      <p>
+        NutriPlan can't reach the network right now — your ledger lives on this device.
+        Reconnect and reload, or open NutriPlan again when you're back online.
+      </p>
+      <p style="margin-top: 1rem;"><a href="/">Try again</a></p>
+    </main>
+  </body>
+</html>

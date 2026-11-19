@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { SPRING } from "@/lib/motion/tokens";
+import { Rise } from "@/components/motion/reveal";
 import { useRouter } from "next/navigation";
 import { ChevronDownIcon } from "@/components/icons";
 import {
@@ -233,6 +234,7 @@ export function Diary({
         amount: Number(amount),
         unit: parsed.unit,
         portionLabel: parsed.portionLabel,
+        day,
       });
 
       if (!response.ok) {
@@ -277,6 +279,7 @@ export function Diary({
       const response = await addRecipeEntryAction({
         recipeVersionId: selectedRecipe.versionId,
         servings: count,
+        day,
       });
 
       if (!response.ok) {
@@ -323,12 +326,7 @@ export function Diary({
   return (
     <div className="min-h-screen">
       <main className="mx-auto max-w-6xl px-5 py-6">
-        <motion.div
-          className="mb-4"
-          initial={{ opacity: 0, y: 14 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ ...SPRING.settle }}
-        >
+        <div className="mb-4">
           <PageHeader
             title="Diary"
             kicker={fmtDay(day)}
@@ -347,7 +345,7 @@ export function Diary({
               Saved · {entries.length}<br />{entries.length === 1 ? "entry" : "entries"} · coverage per nutrient
             </p>
           </PageHeader>
-        </motion.div>
+        </div>
 
         <FirstRunGuide
           profileIsDefault={profileIsDefault}
@@ -374,7 +372,8 @@ export function Diary({
         )}
 
         {planned.length > 0 && (
-          <section className="mb-4 rounded-2xl border border-line bg-surface p-4 shadow-card">
+          <Rise delay={0.12}>
+            <section className="mb-4 rounded-2xl border border-line bg-surface p-4 shadow-card">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Planned for this day</h2>
               <Link
@@ -401,10 +400,124 @@ export function Diary({
             <p className="mt-1 text-[11px] text-muted">
               {Math.round(plannedKcal)} kcal planned. Edit it on the plan page; the plan is the source.
             </p>
-          </section>
+            </section>
+          </Rise>
         )}
 
         <div className="grid gap-5 lg:grid-cols-[1fr_420px] lg:items-start">
+        <div className="flex min-w-0 flex-col gap-5">
+          <section className="rounded-2xl border border-line bg-surface p-5 shadow-card">
+            <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Logged</h2>
+
+            {entries.length === 0 ? (
+              <div className="mt-3 rounded-xl border border-dashed border-line px-3 py-6 text-center">
+                <div className="mx-auto mb-3 grid h-14 w-14 place-items-center">
+                  <motion.svg
+                    width="44"
+                    height="44"
+                    viewBox="0 0 44 44"
+                    aria-hidden="true"
+                    animate={reduced ? undefined : { scale: [1, 1.05, 1], opacity: [0.55, 0.95, 0.55] }}
+                    transition={{ duration: 2.6, repeat: Infinity, ease: "easeInOut" }}
+                    className="text-accent"
+                  >
+                    <circle cx="22" cy="22" r="19" fill="none" stroke="currentColor" strokeWidth="1.6" />
+                    <circle cx="22" cy="22" r="10.5" fill="none" stroke="currentColor" strokeWidth="1.1" strokeDasharray="3 4" opacity="0.8" />
+                  </motion.svg>
+                </div>
+                <p className="text-xs text-ink/40">
+                  Nothing yet. Search foods or recipes to add your first entry.
+                </p>
+              </div>
+            ) : (
+              <AnimatePresence initial={false} mode="popLayout">
+              <motion.ul
+                key={day}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ ...SPRING.settle }}
+                className="mt-2 max-h-80 divide-y divide-line overflow-y-auto pr-1"
+              >
+                {entries.map((entry) => {
+                  if (entry.recipeVersionId) {
+                    const recipe = recipeByVersion.get(entry.recipeVersionId);
+                    const perServing = recipe?.perServing.totals.ENERC_KCAL ?? null;
+                    const entryKcal = perServing != null ? perServing * entry.amount : null;
+                    const label = recipe
+                      ? `${recipe.name} · v${recipe.versionNo}${recipe.label ? ` · ${recipe.label}` : ""}`
+                      : "Deleted recipe";
+
+                    return (
+                      <motion.li
+                        key={entry.id}
+                        layout
+                        initial={freshIds.has(entry.id) ? { opacity: 0, y: -26 } : false}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scaleY: 0.92, x: 14 }}
+                        transition={{ ...SPRING.drop }}
+                        className={`-mx-2 flex items-center gap-3 rounded-lg px-2 py-2.5 ${freshIds.has(entry.id) ? "entry-fresh" : ""}`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm">{label}</div>
+                          <div className="text-[11px] text-ink/40">
+                            {fmt(entry.amount, entry.amount % 1 === 0 ? 0 : 1)}{" "}
+                            {entry.amount === 1 ? "serving" : "servings"}
+                          </div>
+                        </div>
+                        <div className="tabular text-xs text-ink/55">{fmt(entryKcal, 0)} kcal</div>
+                        <button
+                          type="button"
+                          onClick={() => remove(entry.id)}
+                          aria-label={`Remove ${recipe?.name ?? "recipe entry"}`}
+                          className="grid h-6 w-6 place-items-center rounded-md text-ink/30 transition hover:bg-ink/5 hover:text-ink/60"
+                        >
+                          ×
+                        </button>
+                      </motion.li>
+                    );
+                  }
+
+                  const food = foods.find((f) => f.id === entry.foodId);
+                  const kcal = food?.nutrients.ENERC_KCAL.amount;
+                  const entryKcal = kcal != null ? (kcal * entry.grams) / 100 : null;
+
+                  return (
+                    <motion.li
+                      key={entry.id}
+                      layout
+                      initial={freshIds.has(entry.id) ? { opacity: 0, y: -26 } : false}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, scaleY: 0.92, x: 14 }}
+                      transition={{ ...SPRING.drop }}
+                      className={`-mx-2 flex items-center gap-3 rounded-lg px-2 py-2.5 ${freshIds.has(entry.id) ? "entry-fresh" : ""}`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm">{food?.name ?? entry.foodId}</div>
+                        <div className="text-[11px] text-ink/40">
+                          {fmt(entry.amount, entry.amount % 1 === 0 ? 0 : 1)}{" "}
+                          {entry.unit.startsWith("portion:")
+                            ? entry.unit.slice("portion:".length)
+                            : entry.unit}
+                          {" · "}
+                          {fmt(entry.grams, 0)} g
+                        </div>
+                      </div>
+                      <div className="tabular text-xs text-ink/55">{fmt(entryKcal, 0)} kcal</div>
+                      <button
+                        type="button"
+                        onClick={() => remove(entry.id)}
+                        aria-label={`Remove ${food?.name ?? "entry"}`}
+                        className="grid h-6 w-6 place-items-center rounded-md text-ink/30 transition hover:bg-ink/5 hover:text-ink/60"
+                      >
+                        ×
+                      </button>
+                    </motion.li>
+                  );
+                })}
+              </motion.ul>
+              </AnimatePresence>
+            )}
+          </section>
         {/* ---- Food search ---------------------------------------------- */}
         <motion.section
           className="min-w-0 rounded-2xl border border-line bg-surface p-5 shadow-card"
@@ -747,6 +860,8 @@ export function Diary({
           )}
         </motion.section>
 
+        </div>
+
         {/* ---- Today ---------------------------------------------------- */}
         <motion.aside
           className="min-w-0 lg:sticky lg:top-20"
@@ -820,118 +935,6 @@ export function Diary({
             </p>
           </section>
 
-          <section className="mt-4 rounded-2xl border border-line bg-surface p-5 shadow-card">
-            <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Logged</h2>
-
-            {entries.length === 0 ? (
-              <div className="mt-3 rounded-xl border border-dashed border-line px-3 py-6 text-center">
-                <div className="mx-auto mb-3 grid h-14 w-14 place-items-center">
-                  <motion.svg
-                    width="44"
-                    height="44"
-                    viewBox="0 0 44 44"
-                    aria-hidden="true"
-                    animate={reduced ? undefined : { scale: [1, 1.05, 1], opacity: [0.55, 0.95, 0.55] }}
-                    transition={{ duration: 2.6, repeat: Infinity, ease: "easeInOut" }}
-                    className="text-accent"
-                  >
-                    <circle cx="22" cy="22" r="19" fill="none" stroke="currentColor" strokeWidth="1.6" />
-                    <circle cx="22" cy="22" r="10.5" fill="none" stroke="currentColor" strokeWidth="1.1" strokeDasharray="3 4" opacity="0.8" />
-                  </motion.svg>
-                </div>
-                <p className="text-xs text-ink/40">
-                  Nothing yet. Search foods or recipes to add your first entry.
-                </p>
-              </div>
-            ) : (
-              <AnimatePresence initial={false} mode="popLayout">
-              <motion.ul
-                key={day}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ ...SPRING.settle }}
-                className="mt-2 max-h-80 divide-y divide-line overflow-y-auto pr-1"
-              >
-                {entries.map((entry) => {
-                  if (entry.recipeVersionId) {
-                    const recipe = recipeByVersion.get(entry.recipeVersionId);
-                    const perServing = recipe?.perServing.totals.ENERC_KCAL ?? null;
-                    const entryKcal = perServing != null ? perServing * entry.amount : null;
-                    const label = recipe
-                      ? `${recipe.name} · v${recipe.versionNo}${recipe.label ? ` · ${recipe.label}` : ""}`
-                      : "Deleted recipe";
-
-                    return (
-                      <motion.li
-                        key={entry.id}
-                        layout
-                        initial={freshIds.has(entry.id) ? { opacity: 0, y: -26 } : false}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, scaleY: 0.92, x: 14 }}
-                        transition={{ ...SPRING.drop }}
-                        className={`-mx-2 flex items-center gap-3 rounded-lg px-2 py-2.5 ${freshIds.has(entry.id) ? "entry-fresh" : ""}`}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm">{label}</div>
-                          <div className="text-[11px] text-ink/40">
-                            {fmt(entry.amount, entry.amount % 1 === 0 ? 0 : 1)}{" "}
-                            {entry.amount === 1 ? "serving" : "servings"}
-                          </div>
-                        </div>
-                        <div className="tabular text-xs text-ink/55">{fmt(entryKcal, 0)} kcal</div>
-                        <button
-                          type="button"
-                          onClick={() => remove(entry.id)}
-                          aria-label={`Remove ${recipe?.name ?? "recipe entry"}`}
-                          className="grid h-6 w-6 place-items-center rounded-md text-ink/30 transition hover:bg-ink/5 hover:text-ink/60"
-                        >
-                          ×
-                        </button>
-                      </motion.li>
-                    );
-                  }
-
-                  const food = foods.find((f) => f.id === entry.foodId);
-                  const kcal = food?.nutrients.ENERC_KCAL.amount;
-                  const entryKcal = kcal != null ? (kcal * entry.grams) / 100 : null;
-
-                  return (
-                    <motion.li
-                      key={entry.id}
-                      layout
-                      initial={freshIds.has(entry.id) ? { opacity: 0, y: -26 } : false}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, scaleY: 0.92, x: 14 }}
-                      transition={{ ...SPRING.drop }}
-                      className={`-mx-2 flex items-center gap-3 rounded-lg px-2 py-2.5 ${freshIds.has(entry.id) ? "entry-fresh" : ""}`}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm">{food?.name ?? entry.foodId}</div>
-                        <div className="text-[11px] text-ink/40">
-                          {fmt(entry.amount, entry.amount % 1 === 0 ? 0 : 1)}{" "}
-                          {entry.unit.startsWith("portion:")
-                            ? entry.unit.slice("portion:".length)
-                            : entry.unit}
-                          {" · "}
-                          {fmt(entry.grams, 0)} g
-                        </div>
-                      </div>
-                      <div className="tabular text-xs text-ink/55">{fmt(entryKcal, 0)} kcal</div>
-                      <button
-                        type="button"
-                        onClick={() => remove(entry.id)}
-                        aria-label={`Remove ${food?.name ?? "entry"}`}
-                        className="grid h-6 w-6 place-items-center rounded-md text-ink/30 transition hover:bg-ink/5 hover:text-ink/60"
-                      >
-                        ×
-                      </button>
-                    </motion.li>
-                  );
-                })}
-              </motion.ul>
-              </AnimatePresence>
-            )}
-          </section>
         </motion.aside>
         </div>
       </main>

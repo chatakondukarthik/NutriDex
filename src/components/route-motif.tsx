@@ -11,6 +11,7 @@ import FoodsPlate from "@/components/motifs/foods-plate";
 import ProfilePlate from "@/components/motifs/profile-plate";
 import AboutPlate from "@/components/motifs/about-plate";
 import GlossaryPlate from "@/components/motifs/glossary-plate";
+import SettingsPlate from "@/components/motifs/settings-plate";
 import { VIEW_W, VIEW_H } from "@/components/motifs/motif-frame";
 import { useMotionEnabled, useTheme } from "@/components/theme-provider";
 
@@ -43,7 +44,7 @@ import { useMotionEnabled, useTheme } from "@/components/theme-provider";
  * Always aria-hidden, always pointer-events-none, always z-0.
  */
 
-type PlateKey = "diary" | "plan" | "recipes" | "foods" | "profile" | "about" | "glossary";
+type PlateKey = "diary" | "plan" | "recipes" | "foods" | "profile" | "about" | "glossary" | "settings";
 
 const PLATES: Record<PlateKey, ComponentType> = {
   diary: DiaryPlate,
@@ -53,6 +54,7 @@ const PLATES: Record<PlateKey, ComponentType> = {
   profile: ProfilePlate,
   about: AboutPlate,
   glossary: GlossaryPlate,
+  settings: SettingsPlate,
 };
 
 function plateKey(pathname: string): PlateKey {
@@ -62,6 +64,7 @@ function plateKey(pathname: string): PlateKey {
   if (pathname.startsWith("/profile")) return "profile";
   if (pathname.startsWith("/about")) return "about";
   if (pathname.startsWith("/glossary")) return "glossary";
+  if (pathname.startsWith("/settings")) return "settings";
   return "diary";
 }
 

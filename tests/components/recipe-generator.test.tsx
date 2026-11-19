@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RecipeGenerator } from "@/components/recipe-generator";
 import type { RecipePlan } from "@/lib/ai-generate-recipe";
+import type { Graph } from "@/lib/nutrition/graph";
 
 const push = vi.fn();
 const previewRecipeFromPromptAction = vi.fn();
@@ -42,6 +43,31 @@ const RESOLUTIONS = [
   { name: "Drumstick leaves", status: "provisional" as const, foodId: null, matchedName: null, score: null },
 ];
 
+const EMPTY_CANVAS = {
+  name: "",
+  instructions: "",
+  servings: "2",
+  graph: { nodes: [], edges: [] } as Graph,
+};
+
+const BIRYANI_CANVAS = {
+  name: "Biryani",
+  instructions: "",
+  servings: "2",
+  graph: {
+    nodes: [
+      {
+        id: "n1",
+        type: "process" as const,
+        operation: "assemble",
+        name: "Build it",
+        outputs: [{ label: "out", tag: "consumed" as const, split: {} }],
+      },
+    ],
+    edges: [],
+  } as Graph,
+};
+
 beforeEach(() => {
   push.mockReset();
   previewRecipeFromPromptAction.mockReset();
@@ -50,62 +76,73 @@ beforeEach(() => {
   createRecipeFromPlanAction.mockResolvedValue({ ok: true, recipeId: "recipe-1" });
 });
 
-describe("create with AI: modal", () => {
-  it("shows a disabled button instead of hiding when AI is off", () => {
-    render(<RecipeGenerator aiEnabled={false} mode="create" />);
-    expect(screen.getByRole("button", { name: /create with ai/i })).toBeDisabled();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+describe("the AI recipe dialog", () => {
+  it("renders nothing when AI is off", () => {
+    const { container } = render(<RecipeGenerator aiEnabled={false} canvas={EMPTY_CANVAS} />);
+    expect(container).toBeEmptyDOMElement();
   });
 
-  it("closes on Escape and returns focus to the trigger", async () => {
+  it("opens on a bar command and closes on Escape", async () => {
     const user = userEvent.setup();
-    render(<RecipeGenerator aiEnabled={true} mode="create" />);
-    const trigger = screen.getByRole("button", { name: /create with ai/i });
-
-    await user.click(trigger);
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    render(<RecipeGenerator aiEnabled={true} canvas={EMPTY_CANVAS} command={{ seq: 1, prompt: "chicken biryani" }} />);
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
 
     await user.keyboard("{Escape}");
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
 
   it("shows where each ingredient comes from before anything is saved", async () => {
-    const user = userEvent.setup();
-    render(<RecipeGenerator aiEnabled={true} mode="create" />);
-
-    await user.click(screen.getByRole("button", { name: /create with ai/i }));
-    await user.type(screen.getByRole("textbox"), "chicken biryani");
-    await user.click(screen.getByRole("button", { name: /plan it/i }));
+    render(<RecipeGenerator aiEnabled={true} canvas={EMPTY_CANVAS} command={{ seq: 1, prompt: "chicken biryani" }} />);
 
     expect(await screen.findByText(/where the ingredients come from/i)).toBeInTheDocument();
     expect(screen.getByText(/reusing Rice, raw milled/i)).toBeInTheDocument();
     expect(screen.getByText(/USDA import · Chicken/)).toBeInTheDocument();
     expect(screen.getByText(/provisional · all nutrients unknown/i)).toBeInTheDocument();
 
-    expect(previewRecipeFromPromptAction).toHaveBeenCalledWith({ prompt: "chicken biryani", recipeId: null });
+    expect(previewRecipeFromPromptAction).toHaveBeenCalledWith({
+      prompt: "chicken biryani",
+      recipeId: null,
+      context: null,
+      images: undefined,
+    });
   });
 
   it("shows step and ingredient notes in the preview before anything is saved", async () => {
-    const user = userEvent.setup();
-    render(<RecipeGenerator aiEnabled={true} mode="create" />);
-
-    await user.click(screen.getByRole("button", { name: /create with ai/i }));
-    await user.type(screen.getByRole("textbox"), "chicken biryani");
-    await user.click(screen.getByRole("button", { name: /plan it/i }));
+    render(<RecipeGenerator aiEnabled={true} canvas={EMPTY_CANVAS} command={{ seq: 1, prompt: "chicken biryani" }} />);
 
     expect(await screen.findByText(/Simmer until the grains are just tender/i)).toBeInTheDocument();
     expect(screen.getByText(/rinse until the water runs clear/i)).toBeInTheDocument();
   });
 
+  it("an occupied canvas sends the live graph, not the saved snapshot", async () => {
+    render(
+      <RecipeGenerator
+        aiEnabled={true}
+        canvas={BIRYANI_CANVAS}
+        command={{ seq: 1, prompt: "make it spicier" }}
+      />,
+    );
+
+    await screen.findByText(/where the ingredients come from/i);
+    expect(previewRecipeFromPromptAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: "make it spicier",
+        recipeId: null,
+        context: {
+          name: "Biryani",
+          instructions: "",
+          servings: 2,
+          graph: BIRYANI_CANVAS.graph,
+        },
+      }),
+    );
+  });
+
   it("saves with Add recipe only after confirmation, then navigates to it", async () => {
     const user = userEvent.setup();
-    render(<RecipeGenerator aiEnabled={true} mode="create" />);
+    render(<RecipeGenerator aiEnabled={true} canvas={EMPTY_CANVAS} command={{ seq: 1, prompt: "chicken biryani" }} />);
 
-    await user.click(screen.getByRole("button", { name: /create with ai/i }));
-    await user.type(screen.getByRole("textbox"), "chicken biryani");
-    await user.click(screen.getByRole("button", { name: /plan it/i }));
     const confirm = await screen.findByRole("button", { name: /^add recipe$/i });
     await user.click(confirm);
 
@@ -118,23 +155,20 @@ describe("create with AI: modal", () => {
     expect(push).toHaveBeenCalledWith("/recipes/recipe-1");
   });
 
-  it("edit mode: confirm says Save as new version and passes recipeId", async () => {
+  it("edit mode: confirm says Save as new version and saves against the recipe", async () => {
     const user = userEvent.setup();
     render(
       <RecipeGenerator
         aiEnabled={true}
-        mode="edit"
+        canvas={BIRYANI_CANVAS}
+        command={{ seq: 1, prompt: "make it spicier" }}
         recipeId="r-9"
         versionId="v-3"
         versionNo={3}
-        existingName="Biryani"
         saveMode="new-version"
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: /edit with ai/i }));
-    await user.type(screen.getByRole("textbox"), "make it spicier");
-    await user.click(screen.getByRole("button", { name: /plan it/i }));
     const confirm = await screen.findByRole("button", { name: /save as new version/i });
     await user.click(confirm);
 
@@ -151,7 +185,8 @@ describe("create with AI: modal", () => {
     render(
       <RecipeGenerator
         aiEnabled={true}
-        mode="edit"
+        canvas={BIRYANI_CANVAS}
+        command={{ seq: 1, prompt: "less salt" }}
         recipeId="r-9"
         versionId="v-3"
         versionNo={3}
@@ -159,11 +194,10 @@ describe("create with AI: modal", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: /edit with ai/i }));
-    await user.type(screen.getByRole("textbox"), "less salt");
-    await user.click(screen.getByRole("button", { name: /plan it/i }));
-    const confirm = await screen.findByRole("button", { name: /replace v3/i });
-    await user.click(confirm);
+    // Both the segmented control and the footer confirm read "Replace v3" —
+    // wait for the plan to land (two matches), then click the footer one.
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /replace v3/i })).toHaveLength(2));
+    await user.click(screen.getAllByRole("button", { name: /replace v3/i })[1]);
 
     await waitFor(() => expect(createRecipeFromPlanAction).toHaveBeenCalledTimes(1));
     expect(createRecipeFromPlanAction.mock.calls[0][0]).toMatchObject({

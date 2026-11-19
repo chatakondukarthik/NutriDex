@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- NutriPlan — the thali. Top-down, two exposures, one file.
+       The browser picks an exposure from the OS color scheme. -->
+  <style>
+    .bg { fill: #F5F1E8; }
+    .rim { fill: #8A6A34; }
+    .rim-hi { fill: #C9A45E; }
+    .floor { fill: #1C1510; }
+    .dal { fill: #C09A35; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #1C1510; }
+      .rim { fill: #55401F; }
+      .rim-hi { fill: #A9803E; }
+      .floor { fill: #0F0B07; }
+      .dal { fill: #E4B65A; }
+    }
+  </style>
+  <!-- rounded square plate -->
+  <rect class="bg" width="100" height="100" rx="23"/>
+  <!-- the thali rim -->
+  <circle class="rim" cx="50" cy="50" r="32.5"/>
+  <circle class="rim-hi" cx="50" cy="50" r="26.5"/>
+  <!-- the floor -->
+  <circle class="floor" cx="50" cy="50" r="21.5"/>
+  <!-- dal at the centre -->
+  <circle class="dal" cx="50" cy="50" r="8.6"/>
+</svg>

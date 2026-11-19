@@ -19,13 +19,15 @@ import {
   SelectionMode,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { saveGraphAction, estimateNodeDeltasAction, searchUsdaAction, importUsdaAction, saveCapturedFoodAction, defaultAmountAction } from "@/app/actions";
+import { saveGraphAction, saveGraphLayoutAction, estimateNodeDeltasAction, searchUsdaAction, importUsdaAction, saveCapturedFoodAction, defaultAmountAction } from "@/app/actions";
+import { VersionDialog } from "@/components/version-dialog";
 import { searchFoods } from "@/lib/nutrition/food-search";
-import { toGrams, unitsFor, parseUnitKey } from "@/lib/nutrition/units";
+import { toGrams, fromGrams, unitsFor, parseUnitKey } from "@/lib/nutrition/units";
 import { defaultAmountFor } from "@/lib/nutrition/defaults";
 import { computeGraph, type Graph, type GraphNode as EngineNode, type GraphProcessNode } from "@/lib/nutrition/graph";
 import type { Rollup } from "@/lib/nutrition/engine";
 import { cleanNote, MAX_NOTE_LENGTH } from "@/lib/notes";
+import { graphFromCanvas as buildGraph } from "@/lib/nutrition/graph-canvas";
 import { layoutGraph } from "@/lib/graph-layout";
 import { tableFromRows, type FactorRow } from "@/lib/nutrition/factor-table";
 import { fmt } from "@/lib/format";
@@ -33,12 +35,14 @@ import { NUTRIENT_CODES, NUTRIENTS } from "@/lib/nutrition/types";
 import type { Food } from "@/lib/nutrition/types";
 import { nodeTypes } from "@/components/flow-nodes";
 import { FlowMinimap } from "@/components/flow-minimap";
+import { RecipeSummary } from "@/components/recipe-summary";
 import { PasteFragmentDialog } from "@/components/paste-fragment-dialog";
 import { RecipeGenerator } from "@/components/recipe-generator";
+import { AiCanvasBar } from "@/components/ai-canvas-bar";
 import { useLeaveGuard, LeaveGuardDialog } from "@/components/leave-guard";
 import { useDialogFocus } from "@/components/use-dialog-focus";
 import { serializeFragment, parseRecipeFragment } from "@/lib/recipe-fragment";
-import { HandIcon, BoxSelectIcon } from "@/components/icons";
+import { HandIcon, BoxSelectIcon, SparkleIcon } from "@/components/icons";
 
 const OPERATION_OPTIONS = [
   "assemble", "mix", "boil", "pressure-cook", "steam", "sauté", "fry", "deep-fry",
@@ -60,13 +64,11 @@ export interface FlowEditorProps {
   /** The version being edited. Set only on the edit screen. */
   versionId?: string | null;
   versionNo?: number | null;
-  /** When set, "replace this version" is refused and the reason is shown. */
-  replaceBlockedReason?: string | null;
-  /** Create/Edit with AI entry point, rendered in the top bar. */
+  /** How many plan/diary entries pin this version. 0 = free to replace. */
+  replacePinned?: number;
+  /** AI entry points — the floating bar on the canvas and the dialog it drives. */
   aiAction?: {
     enabled: boolean;
-    mode: "create" | "edit";
-    existingName?: string | null;
   } | null;
 }
 
@@ -78,6 +80,8 @@ export function FlowEditor(props: FlowEditorProps) {
     </ReactFlowProvider>
   );
 }
+
+const FIT_PADDING = { top: "5%", bottom: "22%", left: "6%", right: "6%" } as const;
 
 function FlowEditorInner({
   foods,
@@ -91,18 +95,14 @@ function FlowEditorInner({
   initialVersionLabel = "",
   versionId = null,
   versionNo = null,
-  replaceBlockedReason = null,
+  replacePinned = 0,
   aiAction = null,
   aiAvailable,
 }: FlowEditorProps & { aiAvailable: boolean }) {
-  const [saveMode, setSaveMode] = useState<"new-version" | "replace-current">("new-version");
-  const replaceVersionId = saveMode === "replace-current" ? versionId : null;
-  const saveLabel =
-    versionId == null
-      ? "Save recipe"
-      : saveMode === "replace-current"
-        ? `Replace v${versionNo ?? ""}`
-        : "Save as new version";
+  const [barCommand, setBarCommand] = useState<{ seq: number; prompt: string } | null>(null);
+  const [versionDialogOpen, setVersionDialogOpen] = useState(false);
+  const replaceVersionId = versionId;
+  const saveLabel = "Save recipe";
   const router = useRouter();
   const [name, setName] = useState(initialName);
   const [versionLabel, setVersionLabel] = useState(initialVersionLabel);
@@ -198,6 +198,16 @@ function FlowEditorInner({
       return { result: null, error: err instanceof Error ? err.message : "Could not compute." };
     }
   }, [graph, resolve, factorTable]);
+  /** What the version dialog cares about: everything except node positions. */
+  const contentDirty = useMemo(
+    () =>
+      baseline !==
+      JSON.stringify({
+        meta: [name, versionLabel, instructions, servings],
+        graph,
+      }),
+    [baseline, name, versionLabel, instructions, servings, graph],
+  );
 
   const selectedNode = nodes.find((n) => n.id === selectedId) ?? null;
   const selectedInputLinks = useMemo(
@@ -253,7 +263,7 @@ function FlowEditorInner({
       setEdges((edges) => [...edges, { id: crypto.randomUUID(), source: id, target: target.id, animated: true, style: { stroke: "var(--accent)", strokeWidth: 2.25 }, markerEnd: { type: "arrowclosed", color: "var(--accent)" } }]);
     }
     setSelectedId(id);
-    setTimeout(() => reactFlow.fitView({ padding: 0.2 }), 60);
+    setTimeout(() => reactFlow.fitView({ padding: FIT_PADDING }), 60);
   }
 
   function addProcess() {
@@ -280,7 +290,7 @@ function FlowEditorInner({
       "Step added. Select it, then add a food to connect them — or drag from an ingredient's output dot.",
     );
     setSelectedId(id);
-    setTimeout(() => reactFlow.fitView({ padding: 0.2 }), 60);
+    setTimeout(() => reactFlow.fitView({ padding: FIT_PADDING }), 60);
   }
 
   const handleSelectionChange = useCallback(
@@ -331,6 +341,7 @@ function FlowEditorInner({
       );
       return current.map((n) => (positions[n.id] ? { ...n, position: positions[n.id] } : n));
     });
+    setTimeout(() => reactFlow.fitView({ padding: FIT_PADDING, duration: 400 }), 60);
   }
 
   async function runUsdaSearch() {
@@ -699,7 +710,7 @@ function FlowEditorInner({
   }
 
   /** Save the current workspace. Resolve with the outcome. */
-  function save(): Promise<{ ok: boolean; recipeId?: string }> {
+  function save(mode: "new-version" | "replace-current" = "new-version"): Promise<{ ok: boolean; recipeId?: string }> {
     setError(null);
     if (!name.trim()) { setError("Give the recipe a name."); return Promise.resolve({ ok: false }); }
     const servingsNum = Number(servings);
@@ -719,17 +730,45 @@ function FlowEditorInner({
           servings: servingsNum,
           layout,
           graph,
-          mode: versionId ? saveMode : "new-version",
-          replaceVersionId,
+          mode: versionId ? mode : "new-version",
+          replaceVersionId: mode === "replace-current" ? versionId : null,
+          forceReplace: mode === "replace-current",
         });
         if (!result.ok) { setError(result.message ?? "Save failed."); resolve({ ok: false }); return; }
+        if (result.warning) flashNotice(result.warning);
         resolve({ ok: true, recipeId: result.recipeId });
       });
     });
   }
 
   function onSave() {
-    save().then((result) => {
+    // Canvas-only changes persist silently — no new version, no prompt.
+    if (!contentDirty && versionId) {
+      const layout: Record<string, { x: number; y: number }> = {};
+      for (const node of nodes) layout[node.id] = { x: node.position.x, y: node.position.y };
+      saveGraphLayoutAction({ recipeId: recipeId as string, versionId, layout }).then((result) => {
+        if (result.ok) {
+          flashNotice("Layout saved");
+          router.refresh();
+        } else {
+          setError(result.message ?? "Could not save the layout.");
+        }
+      });
+      return;
+    }
+    if (versionId) setVersionDialogOpen(true);
+    else {
+      save("new-version").then((result) => {
+        if (!result.ok) return;
+        router.push(`/recipes/${result.recipeId}`);
+        router.refresh();
+      });
+    }
+  }
+
+  function chooseSave(mode: "new-version" | "replace-current") {
+    setVersionDialogOpen(false);
+    save(mode).then((result) => {
       if (!result.ok) return;
       router.push(`/recipes/${result.recipeId}`);
       router.refresh();
@@ -758,7 +797,7 @@ function FlowEditorInner({
   }, [library, query, paletteCategory, mineOnly]);
 
   return (
-    <div className="relative flex h-[calc(100vh-57px)] flex-col">
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
       {/* top bar */}
       <div className="flex flex-wrap items-center gap-2 border-b border-line bg-surface px-4 py-2">
         {/* Mobile-only panel toggles — the asides hide below lg. */}
@@ -778,18 +817,6 @@ function FlowEditorInner({
         >
           Details
         </button>
-        {aiAction && (
-          <RecipeGenerator
-            aiEnabled={aiAction.enabled}
-            mode={aiAction.mode}
-            recipeId={recipeId}
-            versionId={versionId}
-            versionNo={versionNo}
-            existingName={aiAction.existingName ?? null}
-            saveMode={saveMode}
-            replaceBlockedReason={replaceBlockedReason}
-          />
-        )}
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -814,44 +841,6 @@ function FlowEditorInner({
             className="w-16 rounded-md border border-line bg-bg px-2 py-2 text-xs"
           />
         </label>
-        {versionId != null && (
-          <div
-            role="group"
-            aria-label="Where to save"
-            className="flex h-9 items-center gap-0.5 rounded-lg bg-ink/[0.06] p-0.5 text-[11px]"
-          >
-            <button
-              type="button"
-              onClick={() => setSaveMode("new-version")}
-              aria-pressed={saveMode === "new-version"}
-              title={`Keep v${versionNo ?? ""} untouched; your changes become the next version`}
-              className={`rounded-md px-2.5 py-1.5 font-medium transition ${
-                saveMode === "new-version"
-                  ? "bg-surface text-ink shadow-sm"
-                  : "text-muted hover:text-ink"
-              }`}
-            >
-              New version
-            </button>
-            <button
-              type="button"
-              onClick={() => setSaveMode("replace-current")}
-              aria-pressed={saveMode === "replace-current"}
-              disabled={!!replaceBlockedReason}
-              title={
-                replaceBlockedReason ??
-                `Rewrite v${versionNo ?? ""} in place. Plans and diary entries pinned to it will see the new values.`
-              }
-              className={`rounded-md px-2.5 py-1.5 font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                saveMode === "replace-current"
-                  ? "bg-surface text-danger-ink shadow-sm"
-                  : "text-muted hover:text-ink"
-              }`}
-            >
-              Replace v{versionNo}
-            </button>
-          </div>
-        )}
         <button
           type="button"
           onClick={autoLayout}
@@ -869,12 +858,6 @@ function FlowEditorInner({
         </button>
       </div>
 
-      {versionId != null && saveMode === "replace-current" && (
-        <div className="border-b border-warn-line bg-warn-soft px-4 py-1.5 text-[11px] text-warn-ink">
-          This replaces v{versionNo} in place — plans or diary entries pinned to v{versionNo}{" "}
-          will see the new values. There is no automatic undo.
-        </div>
-      )}
       {error && (
         <div className="border-b border-danger-line bg-danger-soft px-4 py-1.5 text-xs text-danger-ink">
           {error}
@@ -884,7 +867,7 @@ function FlowEditorInner({
       <div className="relative flex min-h-0 flex-1">
         {/* palette */}
         <aside
-          className={`w-64 shrink-0 overflow-y-auto border-r border-line bg-surface p-3 lg:block lg:w-56 ${
+          className={`w-64 shrink-0 overflow-y-auto min-h-0 border-r border-line bg-surface p-3 lg:block lg:w-56 ${
             mobilePanel === "library"
               ? "absolute inset-y-0 left-0 z-30 shadow-2xl"
               : "hidden"
@@ -973,7 +956,17 @@ function FlowEditorInner({
           >
             + Add process block
           </button>
-          <div className="mt-4 rounded-md border border-line bg-bg p-2 text-[11px] leading-snug text-muted">
+          <div className="mt-3 rounded-md border border-line bg-bg p-2 text-[11px] leading-snug text-muted">
+            <div className="flex items-center gap-1.5 text-[9px] font-semibold uppercase tracking-wider text-accent">
+              <SparkleIcon className="h-3 w-3" aria-hidden="true" /> Ask the AI
+            </div>
+            <p className="mt-1">
+              Describe what you want in the bar at the bottom — &quot;less oil&quot;, &quot;use up
+              these greens&quot;, &quot;palak paneer with sprouts&quot;. The AI works from this canvas
+              exactly as it stands, and nothing is saved until you confirm.
+            </p>
+          </div>
+          <div className="mt-3 rounded-md border border-line bg-bg p-2 text-[11px] leading-snug text-muted">
             Tips: drag foods/blocks from here, or add them with the buttons. Connect blocks
             with the dots on the sides — or select a step, then add a food, and it connects
             to that step. Click a block to edit what happens to its nutrients.
@@ -1044,18 +1037,41 @@ function FlowEditorInner({
             selectionKeyCode="Shift"
             multiSelectionKeyCode={["Meta", "Control"]}
             fitView
+      fitViewOptions={{ padding: FIT_PADDING }}
             proOptions={{ hideAttribution: false }}
             className="bg-canvas"
           >
             <Background gap={18} size={1} color="var(--line)" />
-            <Controls />
+            <Controls position="top-right" orientation="horizontal" fitViewOptions={{ padding: FIT_PADDING, duration: 350 }} />
             <FlowMinimap nodes={nodes} />
           </ReactFlow>
+          {aiAction && (
+            <>
+              <AiCanvasBar
+                enabled={aiAction.enabled}
+                placeholder={
+                  nodes.length > 0
+                    ? "Ask for a change — I can see the canvas…"
+                    : "Describe a dish — e.g. 'palak sprouts bhurji, use up my paneer…'"
+                }
+                onSubmit={(text) => setBarCommand({ prompt: text, seq: Date.now() })}
+              />
+              <RecipeGenerator
+                aiEnabled={aiAction.enabled}
+                recipeId={recipeId}
+                versionId={versionId}
+                versionNo={versionNo}
+                canvas={{ name, instructions, servings, graph }}
+                command={barCommand}
+                replacePinned={replacePinned}
+              />
+            </>
+          )}
         </div>
 
         {/* inspector */}
         <aside
-          className={`w-72 shrink-0 overflow-y-auto border-l border-line bg-surface p-3 lg:block lg:w-80 ${
+          className={`w-72 shrink-0 overflow-y-auto min-h-0 border-l border-line bg-surface p-3 lg:block lg:w-80 ${
             mobilePanel === "inspector"
               ? "absolute inset-y-0 right-0 z-30 shadow-2xl"
               : "hidden"
@@ -1072,9 +1088,28 @@ function FlowEditorInner({
               }}
             />
           ) : !selectedNode ? (
-            <div className="mt-8 text-center text-xs text-muted">
-              Select a block to inspect its nutrients, or a connection to disconnect it.
-            </div>
+            <RecipeSummary
+              name={name}
+              versionNo={versionId ? versionNo ?? null : null}
+              versionLabel={versionLabel || null}
+              servings={servings}
+              foodCount={nodes.filter((n) => n.type === "food").length}
+              processCount={nodes.filter((n) => n.type === "process").length}
+              kcalPerServing={(() => {
+                const totals = preview.result?.consumed?.totals?.ENERC_KCAL ?? null;
+                const n = Number(servings);
+                return totals != null && Number.isFinite(n) && n > 0 ? totals / n : null;
+              })()}
+              proteinPerServing={(() => {
+                const totals = preview.result?.consumed?.totals?.PROCNT ?? null;
+                const n = Number(servings);
+                return totals != null && Number.isFinite(n) && n > 0 ? totals / n : null;
+              })()}
+              graph={graph}
+              instructions={instructions}
+              onInstructionsChange={setInstructions}
+              onAskAi={(prompt) => setBarCommand({ prompt, seq: Date.now() })}
+            />
           ) : selectedNode.type === "food" ? (
             <FoodInspector node={selectedNode} onPatch={patchNode} onRemove={removeNode} foods={library} />
           ) : (
@@ -1110,7 +1145,7 @@ function FlowEditorInner({
       </div>
 
       {/* bottom hint bar */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line bg-surface px-4 py-1.5 text-[10px] text-muted">
+      <div className="flex flex-none flex-wrap items-center gap-x-4 gap-y-1 border-t border-line bg-surface px-4 py-1.5 text-[10px] text-muted">
         <span className="tabular font-medium text-ink/60">{selectionIds.length} selected</span>
         {selectionIds.length > 0 && (
           <button type="button" onClick={copySelection} className="hover:text-ink">
@@ -1144,6 +1179,14 @@ function FlowEditorInner({
         open={pasteDialogOpen}
         onClose={() => setPasteDialogOpen(false)}
         onInsert={applyFragment}
+      />
+      <VersionDialog
+        open={versionDialogOpen}
+        onClose={() => setVersionDialogOpen(false)}
+        versionNo={versionId ? versionNo ?? null : null}
+        versionLabel={versionLabel || null}
+        replacePinned={replacePinned}
+        onChoose={chooseSave}
       />
       <LeaveGuardDialog
         open={leaveGuard.open}
@@ -1239,12 +1282,18 @@ function FoodInspector({
             aria-label="Unit"
             onChange={(e) => {
               const nextKey = e.target.value;
+              if (!food) {
+                onPatch(node.id, { unit: nextKey });
+                return;
+              }
               const parsedKey = parseUnitKey(nextKey);
-              const next = food ? toGrams(food, { amount: Number(amount) || 0, unit: parsedKey.unit, portionLabel: parsedKey.portionLabel }) : null;
-              onPatch(node.id, {
-                unit: nextKey,
-                grams: next?.ok ? next.grams : Number(amount) || 0,
-              });
+              // Keep the mass, re-derive the amount for the new unit.
+              const derived = fromGrams(food, resolved, parsedKey.unit, parsedKey.portionLabel);
+              if (!derived.ok) {
+                onPatch(node.id, { unit: nextKey });
+                return;
+              }
+              onPatch(node.id, { amount: derived.amount, unit: nextKey, grams: resolved });
             }}
             className="max-w-[130px] rounded-md border border-line bg-bg px-2 py-1.5 text-sm"
           >
@@ -1743,49 +1792,6 @@ function ConnectionInspector({
 }
 
 /* ------------------------------------------------------------------ */
-
-function buildGraph(nodes: Node[], edges: Edge[]): Graph {
-  const engineNodes: EngineNode[] = [];
-  for (const node of nodes) {
-    if (node.type === "food") {
-      const d = node.data as { foodId: string; grams: number; amount?: number | null; unit?: string | null; note?: string | null };
-      engineNodes.push({
-        id: node.id,
-        type: "food",
-        foodId: d.foodId,
-        grams: d.grams,
-        amount: d.amount ?? null,
-        unit: d.unit ?? "g",
-        note: cleanNote(d.note) ?? null,
-      });
-    } else {
-      const d = node.data as unknown as {
-        name: string; operation: string; qualifier: string | null;
-        outputs: { label: string; tag: "consumed" | "discarded"; split: Record<string, number> }[];
-        measuredOutputs: (number | null)[];
-        factorEstimates: Record<string, number>;
-        factorOverrides?: Record<string, number>;
-        note?: string | null;
-      };
-      engineNodes.push({
-        id: node.id,
-        type: "process",
-        operation: d.operation,
-        qualifier: d.qualifier,
-        name: d.name,
-        measuredOutputs: d.measuredOutputs,
-        outputs: d.outputs.map((o) => ({ label: o.label, tag: o.tag, split: o.split })),
-        factorEstimates: d.factorEstimates as never,
-        factorOverrides: d.factorOverrides as never,
-        note: cleanNote(d.note) ?? null,
-      });
-    }
-  }
-  return {
-    nodes: engineNodes,
-    edges: edges.map((e) => ({ id: String(e.id), from: e.source, to: e.target })),
-  };
-}
 
 function buildInitialNodes(graph: Graph | null | undefined, layout: Record<string, { x: number; y: number }> | undefined, foods: Food[]): Node[] {
   if (!graph) return [];

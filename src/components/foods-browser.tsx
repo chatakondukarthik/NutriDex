@@ -12,10 +12,20 @@ import { Spotlight } from "@/components/spotlight";
 import { AnimatePresence, motion } from "motion/react";
 import { SPRING } from "@/lib/motion/tokens";
 import { ProvenanceChip } from "@/components/provenance-chip";
-import { foodProvenance } from "@/lib/provenance";
+import { foodOrigin, foodProvenance, type FoodOrigin } from "@/lib/provenance";
 import { NUTRIENT_CODES } from "@/lib/nutrition/types";
 
 const CATEGORIES = ["All", "Dairy", "Grains", "Vegetables", "Fruits", "Legumes", "Oils", "Nuts", "Meat", "Seafood", "Spices", "Beverages", "Custom"];
+
+const ORIGINS: Array<{ value: "all" | FoodOrigin; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "seed", label: "Built-in" },
+  { value: "usda", label: "USDA" },
+  { value: "indb", label: "INDB" },
+  { value: "off", label: "Open Food Facts" },
+  { value: "manual", label: "Yours" },
+  { value: "llm", label: "AI-filled" },
+];
 
 export function FoodsBrowser({
   foods,
@@ -28,7 +38,7 @@ export function FoodsBrowser({
 }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All");
-  const [mineOnly, setMineOnly] = useState(false);
+  const [origin, setOrigin] = useState<"all" | FoodOrigin>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
   const noticeTimer = useRef<number | null>(null);
@@ -36,9 +46,9 @@ export function FoodsBrowser({
   const results = useMemo(() => {
     let list = searchFoods(foods, query);
     if (category !== "All") list = list.filter((f) => f.category === category);
-    if (mineOnly) list = list.filter((f) => !!f.source);
+    if (origin !== "all") list = list.filter((f) => foodOrigin(f) === origin);
     return list;
-  }, [foods, query, category, mineOnly]);
+  }, [foods, query, category, origin]);
 
   const categories = useMemo(() => {
     const set = new Set(foods.map((f) => f.category));
@@ -156,10 +166,29 @@ export function FoodsBrowser({
         >
           {categories.map((c) => <option key={c}>{c}</option>)}
         </select>
-        <label className="flex items-center gap-1.5 text-xs text-muted">
-          <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />
-          My foods only
-        </label>
+      </div>
+      <div
+        role="group"
+        aria-label="Filter by origin"
+        className="mt-2 flex h-8 w-fit items-center gap-0.5 rounded-lg bg-ink/[0.06] p-0.5 text-[11px] font-medium"
+      >
+        {ORIGINS.map((option) => {
+          const active = origin === option.value;
+          const count = option.value === "all" ? foods.length : foods.filter((f) => foodOrigin(f) === option.value).length;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => setOrigin(option.value)}
+              aria-pressed={active}
+              className={`rounded-md px-2.5 py-1 transition ${
+                active ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink"
+              }`}
+            >
+              {option.label} ({count})
+            </button>
+          );
+        })}
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line pb-3">
@@ -173,7 +202,7 @@ export function FoodsBrowser({
             onChange={toggleAll}
             aria-label={`Select all ${visibleIds.length} shown`}
           />
-          Select all{query || category !== "All" || mineOnly ? ` shown (${visibleIds.length})` : ` (${visibleIds.length})`}
+          Select all{query || category !== "All" || origin !== "all" ? ` shown (${visibleIds.length})` : ` (${visibleIds.length})`}
         </label>
         <span aria-live="polite" className="text-[11px] tabular text-ink/45">
           {selectedCount} selected

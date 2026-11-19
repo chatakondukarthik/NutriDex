@@ -78,3 +78,45 @@ export function recipeProvenance(label: string | null | undefined): Provenance {
   if (!key) return AUTHORED;
   return resolve(RECIPE, key);
 }
+
+/** The household's origin bucket for filtering. */
+export type FoodOrigin = "seed" | "usda" | "indb" | "off" | "llm" | "manual";
+
+/**
+ * Origin of a food, for filtering. AI evidence wins over the named source —
+ * a USDA-lookup food whose nutrients were proposed by AI shows up under
+ * AI-filled, which is the honest answer to "who built this?".
+ */
+export function foodOrigin(food: {
+  source?: string | null;
+  sourceKind?: string | null;
+  nutrients?: Record<string, { method?: string | null } | undefined>;
+}): FoodOrigin {
+  const kind = food.sourceKind?.trim().toLowerCase();
+  const ai = Object.values(food.nutrients ?? {}).some((value) =>
+    (value?.method ?? "").toLowerCase().startsWith("ai:"),
+  );
+  if (kind === "llm" || ai) return "llm";
+  if (kind === "indb") return "indb";
+  if (kind === "off" || kind === "openfoodfacts") return "off";
+  if (kind && ["usda", "branded", "foundation", "sr_legacy", "fndds"].includes(kind)) return "usda";
+  const source = food.source?.trim().toLowerCase();
+  if (!source) return "seed";
+  if (["usda", "branded", "foundation", "sr_legacy", "fndds"].includes(source)) return "usda";
+  if (source === "indb") return "indb";
+  if (source === "openfoodfacts" || source === "off") return "off";
+  return "manual";
+}
+
+/** The household's authoring bucket for filtering recipes. */
+export type RecipeOrigin = "authored" | "ai" | "preset" | "promoted" | "legacy";
+
+/** Recipe origin from the version label. Missing label = authored. */
+export function recipeOrigin(label: string | null | undefined): RecipeOrigin {
+  const key = label?.trim().toLowerCase();
+  if (key === "ai") return "ai";
+  if (key === "preset") return "preset";
+  if (key === "promoted") return "promoted";
+  if (key === "legacy") return "legacy";
+  return "authored";
+}

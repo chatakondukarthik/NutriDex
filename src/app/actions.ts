@@ -101,6 +101,8 @@ export async function addFoodAction(input: {
   amount: number;
   unit: string;
   portionLabel?: string;
+  /** The diary day being viewed; omitted means today. */
+  day?: string;
 }): Promise<AddResult> {
   const personId = await getActivePersonId();
   const food = getFood(input.foodId);
@@ -123,12 +125,17 @@ export async function addFoodAction(input: {
     return { ok: false, message: converted.reason };
   }
 
+  const day = input.day == null ? today() : input.day;
+  if (!isDay(day)) {
+    return { ok: false, message: "That day is not valid." };
+  }
+
   addEntry(personId, {
     foodId: food.id,
     grams: converted.grams,
     amount: input.amount,
     unit: input.unit,
-    day: today(),
+    day,
   });
 
   revalidatePath("/");
@@ -1487,7 +1494,9 @@ export async function saveGraphAction(input: {
   graph: Graph;
   mode?: "new-version" | "replace-current";
   replaceVersionId?: string | null;
-}): Promise<{ ok: boolean; recipeId?: string; message?: string }> {
+  /** The user explicitly confirmed overwriting a pinned version. */
+  forceReplace?: boolean;
+}): Promise<{ ok: boolean; recipeId?: string; message?: string; warning?: string }> {
   try {
     const graphProblem = validateGraphShape(input?.graph);
     if (graphProblem) return { ok: false, message: graphProblem };
@@ -1526,15 +1535,50 @@ export async function saveGraphAction(input: {
       graph,
       mode: input.mode,
       replaceVersionId: input.replaceVersionId ?? null,
+      forceReplace: input.forceReplace === true,
     });
     if (!result.ok) return { ok: false, message: result.message };
     revalidatePath("/recipes");
     refresh();
     revalidatePath(`/recipes/${result.recipeId}`);
     refresh();
-    return { ok: true, recipeId: result.recipeId };
+    return { ok: true, recipeId: result.recipeId, warning: result.warning };
   } catch (error) {
     return { ...fail("Could not save that recipe.", error, "saveGraphAction") };
+  }
+}
+
+
+/**
+ * Persist only the canvas layout of the CURRENT version — saving when the
+ * recipe content is unchanged must not mint a version and must not ask.
+ */
+export async function saveGraphLayoutAction(input: {
+  recipeId: string;
+  versionId?: string | null;
+  layout: unknown;
+}): Promise<{ ok: boolean; message?: string }> {
+  try {
+    const recipeId = typeof input?.recipeId === "string" ? input.recipeId : "";
+    if (!recipeId) return { ok: false, message: "No recipe selected." };
+    const layoutProblem = validateLayout(input.layout);
+    if (layoutProblem) return { ok: false, message: layoutProblem };
+    const layout = sanitizeLayout(input.layout) ?? {};
+    const { getRecipe, getVersionOwner, writeVersionLayout } = await import("@/lib/db/recipes");
+    const recipe = getRecipe(recipeId);
+    if (!recipe?.summary.currentVersionId) return { ok: false, message: "This recipe has no version yet." };
+    const versionId =
+      typeof input?.versionId === "string" && input.versionId
+        ? input.versionId
+        : recipe.summary.currentVersionId;
+    if (getVersionOwner(versionId) !== recipeId) {
+      return { ok: false, message: "That version does not belong to this recipe." };
+    }
+    writeVersionLayout(versionId, layout);
+    revalidatePath(`/recipes/${recipeId}`);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, message: publicError("Could not save the layout.", error, "saveGraphLayoutAction") };
   }
 }
 
@@ -1591,6 +1635,17 @@ export async function previewRecipeFromPromptAction(
     recipeId?: string | null;
     /** A photo of a recipe card or dish the request should use. */
     images?: unknown;
+    /**
+     * Live canvas context — unsaved edits included. When present, the model
+     * sees the canvas as it is, not the last-saved snapshot. Falls back to
+     * `recipeId` when absent or invalid.
+     */
+    context?: {
+      name?: string | null;
+      servings?: number | null;
+      instructions?: string | null;
+      graph?: unknown;
+    } | null;
   },
 ): Promise<{ ok: boolean; plan?: RecipePlan; resolutions?: PlanFoodResolution[]; message?: string }> {
   const prompt = typeof input?.prompt === "string" ? input.prompt : "";
@@ -1608,7 +1663,24 @@ export async function previewRecipeFromPromptAction(
     const limited = await aiThrottle("plan", 10);
     if (limited) return { ok: false, message: limited };
     let existing;
-    if (input.recipeId) {
+    if (input.context?.graph) {
+      const { validateGraphShape, sanitizeGraph } = await import("@/lib/nutrition/graph-validate");
+      const shapeError = validateGraphShape(input.context.graph);
+      if (!shapeError) {
+        const sanitized = sanitizeGraph(input.context.graph);
+        // An empty canvas is a create prompt, not an edit prompt.
+        if (sanitized.nodes.length > 0) {
+          const servings = Number(input.context.servings);
+          existing = {
+            name: String(input.context.name ?? "this recipe").slice(0, 200),
+            servings: Number.isFinite(servings) && servings > 0 ? Math.min(servings, 50) : 1,
+            instructions: String(input.context.instructions ?? "").slice(0, 4000),
+            graph: sanitized,
+          };
+        }
+      }
+    }
+    if (!existing && input.recipeId) {
       const { getVersion } = await import("@/lib/db/recipes");
       const { getRecipe } = await import("@/lib/db/recipes");
       const recipe = getRecipe(input.recipeId);
@@ -1720,6 +1792,8 @@ import { listRecipeOptions } from "@/lib/db/recipes";
 export async function addRecipeEntryAction(input: {
   recipeVersionId: string;
   servings: number;
+  /** The diary day being viewed; omitted means today. */
+  day?: string;
 }): Promise<AddResult> {
   const personId = await getActivePersonId();
   const version = getVersion(input.recipeVersionId);
@@ -1737,6 +1811,10 @@ export async function addRecipeEntryAction(input: {
   const snapshot = version.snapshot as unknown as { inputGrams?: number };
   const perServing = input.servings === 0 ? 1 : snapshot.inputGrams ? snapshot.inputGrams / version.servings : 0;
   const totalGrams = Number.isFinite(perServing * servings) ? perServing * servings : 0;
+  const day = input.day == null ? today() : input.day;
+  if (!isDay(day)) {
+    return { ok: false, message: "That day is not valid." };
+  }
 
   addRecipeDiaryEntry(personId, {
     recipeVersionId: input.recipeVersionId,
@@ -1744,7 +1822,7 @@ export async function addRecipeEntryAction(input: {
     grams: totalGrams,
     amount: servings,
     unit: "serving",
-    day: today(),
+    day,
   });
 
   revalidatePath("/");

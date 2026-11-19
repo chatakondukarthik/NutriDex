@@ -307,6 +307,39 @@ export function countVersionReferences(versionId: string): number {
   return row.n;
 }
 
+/**
+ * Persist only the canvas layout onto a version's snapshot.
+ *
+ * Saving a layout-only change must not mint a version, so this bypasses the
+ * save path entirely: same graph, same values, same history — a new layout.
+ */
+export function writeVersionLayout(
+  versionId: string,
+  layout: Record<string, { x: number; y: number }>,
+): void {
+  transaction(() => {
+    const row = db
+      .prepare("SELECT snapshot FROM recipe_versions WHERE id = ?")
+      .get(versionId) as { snapshot: string } | undefined;
+    if (!row) return;
+    const snap = JSON.parse(row.snapshot) as Record<string, unknown>;
+    snap.layout = layout;
+    db.prepare("UPDATE recipe_versions SET snapshot = ? WHERE id = ?").run(
+      JSON.stringify(snap),
+      versionId,
+    );
+    const version = db
+      .prepare("SELECT recipe_id FROM recipe_versions WHERE id = ?")
+      .get(versionId) as { recipe_id: string } | undefined;
+    if (version) {
+      db.prepare("UPDATE recipes SET updated_at = ? WHERE id = ?").run(
+        new Date().toISOString(),
+        version.recipe_id,
+      );
+    }
+  });
+}
+
 export type DeleteVersionResult = { ok: true } | { ok: false; message: string };
 
 /**
@@ -382,6 +415,7 @@ export function deleteVersion(versionId: string): DeleteVersionResult {
 export function replaceVersion(
   versionId: string,
   version: VersionInput,
+  opts?: { force?: boolean },
 ): { ok: true; recipeId: string; versionId: string; versionNo: number } | { ok: false; message: string } {
   const current = db
     .prepare("SELECT recipe_id, version_no FROM recipe_versions WHERE id = ?")
@@ -389,7 +423,7 @@ export function replaceVersion(
   if (!current) return { ok: false, message: "That version no longer exists." };
 
   const references = countVersionReferences(versionId);
-  if (references > 0) {
+  if (references > 0 && !opts?.force) {
     return {
       ok: false,
       message: `v${current.version_no} is used by ${references} plan or diary entr${

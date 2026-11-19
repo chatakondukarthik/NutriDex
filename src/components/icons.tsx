@@ -133,6 +133,14 @@ export function ChevronRightIcon(props: IconProps) {
   );
 }
 
+export function ArrowUpIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12 19V5M5 12l7-7 7 7" />
+    </Icon>
+  );
+}
+
 export function ArrowLeftRightIcon(props: IconProps) {
   return (
     <Icon {...props}>

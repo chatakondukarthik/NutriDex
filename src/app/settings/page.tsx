@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ThemeSettingsPanel } from "@/components/theme-settings";
+import { InstallAppCard } from "@/components/install-app-card";
 import { AiSettingsPanel } from "@/components/ai-settings";
 import { AiInstructionsPanel } from "@/components/ai-instructions-panel";
 import { DataPortabilityPanel } from "@/components/data-portability";
@@ -18,6 +19,7 @@ import { getActivePerson } from "@/lib/person-server";
 import { targetsFor } from "@/lib/targets";
 import { aiStatus } from "@/lib/ai/client";
 import { PageHeader } from "@/components/page-header";
+import { Rise } from "@/components/motion/reveal";
 import { readAiConfig } from "@/lib/ai/config";
 
 export const dynamic = "force-dynamic";
@@ -45,17 +47,19 @@ export default async function SettingsPage() {
         />
       </div>
 
-      <PeopleSettingsPanel
-        activePersonId={person.id}
-        householdName={getHousehold().name}
-        people={listPeople({ includeArchived: true }).map((member) => ({
-          id: member.id,
-          displayName: member.displayName,
-          archivedAt: member.archivedAt,
-          counts: personDeletionCounts(member.id),
-        }))}
-      />
-      <div className="mt-6">
+      <Rise delay={0.05}>
+        <PeopleSettingsPanel
+          activePersonId={person.id}
+          householdName={getHousehold().name}
+          people={listPeople({ includeArchived: true }).map((member) => ({
+            id: member.id,
+            displayName: member.displayName,
+            archivedAt: member.archivedAt,
+            counts: personDeletionCounts(member.id),
+          }))}
+        />
+      </Rise>
+      <Rise delay={0.1} className="mt-6">
         <TargetSettingsPanel
           key={person.id}
           personId={person.id}
@@ -63,17 +67,20 @@ export default async function SettingsPage() {
           initial={rules}
           recommended={recommended}
         />
-      </div>
-      <div className="mt-6">
+      </Rise>
+      <Rise delay={0.15} className="mt-6">
         <ThemeSettingsPanel />
-      </div>
-      <div className="mt-6">
+      </Rise>
+      <Rise delay={0.18} className="mt-6">
+        <InstallAppCard />
+      </Rise>
+      <Rise delay={0.2} className="mt-6">
         <AiSettingsPanel status={aiStatus()} config={readAiConfig() ?? {}} />
-      </div>
-      <div className="mt-6">
+      </Rise>
+      <Rise delay={0.25} className="mt-6">
         <AiInstructionsPanel initial={getMasterPrompt()} />
-      </div>
-      <div className="mt-6">
+      </Rise>
+      <Rise delay={0.3} className="mt-6">
         <DataPortabilityPanel
           key={person.id}
           people={listPeople().map((person) => ({
@@ -82,10 +89,10 @@ export default async function SettingsPage() {
           }))}
           activePersonId={person.id}
         />
-      </div>
-      <div className="mt-6">
+      </Rise>
+      <Rise delay={0.35} className="mt-6">
         <DataDeletionPanel key={person.id} initialPreview={getPurgePreview("person", person.id)} />
-      </div>
+      </Rise>
     </main>
   );
 }

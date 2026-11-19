@@ -2,6 +2,8 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PlanBoard } from "@/components/plan-board";
+import { ThemeProvider } from "@/components/theme-provider";
+import { DEFAULT_THEME } from "@/lib/theme";
 import { SEED_FOODS } from "@/lib/data/foods";
 import { DEFAULT_PROFILE } from "@/lib/profile";
 import { targetsFor } from "@/lib/targets";
@@ -57,15 +59,17 @@ const ENTRY: PlanEntry = {
 function setup(entries: PlanEntry[] = [ENTRY]) {
   const user = userEvent.setup();
   render(
-    <PlanBoard
-      week={WEEK}
-      today={WEEK}
-      foods={SEED_FOODS}
-      recipes={[]}
-      entries={entries}
-      targets={targetsFor(DEFAULT_PROFILE)}
-      profileIsDefault={false}
-    />,
+    <ThemeProvider initial={DEFAULT_THEME}>
+      <PlanBoard
+        week={WEEK}
+        today={WEEK}
+        foods={SEED_FOODS}
+        recipes={[]}
+        entries={entries}
+        targets={targetsFor(DEFAULT_PROFILE)}
+        profileIsDefault={false}
+      />
+    </ThemeProvider>,
   );
   return user;
 }

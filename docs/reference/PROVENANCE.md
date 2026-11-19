@@ -24,6 +24,25 @@ one of these:
 Class is read from `captured_foods.source` / `source_code`:
 `usda → A or B` (by `dataType`), `indb → A`, `llm → C`, user-created → C.
 
+## Origin filters (shipped 2026-11-19)
+
+Provenance is also filterable, not only visible:
+
+- **Foods / Spice Rack** — `All · Built-in · USDA · INDB · Open Food Facts · Yours · AI-filled`.
+  `Yours` = household captures with no AI evidence; `AI-filled` = any nutrient value
+  stamped `method` beginning with `ai:` (or `source_kind = 'llm'`). AI evidence outranks
+  the named source: a USDA-lookup food with AI-filled nutrients matches `AI-filled`.
+  Both built-in (seed) foods and anything the household authored stay distinguishable
+  at a glance.
+- **Recipes** — `All · Authored · AI-designed · Preset · Promoted · Legacy`, keyed off
+  the recipe version's `label`; a missing label is Authored.
+- `recipe_versions.label` is the recipe's authoring signal. `promoted` marks a recipe
+  created by promoting a food entry; `preset` an app preset adapted; `legacy` an
+  imported pre-household recipe; `ai` an AI-designed one.
+- 2026-11-19: SuperYou Chocolate Fermented Yeast Protein and MillD High Protein Flour
+  were stamped `source_kind = 'llm'` (the household confirmed both were AI-filled).
+  Backup taken before the stamp — `nutriplan-before-ai-kind-stamp.sqlite`.
+
 ## The invariants (all enforced today)
 
 1. **Only unknown cells are filled.** `estimateNutrients` writes only

@@ -34,7 +34,7 @@ export default async function NewRecipePage({
         recipeId={null}
         initialGraph={initialGraph}
         initialName={preset?.name ?? ""}
-        aiAction={{ enabled: aiStatus().enabled, mode: "create" }}
+        aiAction={{ enabled: aiStatus().enabled }}
       />
     </>
   );

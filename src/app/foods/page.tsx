@@ -3,6 +3,7 @@ import { listFoods, listCapturedFoods } from "@/lib/db/foods";
 import { FoodsBrowser } from "@/components/foods-browser";
 import { aiStatus } from "@/lib/ai/client";
 import { PageHeader } from "@/components/page-header";
+import { Rise } from "@/components/motion/reveal";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,9 @@ export default function FoodsPage() {
           </Link>
         </PageHeader>
       </div>
-      <FoodsBrowser foods={all} aiEnabled={ai.enabled} hasKey={ai.hasKey} />
+      <Rise delay={0.08}>
+        <FoodsBrowser foods={all} aiEnabled={ai.enabled} hasKey={ai.hasKey} />
+      </Rise>
     </main>
   );
 }

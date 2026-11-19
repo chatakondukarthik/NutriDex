@@ -7,7 +7,7 @@
  * v2 version is fully self-describing.
  */
 
-import { addVersion, createRecipe, replaceVersion, getVersionOwner } from "@/lib/db/recipes";
+import { addVersion, createRecipe, replaceVersion, getVersionOwner, getVersion, countVersionReferences } from "@/lib/db/recipes";
 import { computeRecipeGraph } from "@/lib/nutrition/graph-server";
 import { NUTRIENT_CODES, type NutrientCode } from "@/lib/nutrition/types";
 import { combine, perServing, scaleRollup, type Rollup } from "@/lib/nutrition/engine";
@@ -27,6 +27,8 @@ export interface GraphDraft {
   mode?: "new-version" | "replace-current";
   /** The version row to rewrite when mode is "replace-current". */
   replaceVersionId?: string | null;
+  /** The user explicitly confirmed overwriting a pinned version. */
+  forceReplace?: boolean;
 }
 
 export interface SaveGraphResult {
@@ -35,6 +37,8 @@ export interface SaveGraphResult {
   versionId?: string;
   versionNo?: number;
   message?: string;
+  /** Non-fatal note, e.g. "pinned — saved as a new version instead". */
+  warning?: string;
 }
 
 export type GraphSnapshot = RecipeResult & {
@@ -155,7 +159,19 @@ export function saveGraphDraft(draft: GraphDraft): SaveGraphResult {
       if (owner !== draft.recipeId) {
         return { ok: false, message: "That version does not belong to this recipe." };
       }
-      const replaced = replaceVersion(draft.replaceVersionId, version);
+      const pinned = countVersionReferences(draft.replaceVersionId);
+      if (pinned > 0 && !draft.forceReplace) {
+        // Honest fallback: keep both versions — never overwrite what a plan
+        // made against these values without being told to.
+        const versionNo = getVersion(draft.replaceVersionId)?.versionNo ?? null;
+        const saved = addVersion(draft.recipeId, version, name);
+        return {
+          ok: true,
+          ...saved,
+          warning: `Saved as a new version — v${versionNo} is pinned by ${pinned} ${pinned === 1 ? "entry" : "entries"} and was left untouched. Use "Replace anyway" to rewrite it.`,
+        };
+      }
+      const replaced = replaceVersion(draft.replaceVersionId, version, { force: draft.forceReplace === true });
       if (!replaced.ok) return { ok: false, message: replaced.message };
       return {
         ok: true,

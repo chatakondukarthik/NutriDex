@@ -258,7 +258,8 @@ the documented exceptions); reduced-motion = gentler, never zero; hover only beh
 
 The navigation itself is a kitchen passage. Each room carries one fixed-camera artifact —
 the same rim / spokes / centre-disc grammar as the masala dabba, one brass palette, one
-top-down camera — always on at the bottom-right corner, always quiet.
+top-down camera — always on at the bottom-right corner, always quiet. (Eight plates ship:
+the original seven plus the Settings mortar, added by request.)
 
 | Route | Plate | The story beat |
 |---|---|---|
@@ -269,6 +270,7 @@ top-down camera — always on at the bottom-right corner, always quiet.
 | `/profile` | The Chai Glass on the Tray — kulhar, lota behind, steam | the cook is restored |
 | `/about` | The Tulā — brass balance: grain against the scroll | the claim is weighed |
 | `/glossary` | The Decoder Wheel — three brushed-brass rings, one gold window | the word is found |
+| `/settings` | The Sil Batta — a stone mortar with a pestle resting across it | the mix is ground to its right proportion |
 
 Nav order is the meal, read in one line: *served → provisioned → remembered → kept → restored → weighed → decoded → tomorrow, again.*
 

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
+import { Rise } from "@/components/motion/reveal";
 
 export const metadata = {
   title: "About the numbers · NutriPlan",
@@ -27,6 +28,7 @@ export default function AboutPage() {
 
       <div className="mt-8 space-y-8">
         <Section
+          delay={0.05}
           title="How a target is calculated"
           lead="Targets are derived from your profile every time a page is read. They are not stored, so changing the profile moves the diary and the plan at once."
         >
@@ -67,6 +69,7 @@ export default function AboutPage() {
         </Section>
 
         <Section
+          delay={0.1}
           title="Why a day and a week are judged differently"
           lead="A daily reference is not always the right window to judge it in."
         >
@@ -90,6 +93,7 @@ export default function AboutPage() {
         </Section>
 
         <Section
+          delay={0.15}
           title="When a bar changes colour"
           lead="The colours are a reading aid, not a grade. The exact rules are below, and you can change them."
         >
@@ -130,6 +134,7 @@ export default function AboutPage() {
         </Section>
 
         <Section
+          delay={0.2}
           title="Where the food data comes from"
           lead="The seed dataset exists to prove the engine works. It is not yet the verified production dataset."
         >
@@ -183,6 +188,7 @@ export default function AboutPage() {
         </Section>
 
         <Section
+          delay={0.25}
           title="What is stored, and where"
           lead="This build runs locally. There is no account, no sync and no analytics."
         >
@@ -206,7 +212,7 @@ export default function AboutPage() {
           </ul>
         </Section>
 
-        <Section title="What this is not">
+        <Section delay={0.3} title="What this is not">
           <p className="text-xs leading-relaxed text-muted">
             The targets are reference values adjusted by an equation, not a prescription. The food
             data is a development fixture, not a laboratory analysis. A plan is not a log of what
@@ -228,17 +234,21 @@ function Section({
   title,
   lead,
   children,
+  delay = 0,
 }: {
   title: string;
   lead?: string;
   children: React.ReactNode;
+  delay?: number;
 }) {
   return (
-    <section className="rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-6">
-      <h2 className="font-display text-sm font-semibold tracking-tight text-ink">{title}</h2>
-      {lead && <p className="mt-1.5 max-w-2xl text-xs leading-relaxed text-muted">{lead}</p>}
-      <div className="mt-4">{children}</div>
-    </section>
+    <Rise delay={delay}>
+      <section className="rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-6">
+        <h2 className="font-display text-sm font-semibold tracking-tight text-ink">{title}</h2>
+        {lead && <p className="mt-1.5 max-w-2xl text-xs leading-relaxed text-muted">{lead}</p>}
+        <div className="mt-4">{children}</div>
+      </section>
+    </Rise>
   );
 }
 

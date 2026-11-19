@@ -531,15 +531,15 @@ body {
   height: 34px !important;
   background: var(--surface) !important;
   border: none !important;
-  border-bottom: 1px solid var(--line) !important;
+  border-right: 1px solid var(--line) !important;
   color: var(--ink) !important;
   transition: background 120ms ease;
 }
+.react-flow__controls-button:last-child {
+  border-right: none !important;
+}
 .react-flow__controls-button:hover {
   background: var(--canvas) !important;
-}
-.react-flow__controls-button:last-child {
-  border-bottom: none !important;
 }
 .react-flow__controls-button svg {
   fill: var(--ink) !important;

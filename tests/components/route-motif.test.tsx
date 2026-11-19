@@ -27,6 +27,7 @@ describe("RouteMotif", () => {
     ["/profile", "profile-rim"],
     ["/about", "about-rim"],
     ["/glossary", "glossary-rim"],
+    ["/settings", "settings-stone"],
   ];
 
   for (const [path, gradientId] of cases) {

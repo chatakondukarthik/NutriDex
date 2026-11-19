@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Fraunces, Instrument_Sans, Space_Mono } from "next/font/google";
 import RouteMotif from "@/components/route-motif";
 import EmberField from "@/components/ember-field";
@@ -6,6 +6,7 @@ import { SpiceGlow } from "@/components/spice-glow";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { ThemeProvider } from "@/components/theme-provider";
+import { ServiceWorkerRegistrar } from "@/components/service-worker-registrar";
 import { listPeople } from "@/lib/db/people";
 import { getActivePerson } from "@/lib/person-server";
 import { getThemeSettings } from "@/lib/theme-server";
@@ -34,6 +35,27 @@ const spaceMono = Space_Mono({
 export const metadata: Metadata = {
   title: "NutriPlan",
   description: "Plan your meals. Know what is in them.",
+  manifest: "/manifest.json",
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml", sizes: "any" },
+      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "NutriPlan",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#F5F1E8" },
+    { media: "(prefers-color-scheme: dark)", color: "#1C1510" },
+  ],
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
@@ -51,9 +73,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       suppressHydrationWarning
       className={`${fraunces.variable} ${instrumentSans.variable} ${spaceMono.variable}`}
     >
-      <body className="grain flex min-h-screen flex-col text-ink antialiased">
+      <body className="grain flex h-[100dvh] flex-col overflow-hidden text-ink antialiased">
         <EmberField />
         <SpiceGlow />
+        <ServiceWorkerRegistrar />
         <ThemeProvider initial={theme}>
           <RouteMotif />
           <SiteHeader
@@ -68,7 +91,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             browser to the content instead of the header, and tabbing then
             continues inside the page.
           */}
-          <div id="main-content" tabIndex={-1} className="flex-1 outline-none">{children}</div>
+          <div id="main-content" tabIndex={-1} className="flex min-h-0 flex-1 flex-col overflow-y-auto outline-none">{children}</div>
           <SiteFooter />
         </ThemeProvider>
       </body>

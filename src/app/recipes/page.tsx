@@ -5,6 +5,7 @@ import { listFoods } from "@/lib/db/foods";
 import { ConvertRecipesButton } from "@/components/convert-recipes-button";
 import { RecipesBrowser } from "@/components/recipes-browser";
 import { PageHeader } from "@/components/page-header";
+import { Rise } from "@/components/motion/reveal";
 
 export const dynamic = "force-dynamic";
 
@@ -49,21 +50,24 @@ export default function RecipesPage() {
       </PageHeader>
 
       {recipes.length === 0 ? (
-        <section className="mt-5 rounded-2xl border border-dashed border-line bg-surface px-5 py-10 text-center">
-          <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Nothing saved yet</h2>
-          <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-ink/45">
-            A recipe is a named thing you will cook again — not a one-off plate. Start from a
-            preset and change it, or build one from your own ingredients.
-          </p>
-        </section>
+        <Rise delay={0.08}>
+          <section className="mt-5 rounded-2xl border border-dashed border-line bg-surface px-5 py-10 text-center">
+            <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Nothing saved yet</h2>
+            <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-ink/45">
+              A recipe is a named thing you will cook again — not a one-off plate. Start from a
+              preset and change it, or build one from your own ingredients.
+            </p>
+          </section>
+        </Rise>
       ) : (
         <RecipesBrowser recipes={enriched} />
       )}
 
-      <section className="mt-8">
-        <h2 className="text-[10px] font-semibold uppercase tracking-wider text-ink/35">
-          Start from a preset
-        </h2>
+      <Rise delay={0.15}>
+        <section className="mt-8">
+          <h2 className="text-[10px] font-semibold uppercase tracking-wider text-ink/35">
+            Start from a preset
+          </h2>
         <div className="mt-2 flex flex-wrap gap-2">
           {PRESETS.map((preset) => (
             <Link
@@ -80,7 +84,8 @@ export default function RecipesPage() {
           Presets are templates. Saving one creates your own copy; editing it never changes the
           preset.
         </p>
-      </section>
+        </section>
+      </Rise>
     </main>
   );
 }

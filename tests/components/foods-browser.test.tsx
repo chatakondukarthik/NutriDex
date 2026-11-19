@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { NUTRIENT_CODES } from "@/lib/nutrition/types";
 import { FoodsBrowser } from "@/components/foods-browser";
 
 vi.mock("next/navigation", () => ({
@@ -86,5 +87,65 @@ describe("foods browser: selection", () => {
 
     expect(screen.getByText("0 selected")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /copy selected/i })).toBeDisabled();
+  });
+});
+
+describe("foods browser: origin filter", () => {
+  const profile = (method: string | null) =>
+    Object.fromEntries(
+      NUTRIENT_CODES.map((code) => [
+        code,
+        {
+          amount: code === "ENERC_KCAL" ? 100 : null,
+          status: code === "ENERC_KCAL" ? "known" : "unknown",
+          source: "manual",
+          method,
+        },
+      ]),
+    ) as unknown as Parameters<typeof FoodsBrowser>[0]["foods"][number]["nutrients"];
+
+  const captured = (id: string, name: string, method: string | null) => ({
+    id,
+    name,
+    aliases: [],
+    category: "Custom",
+    kind: "provisional" as const,
+    state: "raw" as const,
+    densityGPerMl: 1,
+    portions: [{ label: "100 g", grams: 100, source: "manual" }],
+    nutrients: profile(method),
+    source: "manual",
+    sourceKind: method ? "llm" : null,
+  });
+
+  const aiShare = captured("ai-1", "Almonds (AI share)", "ai:gemini:gemini-flash-lite-latest");
+  const mine = captured("mine-1", "Grandma's rice flour", null);
+  const MIX = [...SEED_FOODS, aiShare, mine] as Parameters<typeof FoodsBrowser>[0]["foods"];
+
+  it("built-in shows only seed foods", async () => {
+    const user = userEvent.setup();
+    render(<FoodsBrowser foods={MIX} aiEnabled={false} hasKey={true} />);
+    await user.click(screen.getByRole("button", { name: /^Built-in/ }));
+    expect(screen.getByText(SEED_FOODS[0].name)).toBeInTheDocument();
+    expect(screen.queryByText("Almonds (AI share)")).toBeNull();
+    expect(screen.queryByText("Grandma's rice flour")).toBeNull();
+  });
+
+  it("AI-filled shows only foods with AI-marked nutrients", async () => {
+    const user = userEvent.setup();
+    render(<FoodsBrowser foods={MIX} aiEnabled={false} hasKey={true} />);
+    await user.click(screen.getByRole("button", { name: /^AI-filled/ }));
+    expect(screen.getByText("Almonds (AI share)")).toBeInTheDocument();
+    expect(screen.queryByText(SEED_FOODS[0].name)).toBeNull();
+    expect(screen.queryByText("Grandma's rice flour")).toBeNull();
+  });
+
+  it("Yours shows only household captures without AI evidence", async () => {
+    const user = userEvent.setup();
+    render(<FoodsBrowser foods={MIX} aiEnabled={false} hasKey={true} />);
+    await user.click(screen.getByRole("button", { name: /^Yours/ }));
+    expect(screen.getByText("Grandma's rice flour")).toBeInTheDocument();
+    expect(screen.queryByText("Almonds (AI share)")).toBeNull();
+    expect(screen.queryByText(SEED_FOODS[0].name)).toBeNull();
   });
 });

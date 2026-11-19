@@ -1,3 +1,4 @@
+import { Rise } from "@/components/motion/reveal";
 import Link from "next/link";
 
 /**
@@ -51,10 +52,11 @@ export function FirstRunGuide({
   ];
 
   return (
-    <section
-      aria-labelledby="first-run-title"
-      className="mb-4 rounded-2xl border border-accent/25 bg-accent/[0.04] p-4 shadow-card"
-    >
+    <Rise delay={0.06}>
+      <section
+        aria-labelledby="first-run-title"
+        className="mb-4 rounded-2xl border border-accent/25 bg-accent/[0.04] p-4 shadow-card"
+      >
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 id="first-run-title" className="text-sm font-semibold">
           Start here
@@ -93,6 +95,7 @@ export function FirstRunGuide({
           </li>
         ))}
       </ol>
-    </section>
+      </section>
+    </Rise>
   );
 }

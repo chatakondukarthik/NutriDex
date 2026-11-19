@@ -2,6 +2,7 @@ import Link from "next/link";
 import { GLOSSARY } from "@/lib/glossary";
 import { PageHeader } from "@/components/page-header";
 import { Spotlight } from "@/components/spotlight";
+import { Rise } from "@/components/motion/reveal";
 
 export const dynamic = "force-dynamic";
 
@@ -35,9 +36,11 @@ export default function GlossaryPage() {
         ))}
       </div>
 
-      <p className="mt-6 text-xs text-muted">
-        See also <Link href="/about" className="underline underline-offset-2 hover:text-ink">how targets are calculated</Link>.
-      </p>
+      <Rise delay={0.45}>
+        <p className="mt-6 text-xs text-muted">
+          See also <Link href="/about" className="underline underline-offset-2 hover:text-ink">how targets are calculated</Link>.
+        </p>
+      </Rise>
     </main>
   );
 }

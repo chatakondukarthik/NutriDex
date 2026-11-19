@@ -6,7 +6,8 @@ import { fmt } from "@/lib/format";
 import { filterRecipes, ingredientFacets } from "@/lib/recipe-filter";
 import { ProvenanceChip } from "@/components/provenance-chip";
 import { Spotlight } from "@/components/spotlight";
-import { recipeProvenance } from "@/lib/provenance";
+import { Rise } from "@/components/motion/reveal";
+import { recipeProvenance, recipeOrigin, type RecipeOrigin } from "@/lib/provenance";
 
 export type Recipe = {
   id: string;
@@ -25,15 +26,18 @@ export type Recipe = {
   haystack: string;
 };
 
-const KINDS = [
-  { value: "All", label: "All" },
-  { value: "dish", label: "Dishes" },
-  { value: "component", label: "Components" },
+const ORIGINS: Array<{ value: "all" | RecipeOrigin; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "authored", label: "Authored" },
+  { value: "ai", label: "AI-designed" },
+  { value: "preset", label: "Preset" },
+  { value: "promoted", label: "From food" },
+  { value: "legacy", label: "Legacy" },
 ];
 
 export function RecipesBrowser({ recipes }: { recipes: Recipe[] }) {
   const [query, setQuery] = useState("");
-  const [kind, setKind] = useState("All");
+  const [origin, setOrigin] = useState<"all" | RecipeOrigin>("all");
   const [ingredient, setIngredient] = useState("");
 
   const facets = useMemo(
@@ -44,14 +48,15 @@ export function RecipesBrowser({ recipes }: { recipes: Recipe[] }) {
   const filtered = useMemo(
     () =>
       filterRecipes(recipes, query, ingredient || null).filter(
-        (recipe) => kind === "All" || recipe.kind === kind,
+        (recipe) => origin === "all" || recipeOrigin(recipe.currentVersionLabel) === origin,
       ),
-    [recipes, query, kind, ingredient],
+    [recipes, query, origin, ingredient],
   );
 
   return (
     <>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      <Rise delay={0.08}>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -73,14 +78,14 @@ export function RecipesBrowser({ recipes }: { recipes: Recipe[] }) {
           ))}
         </select>
         <div className="flex h-9 items-center gap-0.5 rounded-lg bg-ink/[0.06] p-0.5 text-xs">
-          {KINDS.map((option) => (
+          {ORIGINS.map((option) => (
             <button
               key={option.value}
               type="button"
-              onClick={() => setKind(option.value)}
-              aria-pressed={kind === option.value}
+              onClick={() => setOrigin(option.value)}
+              aria-pressed={origin === option.value}
               className={`rounded-md px-3 py-1.5 font-medium transition ${
-                kind === option.value
+                origin === option.value
                   ? "bg-surface text-ink shadow-sm"
                   : "text-muted hover:text-ink"
               }`}
@@ -90,7 +95,8 @@ export function RecipesBrowser({ recipes }: { recipes: Recipe[] }) {
           ))}
         </div>
         <span className="text-[11px] text-ink/35">{filtered.length} / {recipes.length}</span>
-      </div>
+        </div>
+      </Rise>
 
       {filtered.length === 0 ? (
         <p className="mt-4 rounded-xl border border-dashed border-line bg-surface p-6 text-center text-sm text-muted">
