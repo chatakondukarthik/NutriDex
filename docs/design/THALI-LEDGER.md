@@ -1,6 +1,6 @@
 # The Thali Ledger — NutriPlan design system
 
-Codename: **The Thali Ledger** · Status: v0.1 (first vertical slice — Diary + shell) · Dark-first
+Codename: **The Thali Ledger** · Status: v0.2 (the site is remade; Phases 0–4 shipped, plus the Seven Plates — see §14) · Dark-first
 
 > The household's nutrition ledger: a record kept with the material warmth of a South Indian
 > kitchen — brass, clay, spice tins, and warm parchment — and the discipline of a ledger.
@@ -182,11 +182,12 @@ not mute sound (user may want sound with no visual motion).
 
 ## 10. Surfaces & phases
 
-**Phase 0 (this slice)** — shell restyle, Diary restyle + motion, sound system, this doc, `ThaliRing`, `StampCheck`, `Odometer`, `SparkBurst`.
-**Phase 1** — foods/recipes cards + favorites shelf (dock hover), recipe detail as "plate card".
-**Phase 2** — Profile → **Kitchen Dossier**: plate-monogram portrait, signature numerals (days logged · protein hit-rate · streak), plate-signature radar (macros), The Line-Up (six signature dishes), year-strip of eating history, tally-style stats.
-**Phase 3** — Plan (week board as ledger grid), Settings restyle, About/Glossary.
-**Phase 4** — polish sweep: responsive audit at 375/768/1440, contrast pass, motion audit, reduced-motion pass, performance trace.
+**Phase 0 (shipped)** — shell restyle, Diary restyle + motion, sound system, this doc, `ThaliRing`, `StampCheck`, `Odometer`, `SparkBurst`.
+**Phase 1 (shipped)** — foods/recipes cards, recipe detail.
+**Phase 2 (shipped)** — Profile → Kitchen Dossier: signature numerals, streak, year strip.
+**Phase 3 (shipped)** — Plan (week board as ledger grid), Settings restyle, About/Glossary (Seven-Slat Pothi plates on both).
+**Phase 4 (shipped)** — polish sweep: responsive audit, contrast pass, reduced-motion pass, performance trace.
+**Phase 5 (shipped 2026-11-19)** — the Seven Plates + Chef's transition (§14).
 
 ## 11. Sketches
 
@@ -252,3 +253,62 @@ Every proposed animation must pass, in order. No exceptions for "it would look c
 Mechanics: transform/opacity only (clip-path for hold-to-confirm, measured height for accordions are
 the documented exceptions); reduced-motion = gentler, never zero; hover only behind
 `@media (hover: hover) and (pointer: fine)`; more than one orchestrated moment per view is a smell.
+
+## 14. The Seven Plates (shipped)
+
+The navigation itself is a kitchen passage. Each room carries one fixed-camera artifact —
+the same rim / spokes / centre-disc grammar as the masala dabba, one brass palette, one
+top-down camera — always on at the bottom-right corner, always quiet.
+
+| Route | Plate | The story beat |
+|---|---|---|
+| `/` (Diary) | The Brimming Thali — rim, seven katoris, dal-gold centre | the meal is served |
+| `/plan` | The Week's Toran — marigold-and-mango-leaf garland, one medallion per day | the week is provisioned |
+| `/recipes` | The Seven-Slat Pothi — stippled olam slats, binding cords, brass end-weight | the method is remembered |
+| `/foods` | The Tokri of Produce — woven rattan basket heaped with the week's market (tomato, brinjal, cauliflower, lemon, greens, chilli) | the materials are kept |
+| `/profile` | The Chai Glass on the Tray — kulhar, lota behind, steam | the cook is restored |
+| `/about` | The Tulā — brass balance: grain against the scroll | the claim is weighed |
+| `/glossary` | The Decoder Wheel — three brushed-brass rings, one gold window | the word is found |
+
+Nav order is the meal, read in one line: *served → provisioned → remembered → kept → restored → weighed → decoded → tomorrow, again.*
+
+**Mechanics**
+- Inline SVG per plate (`src/components/motifs/*.tsx`, viewBox 460×300). Computed coordinates are
+  rounded to 2 decimals (SSR/browser float ULP parity — hydration warnings).
+- One frame: `.motif-frame` — fixed, bottom-right, `z-index: 0`, `pointer-events: none`,
+  `aria-hidden`, `aspect-ratio: 460/300`, `width: clamp(170px, 24vw, 420px)`.
+- Panels are translucent (`--surface` at `.8` dark / `.82` light); plates render `.3` dark /
+  `.18` light; light-of-day dimmer than night-kitchen. The art reads as atmosphere, never as data.
+- Content owns the table: `#main-content` and `footer` carry `position: relative; z-index: 1`,
+  so text occludes art on every route (older routes won by accident of transform stacking;
+  static routes lost — now one rule, all routes).
+- Visibility contract: `prefers-reduced-motion` and `data-motion="off"` render the resolved plate
+  instantly, no choreography at all. Hidden tabs (`visibilitychange`) swap instantly — rAF is
+  throttled there and frozen exit animations would accumulate plates.
+
+**Chef's transition** — the fold between rooms. Settings → Motion & sound → *Chef's transition*
+(default ON, `np_transition` cookie, `theme.transition`). One randomized entry per tab change,
+never the same variant twice in a row; universal 0.16 s exit (opacity/scale/y, no clip-paths);
+the entering plate never blocks input.
+
+Seven gestures (transform/opacity; one trivial clip-path):
+
+| id | Gesture |
+|---|---|
+| `fold` | the pothi leaf turns (rotateY from the dabba corner) |
+| `bloom` | dabba-lid iris (circle clip-path; the only clip-path in the set, engines handle it) |
+| `ember` | the plate drifts up out of the embers |
+| `blossom` | the toran flower opens (transform-only bloom with overshoot; replaces the star-iris Marigold) |
+| `spin` | the plate is spun home and settles |
+| `rim` | the plate settles in unhurriedly (the calmest of the seven) |
+| `tawa` | the tava lid lifts (vertical slide, slight tilt) |
+
+**Marigold → blossom (2026-11-19).** The toran bloom was a 24-vertex `polygon()` clip-path;
+engines interpolate those per-vertex on every frame and the plate froze half-revealed until the
+next navigation. Rewritten as pure transforms (`scale`, `rotate`, `y`) with a springy
+`cubic-bezier(0.18, 1.35, 0.32, 1)` overshoot — same gesture, no clip-path anywhere in it.
+`bloom` keeps its circle iris; it is the only clip-path in the transition set, by design.
+
+**Satisfaction-map updates.** "Switch tab" now answers with the fold between rooms (one
+orchestrated moment per navigation); the resting plates replace the old global ambient dabba.
+`prefers-reduced-motion` renders every plate as a complete, legible picture.

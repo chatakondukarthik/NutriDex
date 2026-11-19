@@ -647,11 +647,11 @@ footer {
   position: fixed;
   right: -30px;
   bottom: -16px;
-  width: 420px;
+  width: clamp(170px, 24vw, 420px);
   aspect-ratio: 460 / 300;
   z-index: 0;
   pointer-events: none;
-  opacity: 0.5;
+  opacity: 0.3;
 }
 .motif-fold {
   position: absolute;
@@ -662,7 +662,7 @@ footer {
   height: auto;
 }
 [data-theme="light"] .motif-frame {
-  opacity: 0.3;
+  opacity: 0.18;
 }
 @media (prefers-reduced-motion: reduce) {
   .motif-frame {

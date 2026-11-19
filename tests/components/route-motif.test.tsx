@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { render, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import RouteMotif from "@/components/route-motif";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -62,5 +62,58 @@ describe("RouteMotif", () => {
     const svg = container.querySelector(".motif-frame svg");
     expect(svg).toBeTruthy();
     expect(container.querySelector("#plan-rim")).toBeTruthy();
+  });
+});
+
+describe("RouteMotif — the seven transitions", () => {
+  const IDS = ["fold", "bloom", "ember", "blossom", "spin", "rim", "tawa"];
+
+  it("marks the entering plate with a variant from the set", () => {
+    mockPath = "/foods";
+    const { container } = renderMotif();
+    const el = container.querySelector("[data-variant]");
+    expect(IDS).toContain(el?.getAttribute("data-variant"));
+  });
+
+  it("marks the plain swap 'off' when Chef's transition is off", () => {
+    mockPath = "/foods";
+    const { container } = renderMotif({ ...DEFAULT_THEME, transition: false });
+    expect(container.querySelector("[data-variant]")?.getAttribute("data-variant")).toBe("off");
+  });
+
+  it("picks the next variant deterministically when random is mocked", () => {
+    const spy = vi.spyOn(Math, "random").mockReturnValue(0.99); // → options[5] → 'tawa'
+    mockPath = "/foods";
+    const { container, rerender } = renderMotif();
+    mockPath = "/glossary";
+    rerender(
+      <ThemeProvider initial={DEFAULT_THEME}>
+        <RouteMotif />
+      </ThemeProvider>,
+    );
+    const els = container.querySelectorAll("[data-variant]");
+    expect(els[els.length - 1]?.getAttribute("data-variant")).toBe("tawa");
+    spy.mockRestore();
+  });
+
+  it("never plays the same variant twice in a row across route changes", async () => {
+    mockPath = "/";
+    const { container, rerender } = renderMotif();
+    const seen: string[] = [];
+    for (const r of ["/plan", "/foods", "/recipes", "/profile", "/about", "/glossary", "/"]) {
+      mockPath = r;
+      rerender(
+        <ThemeProvider initial={DEFAULT_THEME}>
+          <RouteMotif />
+        </ThemeProvider>,
+      );
+      // let the 0.26s universal exit finish — in real use, exits complete
+      // long before a human taps the next tab
+      await waitFor(() => expect(container.querySelectorAll("[data-variant]").length).toBe(1));
+      const v = container.querySelector("[data-variant]")?.getAttribute("data-variant");
+      if (v && v !== "off") seen.push(v);
+    }
+    for (let i = 1; i < seen.length; i++) expect(seen[i]).not.toBe(seen[i - 1]);
+    expect(new Set(seen).size).toBeGreaterThanOrEqual(2);
   });
 });

@@ -8,6 +8,12 @@ it explains why there are four kinds of document and when to write each.
 
 ---
 
+## Design — how it looks and moves
+
+| Document | Question it answers |
+|---|---|
+| [`design/THALI-LEDGER.md`](design/THALI-LEDGER.md) | How the Thali Ledger looks, reads and moves (palette, type, tokens, the Seven Plates, the fold) |
+
 ## Start here
 
 | Document | Question it answers |

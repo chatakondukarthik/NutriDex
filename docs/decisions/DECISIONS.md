@@ -129,6 +129,13 @@ Entities: [`../reference/DATA-MODEL.md`](../reference/DATA-MODEL.md).
 | D-048 | Identity is optional and holds no content; `meta.account_id` is the seam, and the archive is the multi-device path | Accepted | [below](#d-048--identity-is-optional-and-holds-no-content) |
 | D-050 | Deletion is category-scoped, refuses dangling references instead of cascading, and preserves seed/app-managed rows | Accepted | [below](#d-050--deletion-is-category-scoped-and-refuses-dangling-references) |
 
+### Design and experience
+
+| ID | Decision | Status | Full record |
+|---|---|---|---|
+| D-051 | A household is trusted; people are convenience scopes — profiles filter, never authorize | Accepted | [below](#d-051--a-household-is-trusted-people-are-convenience-scopes) |
+| D-052 | The Seven Plates: one fixed-camera plate per room, one randomized fold per tab change | Accepted | [below](#d-052--the-seven-plates-one-fixed-camera-plate-per-room-one-randomized-fold-per-tab-change) |
+
 ### Engineering
 
 | ID | Decision | Status | Full record |
@@ -1145,6 +1152,72 @@ vaults, not a PIN over the shared database.
   they protect against other machines and websites, not co-located people.
 - A shared meal plan / "cook once" propagation: the household wants a shared
   library, not a second planning model.
+
+---
+
+### D-052 — The Seven Plates: one fixed-camera plate per room, one randomized fold per tab change
+
+**Status:** Accepted
+**Date:** 2026-11-19
+**Relates to:** D-027, D-051, docs/design/THALI-LEDGER.md (§12 guardrails, §13 restraint gate)
+
+**Context**
+
+The navigation needed an authored identity of its own — a spatial story for the rooms,
+not another coat of paint. A full-page wipe was rejected as spectacle at 5–50 deliberate
+taps a day. The constraint set was the design doc's own gate (§13): transform/opacity/
+stroke only, reduced motion = complete static picture, one orchestrated moment per
+navigation, content owns the table. Two candidate faults dominated the build and were
+found only in production: 24-vertex polygon clip-path interpolation stalling engines
+(frozen half-revealed plates), and hidden tabs freezing exit animations into accumulating
+plates.
+
+**Decision**
+
+- Seven fixed-camera plates, one per tab — Diary (Brimming Thali), Plan (Toran), Recipes
+  (Seven-Slat Pothi), Foods (Tokri of Produce), Profile (Chai Glass), About (Tulā), Glossary
+  (Decoder Wheel). Nav order is the meal's arc: served → provisioned → remembered → kept →
+  restored → weighed → decoded → tomorrow, again.
+- Plates are inline SVG (viewBox 460×300) in `src/components/motifs/`. Computed
+  coordinates are rounded to 2 decimals (SSR/browser float ULP parity). Rendered inside a
+  parent `<svg>` — never raw JSX fragments — and only in elements, pointer-events-none,
+  `aria-hidden`.
+- `.motif-frame` pins them bottom-right: `z-index: 0`, opacity theme-aware (dark `.3`,
+  light `.18`), width `clamp(170px, 24vw, 420px)`, aspect-ratio 460/300. In-flow content
+  and the footer ride above every plate on every route (`position: relative; z-index: 1`)
+  — one rule replaces the accidental transform-stacking that decided per-route winners.
+- Panels are translucent (`--surface` at `.8` dark / `.82` light) — the plates whisper
+  through every surface; text never compromises.
+- Chef's transition runs on every tab change: one randomized entry from seven
+  transform/opacity gestures — fold, bloom, ember, blossom, spin, rim, tawa — uniformly
+  picked, never the same variant twice in a row; universal exit (0.16 s, opacity/scale/y).
+- Settings → Motion & sound carries *Chef's transition* (default ON, `np_transition`
+  cookie, `theme.transition`); off, OS reduced motion, `data-motion="off"`, or a hidden
+  tab → instant swap.
+- The star-iris Marigold is retired: its 24-vertex `polygon()` clip-path stalled engines
+  into frozen half-revealed plates. Replaced by **Blossom** (pure transforms, springy
+  overshoot). `bloom` keeps its plain circle iris — the only clip-path in the set.
+- Hidden tabs swap instantly (`visibilitychange`) — rAF is throttled there and exit
+  animations never complete; ghost plates would accumulate otherwise.
+
+**Consequences**
+
+Tab switches answer as one kitchen re-forming: brief, readable, unmistakably ours. The
+art is felt, never read; text leads every surface; and the transition set is closed under
+the transform/opacity rule with exactly one clip-path exception, documented. Reduced
+motion and motion-off render complete static plates with zero choreography.
+
+**Alternatives rejected**
+
+- Full-page wipe / sheet per navigation (the wax-sealed letter): spectacle at the
+  Tens/Occasional tier; owner rejected it.
+- Canvas scene morphs: canvases are ambience, not load-bearing structure.
+- Random pool with no never-repeat rule: a slot machine, not a kitchen.
+- Marigold 24-vertex polygon iris: stalls engines; Blossom replaced it.
+- Opaque panels with art confined to bare gutters: hides the art entirely; translucency
+  won — the plates read as atmosphere rather than as background debris.
+- Multiple simultaneous exits: exit animations replaced the older 0.38 s fold with a
+  single universal 0.16 s step-aside; simpler, faster, one identity.
 
 ---
 
